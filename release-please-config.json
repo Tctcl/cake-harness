@@ -4,6 +4,7 @@
   "package-name": "tctcl-platform",
   "include-component-in-tag": false,
   "bump-minor-pre-major": true,
+  "initial-version": "0.0.1",
   "changelog-sections": [
     { "type": "feat", "section": "Features" },
     { "type": "fix", "section": "Bug Fixes" },
