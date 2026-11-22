@@ -16,6 +16,7 @@ src/plugins/index.ts  single plugin registration point
 src/routes/health.ts  GET /health
 src/routes/chat.ts    POST /chat — one prompt in, one answer out
 src/agent.ts          pi-durable harness and the model it runs
+src/storage/postgres/ durable's `Storage` over Postgres (used when DATABASE_URL is set)
 ```
 
 `buildServer()` takes an explicit `Config` and never reads `process.env`, so
@@ -68,6 +69,8 @@ Environment variables, validated once at startup by `src/config.ts`:
 | `HOST` | non-empty string | `127.0.0.1` | `listen()` host |
 | `PORT` | integer 1–65535 | `8080` | `listen()` port |
 | `LOG_LEVEL` | `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` | `info` | Fastify logger level |
+| `DATABASE_URL` | `postgres://` or `postgresql://` URL | unset | when set, the durable log lives in Postgres; unset keeps it in `MemoryStorage` |
+| `DATABASE_POOL_SIZE` | integer 1–100 | `10` | Postgres pool ceiling, read only when `DATABASE_URL` is set |
 
 `process.loadEnvFile()` reads `apps/backend/.env` if it exists, so local
 development needs no exports; elsewhere set the variables in the shell, compose
@@ -84,14 +87,35 @@ Tool configuration:
 
 ## Agent
 
-`src/agent.ts` opens a pi-durable `Harness` over `MemoryStorage` and keeps one
-root conversation:
+`src/agent.ts` opens a pi-durable `Harness` and keeps one root conversation:
 
 - provider `opencode-go` (from `@earendil-works/pi-ai`), model
   `deepseek-v4.1-flash`, thinking level `low`
 - `OPENCODE_API_KEY` supplies the provider key; it is read by pi-ai, not by
   `src/config.ts`
-- `MemoryStorage` keeps nothing across a restart — no `resume()`, no sessions
+
+### Storage
+
+`createAgent(config)` picks the durable log from the environment:
+
+| `DATABASE_URL` | Storage | Consequence |
+| --- | --- | --- |
+| unset | `MemoryStorage` | the transcript dies with the process |
+| set | `openPostgresStorage` | the transcript survives a restart; tables are created on first open |
+
+The Postgres backend is `src/storage/postgres/` and mirrors durable's own SQLite
+backend table for table (`conversations`, `entries`, `tasks`, `submissions`,
+`record_ids`, `documents`, `document_revisions`, plus `durable_metadata`). It is
+checked by durable's conformance suite in `src/storage/postgres/storage.test.ts`,
+which skips when `DATABASE_URL` is unset:
+
+```bash
+DATABASE_URL='postgres://postgres:postgres@127.0.0.1:55432/tlabs' \
+  pnpm --filter backend test
+```
+
+Each case runs under its own table prefix, so one case never sees another's rows.
+Design notes: [`docs/postgres-adapter.md`](../../docs/postgres-adapter.md).
 
 `POST /chat` takes `{ "message": "..." }` and answers `{ "reply": "..." }`. A
 submission that settles as `unanswered` becomes a `502 AGENT_UNANSWERED`.

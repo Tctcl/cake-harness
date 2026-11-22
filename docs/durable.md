@@ -109,8 +109,8 @@ not reach into the container by magic — only through an `ExecutionEnv` or
 2. **Registry wiring.** How `Harness.open(...)`'s `registry` plus per-conversation
    config accepts our `mcp_*` `AgentTool`s, and how `env` is pinned to the remote
    `RemoteExecutionEnv`.
-3. **Storage choice** per environment: `openNodeSqliteStorage` (dev + single node) vs
-   JSONL.
+3. **Storage choice** per environment: `openNodeSqliteStorage` (dev + single node), JSONL,
+   or a Postgres adapter — see [`docs/postgres-adapter.md`](./postgres-adapter.md).
 4. **Session → process mapping**, i.e. the sharding rule, once more than one backend
    instance exists.
 
