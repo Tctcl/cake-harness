@@ -15,7 +15,7 @@ function readConfig(): Config {
 }
 
 const config = readConfig()
-const agent = await createAgent()
+const agent = await createAgent(config)
 const server = buildServer(config, { agent })
 
 server.addHook('onClose', async () => {

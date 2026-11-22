@@ -9,6 +9,8 @@ describe('loadConfig', () => {
       host: '127.0.0.1',
       port: 8080,
       logLevel: 'info',
+      databaseUrl: undefined,
+      databasePoolSize: 10,
     })
   })
 
@@ -19,13 +21,36 @@ describe('loadConfig', () => {
         HOST: '0.0.0.0',
         PORT: '3000',
         LOG_LEVEL: 'debug',
+        DATABASE_URL: 'postgres://user:pass@db.internal:5432/tlabs',
+        DATABASE_POOL_SIZE: '4',
       }),
     ).toEqual({
       nodeEnv: 'production',
       host: '0.0.0.0',
       port: 3000,
       logLevel: 'debug',
+      databaseUrl: 'postgres://user:pass@db.internal:5432/tlabs',
+      databasePoolSize: 4,
     })
+  })
+
+  it('accepts both postgres URL schemes', () => {
+    expect(loadConfig({ DATABASE_URL: 'postgresql://db/tlabs' }).databaseUrl).toBe(
+      'postgresql://db/tlabs',
+    )
+  })
+
+  it('rejects a connection string that is not a postgres URL', () => {
+    expect(() => loadConfig({ DATABASE_URL: 'mysql://db/tlabs' })).toThrow(
+      'must be a postgres:// or postgresql:// URL',
+    )
+    expect(() => loadConfig({ DATABASE_URL: 'db.internal:5432' })).toThrow(ConfigError)
+  })
+
+  it('rejects a pool size outside 1..100', () => {
+    expect(() => loadConfig({ DATABASE_POOL_SIZE: '0' })).toThrow(ConfigError)
+    expect(() => loadConfig({ DATABASE_POOL_SIZE: '101' })).toThrow(ConfigError)
+    expect(() => loadConfig({ DATABASE_POOL_SIZE: '2.5' })).toThrow(ConfigError)
   })
 
   it('rejects an invalid port', () => {

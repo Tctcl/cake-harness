@@ -18,6 +18,10 @@ export interface Config {
   readonly host: string
   readonly port: number
   readonly logLevel: LogLevel
+  /** Postgres for the durable log; absent runs the agent on in-process storage. */
+  readonly databaseUrl: string | undefined
+  /** Postgres pool ceiling; only read when `databaseUrl` is set. */
+  readonly databasePoolSize: number
 }
 
 const environmentSchema = z.object({
@@ -30,6 +34,15 @@ const environmentSchema = z.object({
     .max(65_535, 'must be between 1 and 65535')
     .default(8080),
   LOG_LEVEL: z.enum(logLevels).default('info'),
+  DATABASE_URL: z
+    .url({ protocol: /^postgres(ql)?$/, error: 'must be a postgres:// or postgresql:// URL' })
+    .optional(),
+  DATABASE_POOL_SIZE: z.coerce
+    .number({ error: 'must be a number' })
+    .int('must be an integer')
+    .min(1, 'must be between 1 and 100')
+    .max(100, 'must be between 1 and 100')
+    .default(10),
 })
 
 export class ConfigError extends Error {
@@ -59,5 +72,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     host: parsed.data.HOST,
     port: parsed.data.PORT,
     logLevel: parsed.data.LOG_LEVEL,
+    databaseUrl: parsed.data.DATABASE_URL,
+    databasePoolSize: parsed.data.DATABASE_POOL_SIZE,
   }
 }

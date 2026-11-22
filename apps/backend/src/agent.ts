@@ -2,9 +2,11 @@ import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { opencodeGoProvider } from '@earendil-works/pi-ai/providers/opencode-go'
 import { Harness, MemoryStorage, createRegistry } from '@earendil-works/pi-durable'
-import type { EntryRecord } from '@earendil-works/pi-durable'
+import type { EntryRecord, Storage } from '@earendil-works/pi-durable'
 
+import type { Config } from './config.js'
 import { AppError } from './errors.js'
+import { openPostgresStorage } from './storage/postgres/index.js'
 
 // One background context for the whole process: it never cancels and carries no telemetry.
 const CONTEXT = BACKGROUND_CONTEXT
@@ -28,13 +30,19 @@ function answerText(entry: EntryRecord | undefined): string {
     .join('')
 }
 
-// MemoryStorage keeps the transcript in this process: a restart starts over.
-export async function createAgent(): Promise<Agent> {
+// A `DATABASE_URL` keeps the transcript in Postgres, so a restart can resume it; without one, MemoryStorage keeps it
+// in this process and a restart starts over.
+export async function createAgent(config: Config): Promise<Agent> {
   const models = createModels()
   models.setProvider(opencodeGoProvider())
 
+  const storage: Storage =
+    config.databaseUrl === undefined
+      ? new MemoryStorage()
+      : await openPostgresStorage(config.databaseUrl, { max: config.databasePoolSize })
+
   const harness = await Harness.open(
-    new MemoryStorage(),
+    storage,
     { models, registry: createRegistry() },
     CONTEXT,
   )
