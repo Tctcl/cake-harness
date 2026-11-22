@@ -4,19 +4,31 @@ import { describe, expect, it } from 'vitest'
 import App from './App.tsx'
 
 describe('App', () => {
-  it('renders the starter screen', () => {
+  it('renders the top nav and both sidebars', () => {
     render(<App />)
 
-    expect(screen.getByRole('heading', { name: 'Get started' })).toBeInTheDocument()
+    expect(screen.getByText('topnav')).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'left sidebar' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'right sidebar' })).toBeInTheDocument()
   })
 
-  it('increments the counter when clicked', () => {
+  it('collapses the top nav to a strip and restores it', () => {
     render(<App />)
-    const button = screen.getByRole('button')
 
-    fireEvent.click(button)
-    fireEvent.click(button)
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse top nav' }))
+    expect(screen.queryByText('topnav')).not.toBeInTheDocument()
 
-    expect(button).toHaveTextContent('Count is 2')
+    fireEvent.click(screen.getByRole('button', { name: 'Expand top nav' }))
+    expect(screen.getByText('topnav')).toBeInTheDocument()
+  })
+
+  it('collapses a sidebar to a rail and restores it', () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse left sidebar' }))
+    expect(screen.queryByRole('complementary', { name: 'left sidebar' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand left sidebar' }))
+    expect(screen.getByRole('complementary', { name: 'left sidebar' })).toBeInTheDocument()
   })
 })
