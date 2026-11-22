@@ -122,6 +122,14 @@ export class PostgresStorage implements Storage {
   }
 
   /**
+   * The pool this storage owns, for callers that hold rows of their own beside the durable log. They must not close it —
+   * the storage does — and they share its `max`, so one process keeps one connection ceiling.
+   */
+  get pool(): Pool {
+    return this.#pool
+  }
+
+  /**
    * Commit `batches` in one transaction, each with its own seq. Each batch is checked before it writes anything,
    * against the state the earlier ones left, and the first refused batch ends the call: the transaction commits the
    * batches before it. The checks read the stored state of all batches up front and run in memory, and the accepted
