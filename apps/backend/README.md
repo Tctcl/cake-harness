@@ -2,11 +2,25 @@
 
 Fastify HTTP service for the tctcl platform.
 
-**Status: placeholder.** `src/server.ts` exports `buildServer()` with a single
-route, `GET /ping`, returning `pong`; `src/index.ts` starts it on
-`127.0.0.1:8080`. There are no business routes, no data layer and no
-configuration loading yet. The server factory exists so tests can inject
-requests without binding a port.
+**Status: foundation only.** The service boots from a validated environment,
+logs through Fastify's logger, answers `GET /health`, and renders errors as
+`{ error: { code, message } }`. There are no business routes and no data layer.
+
+```text
+src/index.ts          bootstrap: load config, open the agent, build, listen, close
+src/server.ts         buildServer(config, { agent }) — the importable factory tests use
+src/config.ts         zod schema for process.env, loadConfig(), ConfigError
+src/errors.ts         AppError: statusCode + stable code for errors that cross HTTP
+src/error-handler.ts  error and not-found handlers (registered on the root instance)
+src/plugins/index.ts  single plugin registration point
+src/routes/health.ts  GET /health
+src/routes/chat.ts    POST /chat — one prompt in, one answer out
+src/agent.ts          pi-durable harness and the model it runs
+src/storage/postgres/ durable's `Storage` over Postgres (used when DATABASE_URL is set)
+```
+
+`buildServer()` takes an explicit `Config` and never reads `process.env`, so
+tests can build any environment without touching the real one.
 
 ## Scripts
 
@@ -28,27 +42,121 @@ pnpm dev:backend          # from the repo root
 pnpm --filter backend dev
 ```
 
-The server binds `127.0.0.1:8080` (hardcoded):
-
 ```bash
-curl http://127.0.0.1:8080/ping   # pong
+curl -s http://127.0.0.1:8080/health
+# {"status":"ok","uptime":1.54,"timestamp":"2026-11-22T02:47:26.447Z"}
 ```
 
-## Testing
+An invalid environment exits with status 1 before the port is bound and lists
+every problem at once:
 
-Routes are tested through Fastify's `inject()`, so no port is opened:
-
-```ts
-const server = buildServer()
-const response = await server.inject({ method: 'GET', url: '/ping' })
+```text
+Invalid environment configuration:
+  - NODE_ENV: Invalid option: expected one of "development"|"test"|"production"
+  - PORT: must be a number
 ```
+
+`SIGINT` and `SIGTERM` close the server; there is no connection draining or
+worker shutdown yet.
 
 ## Configuration
+
+Environment variables, validated once at startup by `src/config.ts`:
+
+| Variable | Values | Default | Purpose |
+| --- | --- | --- | --- |
+| `NODE_ENV` | `development`, `test`, `production` | `development` | disables the logger in `test`, hides internal error messages in `production` |
+| `HOST` | non-empty string | `127.0.0.1` | `listen()` host |
+| `PORT` | integer 1–65535 | `8080` | `listen()` port |
+| `LOG_LEVEL` | `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` | `info` | Fastify logger level |
+| `DATABASE_URL` | `postgres://` or `postgresql://` URL | unset | when set, the durable log lives in Postgres; unset keeps it in `MemoryStorage` |
+| `DATABASE_POOL_SIZE` | integer 1–100 | `10` | Postgres pool ceiling, read only when `DATABASE_URL` is set |
+
+`process.loadEnvFile()` reads `apps/backend/.env` if it exists, so local
+development needs no exports; elsewhere set the variables in the shell, compose
+file or deployment environment. Anything not listed here is ignored, and a
+missing `.env` is not an error.
+
+Tool configuration:
 
 - TypeScript: extends `@tctcl/typescript-config/fastify.json`, sources in
   `src/`, output in `dist/`. `tsconfig.json` excludes `*.test.ts` from the build;
   `tsconfig.test.json` re-includes them for the no-emit typecheck.
 - Lint: `.oxlintrc.json` extends `../../packages/oxlint-config/base.json`.
 - Tests: `vitest.config.ts` extends `@tctcl/vitest-config/base`.
-- Environment variables: none. Host and port are literals in `src/index.ts`
-  and will need to move to configuration once the service does anything.
+
+## Agent
+
+`src/agent.ts` opens a pi-durable `Harness` and keeps one root conversation:
+
+- provider `opencode-go` (from `@earendil-works/pi-ai`), model
+  `deepseek-v4.1-flash`, thinking level `low`
+- `OPENCODE_API_KEY` supplies the provider key; it is read by pi-ai, not by
+  `src/config.ts`
+
+### Storage
+
+`createAgent(config)` picks the durable log from the environment:
+
+| `DATABASE_URL` | Storage | Consequence |
+| --- | --- | --- |
+| unset | `MemoryStorage` | the transcript dies with the process |
+| set | `openPostgresStorage` | the transcript survives a restart; tables are created on first open |
+
+The Postgres backend is `src/storage/postgres/` and mirrors durable's own SQLite
+backend table for table (`conversations`, `entries`, `tasks`, `submissions`,
+`record_ids`, `documents`, `document_revisions`, plus `durable_metadata`). It is
+checked by durable's conformance suite in `src/storage/postgres/storage.test.ts`,
+which skips when `DATABASE_URL` is unset:
+
+```bash
+DATABASE_URL='postgres://postgres:postgres@127.0.0.1:55432/tlabs' \
+  pnpm --filter backend test
+```
+
+Each case runs under its own table prefix, so one case never sees another's rows.
+Design notes: [`docs/postgres-adapter.md`](../../docs/postgres-adapter.md).
+
+`POST /chat` takes `{ "message": "..." }` and answers `{ "reply": "..." }`. A
+submission that settles as `unanswered` becomes a `502 AGENT_UNANSWERED`.
+
+```bash
+curl -s -X POST http://127.0.0.1:8080/chat   -H 'content-type: application/json'   -d '{"message":"Reply with exactly: pong"}'
+# {"reply":"pong"}
+```
+
+## Errors
+
+`registerErrorHandling()` is called on the root Fastify instance. Fastify error
+handlers are encapsulated, so an error handler registered inside a plugin would
+not cover routes registered by sibling plugins.
+
+| Situation | Status | Body |
+| --- | --- | --- |
+| Unknown route | 404 | `{ "error": { "code": "NOT_FOUND", "message": "Route GET /x not found" } }` |
+| `AppError` thrown | `error.statusCode` | `{ "error": { "code": error.code, "message": error.message } }` |
+| Fastify schema rejection | 400 | `{ "error": { "code": "VALIDATION_ERROR", "message": ... } }` |
+| Any other `Error` | 500 | `{ "error": { "code": "INTERNAL_ERROR", "message": "Internal server error" } }` |
+
+In `development` and `test` the 500 body carries the original message; in
+`production` it is the literal `Internal server error`.
+
+## Adding a route
+
+Write a `FastifyPluginAsync` next to `src/routes/health.ts`, then register it in
+`src/plugins/index.ts`. Keep `src/server.ts` down to instance options plus the
+single `registerPlugins()` call.
+
+## Testing
+
+Routes are tested through Fastify's `inject()`, so no port is opened:
+
+```ts
+const agent = { ask: async (input) => `echo: ${input}`, close: async () => {} }
+const server = buildServer(loadConfig({ NODE_ENV: 'test' }), { agent })
+const response = await server.inject({ method: 'GET', url: '/health' })
+```
+
+`NODE_ENV=test` disables the logger, so failing tests do not print request logs.
+Routes take the `Agent` through `buildServer()` options, so no test touches a
+provider or a harness.
