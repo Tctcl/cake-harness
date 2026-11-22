@@ -173,6 +173,9 @@ surface over transcripts, or multiple backend processes reading one session.
 | `commit.ts` | `claimOf`, `prepareDocumentActions`, `CommitState` (up-front reads, in-memory checks), `PendingWrites` (net effect per table) |
 | `storage.ts` | `PostgresStorage`: the 16 methods, `commit`, `#materializeDocument`, copy resolution, admit-then-close read guard |
 | `db.ts` | pool, `withClient`, `withTransaction` (read-only transactions use `REPEATABLE READ READ ONLY`) |
+| `retry.ts` | `isConnectFailure`/`isTransient` classification, `withRetry`, `withRetryUntil` |
+| `resilient.ts` | `retryingStorage(storage, options?)`: the same `Storage`, retried per call |
+| `shared.ts` | `sharedStorage(storage)`: one storage for the process, immune to `Harness.close()` |
 | `ids.ts`, `scan.ts` | brand casts and `scanStart`/`nextCursor` — the package does not export these (`dist/storage/scan.js` has no subpath) |
 
 Mapping decisions, each a deviation from the SQLite original:
@@ -225,15 +228,57 @@ DATABASE_URL='postgres://postgres:postgres@127.0.0.1:55432/tlabs' \
 A server is available locally: container `tlabs-pg`, Postgres 18.7 on port **55432**
 (the default 5432 is already taken on this machine).
 
+## Surviving a database restart
+
+Durable is explicit that a `Storage` error escaping a method fails the Session for good
+("close and reopen it"), and that reopening recovers from what was committed. Three layers
+make that true for this backend, in the order a failure meets them.
+
+1. **Inside the call — `retry.ts` + `resilient.ts`.** `retryingStorage` wraps every method.
+   Reads retry any lost connection (`ECONNRESET`, `57P01`, `08006`, …). Writes (`commit`,
+   `mintId`) retry only a connection that never opened (`ECONNREFUSED`, `57P03`, `53300`),
+   because a statement that may have landed cannot be replayed: `commit` is one
+   transaction, so a reply lost in flight is all or nothing, and only the server that ran
+   it can say which. A Session never sees the blip; a request that cannot be retried fails
+   as `503 AGENT_UNAVAILABLE` with `{ error: { code, message } }`.
+2. **Across calls — the supervisor in `src/agent.ts`.** A `SessionFailed` discards the
+   harness and the next request opens a new one over the same storage, inside a 10-second
+   `withRetryUntil` window (single-flight, so a burst of requests during an outage builds
+   one harness). The request that *discovers* the dead Session still reports 503; it is not
+   re-run, because a submit that failed after a storage error may or may not have
+   committed, and replaying it could duplicate the turn.
+3. **Ownership and pool hygiene.** `Harness.close()` closes the storage it was opened
+   with, so the process wraps it once in `sharedStorage` and closes it itself at shutdown
+   (`src/agent.ts`). `db.ts` releases a client that lost its connection with the error, so
+   `pg` destroys it instead of parking a dead socket in the idle list, and the pool's
+   `'error'` event is handled: an idle connection dying is otherwise an unhandled event,
+   which ends the Node process.
+
+Verified locally against `tlabs-pg` with the backend running (`PORT=8099`,
+`DATABASE_URL=…:55432/tlabs`):
+
+| Scenario | Result |
+| --- | --- |
+| `docker stop tlabs-pg`, then a request | `503` in ~26 ms, `/health` still `200`, process alive |
+| The next request, server back | `503` once (the stale Session is discarded here) |
+| The request after that | `200`, full history — the reopened harness resumed from Postgres |
+| `docker restart tlabs-pg` while idle, then one request | `200` first try, history intact |
+| Kill and restart the backend | `200`, history intact |
+| Both cycles repeated | the same; no crash, no lost transcript |
+
+Before the third layer existed, stopping Postgres killed the process: `pg` re-emits an idle
+connection's death on the pool, and an unhandled `'error'` event is fatal to Node.
+
 ## Limits and open questions
 
 1. **Retention.** Nothing prunes `entries` or `document_revisions`. Durable's own
    compaction rewrites a conversation's history through the same `Storage` interface,
    so growth is bounded by compaction policy, not by this adapter.
 2. **Connection handling.** The pool ceiling is `DATABASE_POOL_SIZE` (1–100, default 10) and
-   the backend holds one `Storage`. What the Session does when the database restarts
-   mid-commit is still open: the error is fatal (`SessionFailed`), and nothing re-opens
-   storage automatically.
+   the backend holds one `Storage` for its lifetime. A restart is absorbed by the retry
+   policy and, when a Session does fail, by the supervisor reopening it — see *Surviving a
+   database restart*. Still open: a request that fails mid-outage is not replayed, and
+   nothing retries the model call after a provider error beyond the provider's own policy.
 3. **Single writer.** `docs/durable.md` records durable's assumption: one writer per
    storage. Postgres does not change that contract; two backend processes over one
    database still need the "sessions pinned to a process" rule.
