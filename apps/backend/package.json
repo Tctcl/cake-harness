@@ -17,6 +17,7 @@
     "@earendil-works/pi-ai": "^1.6.0",
     "@earendil-works/pi-durable": "^1.6.0",
     "fastify": "^5.12.8",
+    "pg": "^8.23.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -24,6 +25,7 @@
     "@tctcl/typescript-config": "workspace:*",
     "@tctcl/vitest-config": "workspace:*",
     "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
     "oxlint": "^1.90.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
