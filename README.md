@@ -10,7 +10,8 @@ and a long-running agent process, sharing TypeScript and lint configuration.
 > spike is a test of durable, not a product — every route, schema and screen in
 > it is expected to change, and the agent process is still a hello-world. See
 > [docs/durable.md](docs/durable.md) and
-> [docs/postgres-adapter.md](docs/postgres-adapter.md).
+> [docs/postgres-adapter.md](docs/postgres-adapter.md). What each slice knowingly
+> left out is tracked in [docs/deferred.md](docs/deferred.md).
 
 ## Requirements
 
@@ -41,8 +42,8 @@ pnpm dev:frontend
 | Path | Package name | Purpose |
 | --- | --- | --- |
 | `apps/agent` | `@tctcl/agent` | Long-running agent process (placeholder entry point) |
-| `apps/backend` | `backend` | Fastify HTTP service (`GET /health`, `POST /chat` through a durable session) |
-| `apps/frontend` | `frontend` | React + Vite web client (layout shell with a prompt box wired to `/chat`) |
+| `apps/backend` | `backend` | Fastify HTTP service (`GET /health`, `/threads` and `/workspaces` over a durable session in Postgres) |
+| `apps/frontend` | `frontend` | React + Vite web client (layout shell with a chat pane wired to `/threads`) |
 | `packages/typescript-config` | `@tctcl/typescript-config` | Shared `tsconfig` presets |
 | `packages/oxlint-config` | `@tctcl/oxlint-config` | Shared oxlint presets |
 | `packages/vitest-config` | `@tctcl/vitest-config` | Shared Vitest presets |

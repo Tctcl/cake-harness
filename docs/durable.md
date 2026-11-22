@@ -3,10 +3,13 @@
 Research notes and the architecture decision for running agents in this platform.
 Written so an agent (human or AI) can pick this up without re-reading upstream.
 
-Status: **harness wired up for one prompt.** `apps/backend` runs a durable
-`Harness` over `MemoryStorage` and answers `POST /chat` with
-`opencode-go`/`deepseek-v4.1-flash`; there are no tools, no sessions and no
-storage yet, and `apps/agent` still prints `Hello, World!`.
+Status: **chat slice over Postgres.** `apps/backend` runs a durable `Harness` over
+the Postgres adapter ([`docs/postgres-adapter.md`](./postgres-adapter.md)), keeps
+one conversation per row of `chat_threads`, and serves it through
+`/threads/:threadId/messages` with `opencode-go`/`deepseek-v4.1-flash`. A thread is
+filed under a `workspaces` row and an `agents` row, but the selection is still
+bookkeeping: the harness runs with no tools and no MCP either way. There are no
+tools and no streaming, and `apps/agent` still prints `Hello, World!`.
 
 Sources (read 2026-11-22):
 
@@ -111,6 +114,9 @@ not reach into the container by magic — only through an `ExecutionEnv` or
    `RemoteExecutionEnv`.
 3. **Storage choice** per environment: `openNodeSqliteStorage` (dev + single node), JSONL,
    or a Postgres adapter — see [`docs/postgres-adapter.md`](./postgres-adapter.md).
+   Answered the narrow way: the backend always uses the Postgres adapter and has no
+   in-process fallback; which file backend a single-node deployment might prefer is
+   still open.
 4. **Session → process mapping**, i.e. the sharding rule, once more than one backend
    instance exists.
 

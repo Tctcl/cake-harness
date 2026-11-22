@@ -18,9 +18,9 @@ export interface Config {
   readonly host: string
   readonly port: number
   readonly logLevel: LogLevel
-  /** Postgres for the durable log; absent runs the agent on in-process storage. */
-  readonly databaseUrl: string | undefined
-  /** Postgres pool ceiling; only read when `databaseUrl` is set. */
+  /** Postgres for the durable log and the platform tables; the backend has no storage without it. */
+  readonly databaseUrl: string
+  /** Postgres pool ceiling. */
   readonly databasePoolSize: number
 }
 
@@ -34,9 +34,10 @@ const environmentSchema = z.object({
     .max(65_535, 'must be between 1 and 65535')
     .default(8080),
   LOG_LEVEL: z.enum(logLevels).default('info'),
-  DATABASE_URL: z
-    .url({ protocol: /^postgres(ql)?$/, error: 'must be a postgres:// or postgresql:// URL' })
-    .optional(),
+  DATABASE_URL: z.url({
+    protocol: /^postgres(ql)?$/,
+    error: 'must be a postgres:// or postgresql:// URL',
+  }),
   DATABASE_POOL_SIZE: z.coerce
     .number({ error: 'must be a number' })
     .int('must be an integer')

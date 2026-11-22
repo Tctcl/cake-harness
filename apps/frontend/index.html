@@ -5,6 +5,17 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>tlabs</title>
+    <script>
+      // Mirrors lib/theme.ts: the stored palette, applied before the first paint so dark mode never flashes white.
+      try {
+        const stored = localStorage.getItem('tlabs-theme')
+        if (stored === 'dark' || (stored !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark')
+        }
+      } catch {
+        // Storage or matchMedia refused; the light palette is the fallback.
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

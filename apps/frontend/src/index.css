@@ -1,6 +1,8 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
+/* Every component reads these, so the palette is the only place a theme is defined. Light is the default and `dark`
+   overrides it; `lib/theme.ts` puts that class on `html` before the first paint. */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -33,66 +35,75 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-:root {
-  --radius: 0.625rem;
-
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-
-  color-scheme: light dark;
+@theme {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  /* Prose is set in a serif: a long agent reply reads better in one, and it keeps code visually distinct. */
+  --font-serif: 'Iowan Old Style', 'Palatino Linotype', 'Source Serif 4', Georgia, serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.205 0 0);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.205 0 0);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.922 0 0);
-    --primary-foreground: oklch(0.205 0 0);
-    --secondary: oklch(0.269 0 0);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.269 0 0);
-    --muted-foreground: oklch(0.708 0 0);
-    --accent: oklch(0.269 0 0);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
-    --destructive-foreground: oklch(0.985 0 0);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
+:root {
+  --radius: 0.75rem;
 
-    --sidebar: oklch(0.205 0 0);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-accent: oklch(0.269 0 0);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-  }
+  --background: #faf9f5;
+  --foreground: #1f1e1d;
+  --card: #ffffff;
+  --card-foreground: #1f1e1d;
+  --popover: #ffffff;
+  --popover-foreground: #1f1e1d;
+  --primary: #1f1e1d;
+  --primary-foreground: #faf9f5;
+  --secondary: #f0eee6;
+  --secondary-foreground: #1f1e1d;
+  --muted: #f0eee6;
+  --muted-foreground: #6b6862;
+  --accent: #ece9df;
+  --accent-foreground: #1f1e1d;
+  --destructive: #b42318;
+  --destructive-foreground: #ffffff;
+  --border: #e3e0d6;
+  --input: #d8d5c9;
+  --ring: #b7b3a6;
+
+  --sidebar: #f0eee6;
+  --sidebar-foreground: #1f1e1d;
+  --sidebar-border: #e3e0d6;
+  --sidebar-accent: #e5e2d8;
+  --sidebar-accent-foreground: #1f1e1d;
+
+  color-scheme: light;
+}
+
+/* Claude Code's dark terminal, sampled from the reference: #191919 canvas, #1f1f1f sidebars, #303030 for whatever is
+   under the pointer, and near-white text. */
+.dark {
+  --background: #191919;
+  --foreground: #efefef;
+  --card: #1f1f1f;
+  --card-foreground: #efefef;
+  --popover: #1f1f1f;
+  --popover-foreground: #efefef;
+  --primary: #efefef;
+  --primary-foreground: #191919;
+  --secondary: #2a2a2a;
+  --secondary-foreground: #efefef;
+  --muted: #262626;
+  --muted-foreground: #9a9a9a;
+  --accent: #303030;
+  --accent-foreground: #efefef;
+  --destructive: #e5706a;
+  --destructive-foreground: #191919;
+  --border: #303030;
+  --input: #3b3b3b;
+  --ring: #6b6b6b;
+
+  --sidebar: #1f1f1f;
+  --sidebar-foreground: #efefef;
+  --sidebar-border: #2c2c2c;
+  --sidebar-accent: #303030;
+  --sidebar-accent-foreground: #efefef;
+
+  color-scheme: dark;
 }
 
 @layer base {
@@ -101,7 +112,7 @@
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply bg-background font-sans text-foreground antialiased;
     margin: 0;
   }
 
@@ -109,5 +120,103 @@
   body,
   #root {
     height: 100%;
+  }
+}
+
+/* A reply is prose: serif, comfortable measure, and spacing that survives the markdown the agent writes. */
+@layer components {
+  .prose-reply {
+    @apply font-serif text-[0.975rem] leading-7;
+  }
+
+  .prose-reply > * + * {
+    @apply mt-4;
+  }
+
+  .prose-reply :where(h1, h2, h3, h4) {
+    @apply font-sans font-semibold tracking-tight;
+  }
+
+  .prose-reply h1 {
+    @apply mt-6 text-xl;
+  }
+
+  .prose-reply h2 {
+    @apply mt-6 text-lg;
+  }
+
+  .prose-reply h3 {
+    @apply mt-5 text-base;
+  }
+
+  .prose-reply :where(ul, ol) {
+    @apply flex flex-col gap-1.5 pl-5;
+  }
+
+  .prose-reply ul {
+    @apply list-disc;
+  }
+
+  .prose-reply ol {
+    @apply list-decimal;
+  }
+
+  .prose-reply li > :where(ul, ol) {
+    @apply mt-1.5;
+  }
+
+  .prose-reply :not(pre) > code {
+    @apply rounded-sm bg-muted px-1 py-0.5 font-mono text-[0.85em];
+  }
+
+  .prose-reply :where(blockquote) {
+    @apply border-l-2 pl-4 text-muted-foreground;
+  }
+
+  .prose-reply :where(a) {
+    @apply underline underline-offset-2;
+  }
+
+  .prose-reply :where(table) {
+    @apply w-full border-collapse text-sm;
+  }
+
+  .prose-reply :where(th, td) {
+    @apply border-b px-2 py-1 text-left;
+  }
+
+  .prose-reply :where(hr) {
+    @apply border-t;
+  }
+
+  /* A working label: one gradient sweeping the text, so "still running" reads without a spinner stealing the line. */
+  .shimmer {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(
+      90deg,
+      var(--color-muted-foreground) 0%,
+      var(--color-foreground) 50%,
+      var(--color-muted-foreground) 100%
+    );
+    background-size: 250% 100%;
+    animation: shimmer 2s linear infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .shimmer {
+      @apply text-muted-foreground;
+      background-image: none;
+      animation: none;
+    }
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% center;
+  }
+
+  to {
+    background-position: 0% center;
   }
 }

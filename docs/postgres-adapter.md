@@ -285,7 +285,34 @@ connection's death on the pool, and an unhandled `'error'` event is fatal to Nod
 4. **`DATABASE_URL` shape.** Implemented: `apps/backend/src/config.ts` validates it with
    `z.url({ protocol: /^postgres(ql)?$/ })`, so a wrong scheme or a bare `host:port`
    fails at startup with the other configuration problems rather than at connect time.
-   `src/agent.ts` picks Postgres when it is set and `MemoryStorage` otherwise.
+   `src/agent.ts` requires it: there is no `MemoryStorage` fallback left.
 5. **Schema ownership.** Answered by `MIGRATIONS` in `schema.ts` plus the
    `durable_schema` version table, applied at open under an advisory lock. A release
    change appends a version; it never edits one.
+   Version 2 adds the platform's own tables (`users`, `chat_threads`). They share this
+   migration list because they share the pool and the database, but they are named
+   without `DURABLE_PREFIX`: the log is namespaced because its table names are generic,
+   while these rows belong to the product. `createSchema(prefix)` applies the caller's
+   prefix to both sets — which is what lets every test case own an isolated copy — and
+   `DURABLE_PREFIX` to the log alone. `chat_threads.durable_conversation_id` is
+   `bigint` to match the conversation id it points at; it carries no foreign key yet.
+   Version 3 repairs databases written before that namespace existed: they carry the
+   log's tables under bare names (`conversations`, `tasks`, ...) while already recording
+   version 1, so a corrected version 1 never reaches them and the first query fails with
+   `relation "durable_tasks" does not exist`. It renames each table and index
+   conditionally, so it is a no-op on every database created after the split. Constraint
+   names stay as Postgres generated them: `RENAME CONSTRAINT` has no `IF EXISTS`, the
+   names are scoped to their table, and nothing references them.
+   Version 4 adds the product's two-level filing: `workspaces` (the ceiling — `allowed_tools`,
+   `allowed_mcp_servers`, `allowed_skills`, plus an optional `container` jsonb spec) and
+   `agents` (the narrowing — `tools`, `mcp_servers`, `skills`, `system_prompt`,
+   `instructions`, `is_default`). It also adds `chat_threads.workspace_id` and
+   `chat_threads.agent_id`. Every column arrives `NOT NULL DEFAULT` the seeded pair, so
+   threads written by version 2 or 3 are filed under the default workspace and its agent
+   without a backfill statement, and the foreign keys hold from the first row. The seed
+   itself is written with `ON CONFLICT DO NOTHING` over fixed ids
+   (`DEFAULT_WORKSPACE_ID`, `DEFAULT_AGENT_ID` in `src/workspaces/defaults.ts`), so a
+   restart or a second concurrent open cannot duplicate it. Both lists use `'*'` as the
+   "everything, present and future" entry; an agent is checked against its workspace's
+   ceiling in the repository, not by a constraint, because the comparison is set
+   membership over jsonb rather than an equality Postgres can express.

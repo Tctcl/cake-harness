@@ -1,7 +1,9 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { useRef, type KeyboardEvent, type PointerEvent } from 'react'
+import { useRef, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 
 import { Button } from '../ui/button.tsx'
+import { ScrollArea } from '../ui/scroll-area.tsx'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip.tsx'
 
 type SidebarSide = 'left' | 'right'
 
@@ -23,58 +25,80 @@ function clampWidth(next: number, otherWidth: number) {
 }
 
 type SidebarProps = WidthProps & {
-  label: string
+  title: string
+  action?: ReactNode
+  children: ReactNode
+  /** Pinned below the scrolling list: the control that belongs to the sidebar as a whole, not to its contents. */
+  footer?: ReactNode
   onCollapse: () => void
 }
 
-function Sidebar({ side, label, width, onCollapse }: SidebarProps) {
+function Sidebar({ side, title, action, children, footer, width, onCollapse }: SidebarProps) {
   const border = side === 'left' ? 'border-r' : 'border-l'
 
   return (
     <aside
       className={`flex shrink-0 flex-col ${border} bg-sidebar text-sidebar-foreground`}
       style={{ width }}
-      aria-label={`${label} sidebar`}
+      aria-label={title}
     >
-      <div className="flex h-12 shrink-0 items-center px-4 text-sm font-medium">
-        <span>{label}</span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="ml-auto size-7"
-          aria-label={`Collapse ${label} sidebar`}
-          onClick={onCollapse}
-        >
-          {side === 'left' ? <ChevronLeft /> : <ChevronRight />}
-        </Button>
+      <div className="flex h-12 shrink-0 items-center gap-1 px-4 text-sm font-medium">
+        <span className="truncate">{title}</span>
+        {action}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="ml-auto size-7"
+              aria-label={`Collapse ${title}`}
+              onClick={onCollapse}
+            >
+              {side === 'left' ? <ChevronLeft /> : <ChevronRight />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side={side === 'left' ? 'right' : 'left'}>
+            Collapse {title.toLowerCase()}
+          </TooltipContent>
+        </Tooltip>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-4" />
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="flex flex-col p-2">{children}</div>
+      </ScrollArea>
+      {footer === undefined ? null : (
+        <div className="shrink-0 border-t p-2">{footer}</div>
+      )}
     </aside>
   )
 }
 
 type SidebarRailProps = {
   side: SidebarSide
-  label: string
+  title: string
   onExpand: () => void
 }
 
-function SidebarRail({ side, label, onExpand }: SidebarRailProps) {
+function SidebarRail({ side, title, onExpand }: SidebarRailProps) {
   const border = side === 'left' ? 'border-r' : 'border-l'
 
   return (
-    <button
-      type="button"
-      className={`flex w-4 shrink-0 items-start justify-center ${border} bg-sidebar pt-3.5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground`}
-      aria-label={`Expand ${label} sidebar`}
-      onClick={onExpand}
-    >
-      {side === 'left' ? (
-        <ChevronRight className="size-3" />
-      ) : (
-        <ChevronLeft className="size-3" />
-      )}
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className={`flex w-4 shrink-0 items-start justify-center ${border} bg-sidebar pt-3.5 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground`}
+          aria-label={`Expand ${title}`}
+          onClick={onExpand}
+        >
+          {side === 'left' ? (
+            <ChevronRight className="size-3" />
+          ) : (
+            <ChevronLeft className="size-3" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side={side === 'left' ? 'right' : 'left'}>Expand {title.toLowerCase()}</TooltipContent>
+    </Tooltip>
   )
 }
 

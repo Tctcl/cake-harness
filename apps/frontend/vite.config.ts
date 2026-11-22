@@ -14,7 +14,8 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/chat': 'http://127.0.0.1:8080',
+      '/threads': 'http://127.0.0.1:8080',
+      '/workspaces': 'http://127.0.0.1:8080',
     },
   },
 })
