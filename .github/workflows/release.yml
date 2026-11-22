@@ -22,3 +22,8 @@ jobs:
       # entries; merging it tags the commit and publishes the GitHub Release.
       - name: Release please
         uses: googleapis/release-please-action@v5
+        with:
+          # A PAT, not GITHUB_TOKEN: pull requests authored by app/github-actions
+          # park their checks at "action_required", so the release PR never
+          # satisfies the required `gates` check and cannot be merged.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
