@@ -21,4 +21,4 @@ jobs:
       # Keeps an open release pull request with the version bumps and CHANGELOG
       # entries; merging it tags the commit and publishes the GitHub Release.
       - name: Release please
-        uses: googleapis/release-please-action@v4
+        uses: googleapis/release-please-action@v5
