@@ -14,7 +14,7 @@ React frontend and a long-running agent process, plus shared TypeScript and lint
 configuration. It is MIT licensed and intended to be developed in public.
 
 **Current state:** scaffolding only. `apps/agent` prints `Hello, World!`,
-`apps/backend` serves `GET /ping`, `apps/frontend` is the stock Vite starter
+`apps/backend` serves `GET /health`, `apps/frontend` is the stock Vite starter
 screen, `docs/` and `infrastructure/` are empty. Do not describe these as
 features anywhere, and do not assume an API here is stable.
 
@@ -129,10 +129,14 @@ in CI or in a verification step.
 - Fastify plugins and route modules over a single growing `server.ts`.
 - Route handlers return typed payloads; schema validation is preferred to
   manual casting once routes carry input.
-- Never read `process.env` scattered through the code — there will be one config
-  module once configuration exists.
-- Host and port are currently hardcoded (`127.0.0.1:8080`); move them to config
-  when the service needs to run anywhere but a laptop.
+- Never read `process.env` scattered through the code — `src/config.ts` is the
+  only module that reads it, and it validates and narrows the whole environment
+  with zod at startup.
+- Errors that may cross the HTTP boundary are `AppError` instances carrying a
+  `statusCode` and a stable `code`; the error handler in `src/error-handler.ts`
+  maps them, plus Fastify validation failures, to the `{ error: { code,
+  message } }` response shape.
+- Host and port come from `HOST` and `PORT` (defaults `127.0.0.1:8080`).
 
 ## Frontend rules (`apps/frontend`)
 

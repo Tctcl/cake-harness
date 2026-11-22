@@ -1,11 +1,31 @@
+import { ConfigError, loadConfig, type Config } from './config.js'
 import { buildServer } from './server.js'
 
-const server = buildServer()
-
-server.listen({ host: '127.0.0.1', port: 8080 }, (err, address) => {
-  if (err) {
-    console.error(err)
-    process.exit(1)
+function readConfig(): Config {
+  try {
+    return loadConfig()
+  } catch (error) {
+    if (error instanceof ConfigError) {
+      console.error(error.message)
+      process.exit(1)
+    }
+    throw error
   }
-  console.log(`Server listening at ${address}`)
-})
+}
+
+const config = readConfig()
+const server = buildServer(config)
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.once(signal, () => {
+    server.log.info({ signal }, 'shutting down')
+    void server.close()
+  })
+}
+
+try {
+  await server.listen({ host: config.host, port: config.port })
+} catch (error) {
+  server.log.error({ err: error }, 'failed to start server')
+  process.exit(1)
+}

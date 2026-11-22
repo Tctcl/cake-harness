@@ -5,7 +5,7 @@ and a long-running agent process, sharing TypeScript and lint configuration.
 
 > **Status: early scaffold.** The repository currently contains build tooling,
 > shared configuration and runnable app skeletons. There are no product
-> features yet — every app is a placeholder (a hello-world agent, a `GET /ping`
+> features yet — every app is a placeholder (a hello-world agent, a `GET /health`
 > endpoint and the unmodified Vite starter screen). Nothing is designed here
 > that later code should treat as stable API.
 
@@ -38,7 +38,7 @@ pnpm dev:frontend
 | Path | Package name | Purpose |
 | --- | --- | --- |
 | `apps/agent` | `@tctcl/agent` | Long-running agent process (placeholder entry point) |
-| `apps/backend` | `backend` | Fastify HTTP service (placeholder `GET /ping`) |
+| `apps/backend` | `backend` | Fastify HTTP service (`GET /health`) |
 | `apps/frontend` | `frontend` | React + Vite web client (starter screen) |
 | `packages/typescript-config` | `@tctcl/typescript-config` | Shared `tsconfig` presets |
 | `packages/oxlint-config` | `@tctcl/oxlint-config` | Shared oxlint presets |
