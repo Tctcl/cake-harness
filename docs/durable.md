@@ -3,9 +3,10 @@
 Research notes and the architecture decision for running agents in this platform.
 Written so an agent (human or AI) can pick this up without re-reading upstream.
 
-Status: **decision made, harness not wired yet.** `apps/backend` boots from a
-validated config and serves `GET /health`; `apps/agent` still prints
-`Hello, World!`.
+Status: **harness wired up for one prompt.** `apps/backend` runs a durable
+`Harness` over `MemoryStorage` and answers `POST /chat` with
+`opencode-go`/`deepseek-v4.1-flash`; there are no tools, no sessions and no
+storage yet, and `apps/agent` still prints `Hello, World!`.
 
 Sources (read 2026-11-22):
 

@@ -1,3 +1,4 @@
+import { createAgent } from './agent.js'
 import { ConfigError, loadConfig, type Config } from './config.js'
 import { buildServer } from './server.js'
 
@@ -14,7 +15,12 @@ function readConfig(): Config {
 }
 
 const config = readConfig()
-const server = buildServer(config)
+const agent = await createAgent()
+const server = buildServer(config, { agent })
+
+server.addHook('onClose', async () => {
+  await agent.close()
+})
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {

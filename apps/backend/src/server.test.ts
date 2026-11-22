@@ -1,15 +1,21 @@
 import { describe, expect, it } from 'vitest'
 
+import type { Agent } from './agent.js'
 import { loadConfig } from './config.js'
 import { AppError } from './errors.js'
 import { buildServer } from './server.js'
 
 const config = loadConfig({ NODE_ENV: 'test' })
 
+function stubAgent(ask: Agent['ask']): Agent {
+  return { ask, close: async () => {} }
+}
+
+const agent = stubAgent(async (input) => `echo: ${input}`)
 
 describe('GET /health', () => {
   it('responds with the service status', async () => {
-    const server = buildServer(config)
+    const server = buildServer(config, { agent })
 
     try {
       const response = await server.inject({ method: 'GET', url: '/health' })
@@ -27,7 +33,7 @@ describe('GET /health', () => {
 
 describe('error handling', () => {
   it('responds with a structured 404 for unknown routes', async () => {
-    const server = buildServer(config)
+    const server = buildServer(config, { agent })
 
     try {
       const response = await server.inject({ method: 'GET', url: '/ping' })
@@ -42,7 +48,7 @@ describe('error handling', () => {
   })
 
   it('responds with the declared status and code for an AppError', async () => {
-    const server = buildServer(config)
+    const server = buildServer(config, { agent })
     server.get('/teapot', async () => {
       throw new AppError('Not brewing today', { statusCode: 418, code: 'TEAPOT' })
     })
@@ -60,7 +66,7 @@ describe('error handling', () => {
   })
 
   it('hides unexpected error details in production', async () => {
-    const productionServer = buildServer(loadConfig({ NODE_ENV: 'production', LOG_LEVEL: 'silent' }))
+    const productionServer = buildServer(loadConfig({ NODE_ENV: 'production', LOG_LEVEL: 'silent' }), { agent })
     productionServer.get('/boom', async () => {
       throw new Error('database credentials rejected')
     })
@@ -74,6 +80,41 @@ describe('error handling', () => {
       })
     } finally {
       await productionServer.close()
+    }
+  })
+})
+
+describe('POST /chat', () => {
+  it('answers with what the agent replied', async () => {
+    const server = buildServer(config, { agent })
+
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/chat',
+        payload: { message: 'hello' },
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual({ reply: 'echo: hello' })
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('rejects an empty message', async () => {
+    const server = buildServer(config, { agent })
+
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: '/chat',
+        payload: { message: '' },
+      })
+
+      expect(response.statusCode).toBe(400)
+    } finally {
+      await server.close()
     }
   })
 })

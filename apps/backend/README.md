@@ -7,13 +7,15 @@ logs through Fastify's logger, answers `GET /health`, and renders errors as
 `{ error: { code, message } }`. There are no business routes and no data layer.
 
 ```text
-src/index.ts          bootstrap: load config, build, listen, close on SIGINT/SIGTERM
-src/server.ts         buildServer(config) — the importable factory tests use
+src/index.ts          bootstrap: load config, open the agent, build, listen, close
+src/server.ts         buildServer(config, { agent }) — the importable factory tests use
 src/config.ts         zod schema for process.env, loadConfig(), ConfigError
 src/errors.ts         AppError: statusCode + stable code for errors that cross HTTP
 src/error-handler.ts  error and not-found handlers (registered on the root instance)
 src/plugins/index.ts  single plugin registration point
 src/routes/health.ts  GET /health
+src/routes/chat.ts    POST /chat — one prompt in, one answer out
+src/agent.ts          pi-durable harness and the model it runs
 ```
 
 `buildServer()` takes an explicit `Config` and never reads `process.env`, so
@@ -67,8 +69,10 @@ Environment variables, validated once at startup by `src/config.ts`:
 | `PORT` | integer 1–65535 | `8080` | `listen()` port |
 | `LOG_LEVEL` | `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` | `info` | Fastify logger level |
 
-There is no `.env` loading: export the variables, or set them in the shell,
-compose file or deployment environment. Anything not listed here is ignored.
+`process.loadEnvFile()` reads `apps/backend/.env` if it exists, so local
+development needs no exports; elsewhere set the variables in the shell, compose
+file or deployment environment. Anything not listed here is ignored, and a
+missing `.env` is not an error.
 
 Tool configuration:
 
@@ -77,6 +81,25 @@ Tool configuration:
   `tsconfig.test.json` re-includes them for the no-emit typecheck.
 - Lint: `.oxlintrc.json` extends `../../packages/oxlint-config/base.json`.
 - Tests: `vitest.config.ts` extends `@tctcl/vitest-config/base`.
+
+## Agent
+
+`src/agent.ts` opens a pi-durable `Harness` over `MemoryStorage` and keeps one
+root conversation:
+
+- provider `opencode-go` (from `@earendil-works/pi-ai`), model
+  `deepseek-v4.1-flash`, thinking level `low`
+- `OPENCODE_API_KEY` supplies the provider key; it is read by pi-ai, not by
+  `src/config.ts`
+- `MemoryStorage` keeps nothing across a restart — no `resume()`, no sessions
+
+`POST /chat` takes `{ "message": "..." }` and answers `{ "reply": "..." }`. A
+submission that settles as `unanswered` becomes a `502 AGENT_UNANSWERED`.
+
+```bash
+curl -s -X POST http://127.0.0.1:8080/chat   -H 'content-type: application/json'   -d '{"message":"Reply with exactly: pong"}'
+# {"reply":"pong"}
+```
 
 ## Errors
 
@@ -105,8 +128,11 @@ single `registerPlugins()` call.
 Routes are tested through Fastify's `inject()`, so no port is opened:
 
 ```ts
-const server = buildServer(loadConfig({ NODE_ENV: 'test' }))
+const agent = { ask: async (input) => `echo: ${input}`, close: async () => {} }
+const server = buildServer(loadConfig({ NODE_ENV: 'test' }), { agent })
 const response = await server.inject({ method: 'GET', url: '/health' })
 ```
 
 `NODE_ENV=test` disables the logger, so failing tests do not print request logs.
+Routes take the `Agent` through `buildServer()` options, so no test touches a
+provider or a harness.
