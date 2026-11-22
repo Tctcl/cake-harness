@@ -1,0 +1,24 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Keeps an open release pull request with the version bumps and CHANGELOG
+      # entries; merging it tags the commit and publishes the GitHub Release.
+      - name: Release please
+        uses: googleapis/release-please-action@v4

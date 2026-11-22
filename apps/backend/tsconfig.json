@@ -1,0 +1,13 @@
+{
+  "extends": "@tctcl/typescript-config/fastify.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "src/**/*.test.ts"
+  ]
+}

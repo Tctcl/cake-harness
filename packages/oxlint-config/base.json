@@ -1,0 +1,19 @@
+{
+  "plugins": ["typescript", "oxc", "unicorn"],
+  "env": {
+    "es2024": true,
+    "node": true
+  },
+  "categories": {
+    "correctness": "error"
+  },
+  "ignorePatterns": ["dist/**", "node_modules/**", "coverage/**"],
+  "rules": {
+    "eqeqeq": "error",
+    "no-console": "off",
+    "no-var": "error",
+    "prefer-const": "error",
+    "typescript/no-explicit-any": "warn",
+    "unicorn/prefer-node-protocol": "error"
+  }
+}

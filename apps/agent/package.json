@@ -1,0 +1,25 @@
+{
+  "name": "@tctcl/agent",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm run build && pnpm run start",
+    "build": "tsc -p tsconfig.json",
+    "lint": "oxlint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.test.json"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@tctcl/oxlint-config": "workspace:*",
+    "@tctcl/typescript-config": "workspace:*",
+    "@tctcl/vitest-config": "workspace:*",
+    "@types/node": "^26.6.6",
+    "oxlint": "^1.90.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
+  }
+}

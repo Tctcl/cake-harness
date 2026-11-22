@@ -1,0 +1,12 @@
+{
+  "name": "@tctcl/oxlint-config",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    "./base.json": "./base.json",
+    "./react.json": "./react.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

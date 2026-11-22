@@ -1,0 +1,76 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report security problems here — read [SECURITY.md](../blob/main/SECURITY.md) first.
+
+  - type: dropdown
+    id: workspace
+    attributes:
+      label: Affected workspace
+      options:
+        - apps/backend
+        - apps/frontend
+        - apps/agent
+        - packages/typescript-config
+        - packages/oxlint-config
+        - packages/vitest-config
+        - tooling / repository (turbo, pnpm, CI)
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: The actual behaviour, including the full error output.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. pnpm install
+        2. pnpm dev:backend
+        3. curl http://127.0.0.1:8080/ping
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: A release tag (`vX.Y.Z`) or the commit SHA you are running.
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, `node -v`, `pnpm -v`.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for this problem.
+          required: true
+        - label: This is not a security vulnerability (those go through SECURITY.md).
+          required: true

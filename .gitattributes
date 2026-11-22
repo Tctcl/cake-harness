@@ -1,0 +1,24 @@
+# * text=auto eol=lf
+# Normalize all text files to LF in the repository and on checkout, for every
+# contributor OS. Keep this above the binary rules.
+* text=auto eol=lf
+
+# --- Binaries (no diff, no eol conversion) -------------------------------
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.avif binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.otf  binary
+*.pdf  binary
+*.zip  binary
+*.gz   binary
+
+# --- Generated / not human-reviewable ------------------------------------
+pnpm-lock.yaml linguist-generated=true
+*.tsbuildinfo  linguist-generated=true

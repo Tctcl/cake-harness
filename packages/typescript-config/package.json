@@ -1,0 +1,14 @@
+{
+  "name": "@tctcl/typescript-config",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    "./base.json": "./base.json",
+    "./typescript.json": "./typescript.json",
+    "./fastify.json": "./fastify.json",
+    "./vite.json": "./vite.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

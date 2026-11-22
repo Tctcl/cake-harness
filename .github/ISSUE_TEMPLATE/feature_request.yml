@@ -1,0 +1,55 @@
+name: Feature request
+description: Suggest a capability or a change in direction
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project is an early scaffold. Small, scoped proposals are far easier to
+        accept than large rewrites — open an issue before writing a large patch.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve
+      description: The situation that is currently awkward, impossible or slow.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What you would like to happen. A sketch of the API or UI is welcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Including "do nothing" — what breaks if this is not built?
+
+  - type: dropdown
+    id: workspace
+    attributes:
+      label: Where would this live
+      options:
+        - apps/backend
+        - apps/frontend
+        - apps/agent
+        - shared configuration (packages/)
+        - tooling / repository
+        - not sure
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and discussions for this idea.
+          required: true
+        - label: I understand this may be declined if it expands the project's scope.
+          required: true

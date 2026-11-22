@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/Tctcl/tlabs-platform/security/advisories/new
+    about: Report security problems privately — never in a public issue.
+  - name: Question or idea
+    url: https://github.com/Tctcl/tlabs-platform/discussions
+    about: Ask a question or float an idea that is not yet an issue.
+  - name: How to contribute
+    url: https://github.com/Tctcl/tlabs-platform/blob/main/CONTRIBUTING.md
+    about: Setup, branch model, commit convention and release process.
