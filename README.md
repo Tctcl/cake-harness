@@ -3,11 +3,14 @@
 Monorepo for the tctcl platform: a Node/TypeScript backend, a React frontend
 and a long-running agent process, sharing TypeScript and lint configuration.
 
-> **Status: early scaffold.** The repository currently contains build tooling,
-> shared configuration and runnable app skeletons. There are no product
-> features yet — every app is a placeholder (a hello-world agent, a `GET /health`
-> endpoint and the unmodified Vite starter screen). Nothing is designed here
-> that later code should treat as stable API.
+> **Status: early scaffold.** The repository contains build tooling, shared
+> configuration and runnable app skeletons, plus one deliberate spike: a prompt
+> typed in the frontend, posted to the backend, answered by a pi-durable session
+> and stored in Postgres (or in memory when no database is configured). That
+> spike is a test of durable, not a product — every route, schema and screen in
+> it is expected to change, and the agent process is still a hello-world. See
+> [docs/durable.md](docs/durable.md) and
+> [docs/postgres-adapter.md](docs/postgres-adapter.md).
 
 ## Requirements
 
@@ -38,8 +41,8 @@ pnpm dev:frontend
 | Path | Package name | Purpose |
 | --- | --- | --- |
 | `apps/agent` | `@tctcl/agent` | Long-running agent process (placeholder entry point) |
-| `apps/backend` | `backend` | Fastify HTTP service (`GET /health`) |
-| `apps/frontend` | `frontend` | React + Vite web client (starter screen) |
+| `apps/backend` | `backend` | Fastify HTTP service (`GET /health`, `POST /chat` through a durable session) |
+| `apps/frontend` | `frontend` | React + Vite web client (layout shell with a prompt box wired to `/chat`) |
 | `packages/typescript-config` | `@tctcl/typescript-config` | Shared `tsconfig` presets |
 | `packages/oxlint-config` | `@tctcl/oxlint-config` | Shared oxlint presets |
 | `packages/vitest-config` | `@tctcl/vitest-config` | Shared Vitest presets |
