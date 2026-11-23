@@ -19,6 +19,10 @@ import { AgentRepository } from './agents/agent-repository.js'
 import type { AgentInput, AgentPatch, AgentProfile } from './agents/agent-repository.js'
 import { createCapabilityApi } from './capabilities/api.js'
 import type { CapabilityApi } from './capabilities/api.js'
+import { createEnvironmentApi } from './environments/api.js'
+import type { EnvironmentApi } from './environments/api.js'
+import { DockerContainers } from './environments/container-runtime.js'
+import { EnvironmentRepository } from './environments/environment-repository.js'
 import { CapabilityLinks } from './capabilities/capability-links.js'
 import { McpCredentialRepository, McpServerRepository } from './capabilities/mcp-repository.js'
 import { PromptRepository, SkillRepository } from './capabilities/text-repository.js'
@@ -137,6 +141,8 @@ export interface Agent {
   me(): Promise<LocalUser>
   /** Every workspace of the local user, most recently changed first. */
   workspaces(query?: ArchiveQuery): Promise<Workspace[]>
+  /** One workspace, or `undefined` when the id is unknown. */
+  workspace(id: string): Promise<Workspace | undefined>
   createWorkspace(input: WorkspaceInput): Promise<Workspace>
   updateWorkspace(id: string, patch: WorkspacePatch): Promise<Workspace | undefined>
   archiveWorkspace(id: string): Promise<Workspace | undefined>
@@ -151,6 +157,8 @@ export interface Agent {
   deleteAgent(id: string): Promise<boolean>
   /** The catalog of tools, prompts, skills and MCP servers, and who may reach which of them. */
   capabilities: CapabilityApi
+  /** The containers a workspace can run in, and which of them an agent works in. */
+  environments: EnvironmentApi
   /** Threads of the local user, most recently changed first, narrowed to one workspace when one is named. */
   threads(query?: ThreadQuery): Promise<ChatThread[]>
   /** Create a thread together with the durable conversation that carries it. */
@@ -510,6 +518,14 @@ export async function createAgent(config: Config): Promise<Agent> {
     Harness.open(storage, { models, registry }, CONTEXT),
   )
 
+  const environments = createEnvironmentApi({
+    ownerId,
+    environments: new EnvironmentRepository(postgres.pool, postgres.schema),
+    // The runtime is the only thing that talks to Docker; the routes decide nothing about it.
+    containers: new DockerContainers(config.docker),
+    image: config.workspaceImage,
+  })
+
   const capabilities = createCapabilityApi({
     ownerId,
     tools,
@@ -542,6 +558,7 @@ export async function createAgent(config: Config): Promise<Agent> {
 
   return {
     capabilities,
+    environments,
 
     me() {
       return readLocalUser(postgres.pool, postgres.schema)
@@ -549,6 +566,10 @@ export async function createAgent(config: Config): Promise<Agent> {
 
     workspaces(query) {
       return workspaces.list(ownerId, { archived: query?.archived })
+    },
+
+    workspace(id) {
+      return workspaces.find(id)
     },
 
     createWorkspace(input) {

@@ -7,6 +7,8 @@ import { afterAll, describe, expect, it } from 'vitest'
 import type { Agent, ArchiveQuery, ThreadQuery } from './agent.js'
 import type { CapabilityApi } from './capabilities/api.js'
 import type { AgentProfile } from './agents/agent-repository.js'
+import type { EnvironmentApi } from './environments/api.js'
+import type { DevEnvironment } from './environments/environment-repository.js'
 import { loadConfig } from './config.js'
 import { AppError } from './errors.js'
 import { buildServer } from './server.js'
@@ -23,6 +25,7 @@ const THREAD_ID = '2f1c1f9e-3f6d-4b0a-9d1e-1a2b3c4d5e6f'
 const WORKSPACE_ID = '3b2c1d4e-5f6a-4b8c-9d0e-1f2a3b4c5d6e'
 const AGENT_ID = '4c3d2e5f-6a7b-4c9d-8e1f-2a3b4c5d6e7f'
 const SUBMISSION_ID = 'sub_01'
+const ENVIRONMENT_ID = '5d4e3f60-7b8c-4d1e-9f2a-3b4c5d6e7f80'
 
 // Every field is spelled out once, so a test that cares about one of them overrides just that one.
 const workspaceOf = (overrides: Partial<Workspace> = {}): Workspace => ({
@@ -67,6 +70,35 @@ const threadOf = (overrides: Partial<ChatThread> = {}): ChatThread => ({
 const unused = async (): Promise<never> => {
   throw new Error('the capability API is not part of this suite')
 }
+
+const environmentOf = (overrides: Partial<DevEnvironment> = {}): DevEnvironment => ({
+  id: ENVIRONMENT_ID,
+  name: 'Node',
+  image: 'ghcr.io/tctcl/tlabs-platform/workspace:1.0.0',
+  containerId: null,
+  createdAt: new Date(0),
+  updatedAt: new Date(0),
+  ...overrides,
+})
+
+// Registration needs every member; a test overrides the one it exercises and the rest stay absent.
+const environmentsOf = (overrides: Partial<EnvironmentApi> = {}): EnvironmentApi => ({
+  list: async () => [],
+  find: async () => undefined,
+  create: async (name) => environmentOf({ name }),
+  update: async () => undefined,
+  remove: async () => false,
+  start: async () => undefined,
+  stop: async () => undefined,
+  ofWorkspace: async () => [],
+  workspacesOf: async () => [],
+  ofAgent: async () => undefined,
+  attach: async () => false,
+  detach: async () => false,
+  connectAgent: async () => {},
+  disconnectAgent: async () => false,
+  ...overrides,
+})
 
 // The workspace routes never read the catalog, so the stub answers only what registration needs.
 const capabilitiesOf = (): CapabilityApi => ({
@@ -115,8 +147,10 @@ const capabilitiesOf = (): CapabilityApi => ({
 function stubAgent(overrides: Partial<Agent> = {}): Agent {
   return {
     capabilities: capabilitiesOf(),
+    environments: environmentsOf(),
     me: async () => ({ id: LOCAL_USER_ID, name: 'Local user' }),
     workspaces: async () => [],
+    workspace: async () => undefined,
     createWorkspace: async (input) => workspaceOf({ name: input.name, isDefault: false }),
     updateWorkspace: async () => undefined,
     archiveWorkspace: async () => undefined,
@@ -788,6 +822,145 @@ describe('static frontend', () => {
 
       expect(response.statusCode).toBe(404)
       expect(response.json<{ error: { code: string } }>().error.code).toBe('NOT_FOUND')
+    } finally {
+      await server.close()
+    }
+  })
+})
+
+describe('environment routes', () => {
+  it('lists environments with ISO timestamps', async () => {
+    const server = buildServer(config, {
+      agent: stubAgent({ environments: environmentsOf({ list: async () => [environmentOf()] }) }),
+    })
+
+    try {
+      const response = await server.inject({ method: 'GET', url: '/environments' })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual({
+        environments: [
+          {
+            id: ENVIRONMENT_ID,
+            name: 'Node',
+            image: 'ghcr.io/tctcl/tlabs-platform/workspace:1.0.0',
+            containerId: null,
+            createdAt: '1970-01-01T00:00:00.000Z',
+            updatedAt: '1970-01-01T00:00:00.000Z',
+          },
+        ],
+      })
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('answers 404 for an unknown environment', async () => {
+    const server = buildServer(config, { agent: stubAgent() })
+
+    try {
+      const response = await server.inject({ method: 'GET', url: `/environments/${ENVIRONMENT_ID}` })
+
+      expect(response.statusCode).toBe(404)
+      expect(response.json<{ error: { code: string } }>().error.code).toBe('ENVIRONMENT_NOT_FOUND')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('records the container a start produced', async () => {
+    const server = buildServer(config, {
+      agent: stubAgent({
+        environments: environmentsOf({ start: async () => environmentOf({ containerId: 'abc123' }) }),
+      }),
+    })
+
+    try {
+      const response = await server.inject({
+        method: 'POST',
+        url: `/environments/${ENVIRONMENT_ID}/start`,
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json<{ containerId: string }>().containerId).toBe('abc123')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('refuses a malformed id before the lookup', async () => {
+    const server = buildServer(config, { agent: stubAgent() })
+
+    try {
+      const response = await server.inject({ method: 'GET', url: '/environments/not-a-uuid' })
+
+      expect(response.statusCode).toBe(400)
+      expect(response.json<{ error: { code: string } }>().error.code).toBe('VALIDATION_ERROR')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('scopes the workspace list and answers 404 for an unknown workspace', async () => {
+    const server = buildServer(config, {
+      agent: stubAgent({
+        workspace: async (id) => (id === WORKSPACE_ID ? workspaceOf() : undefined),
+      }),
+    })
+
+    try {
+      const listed = await server.inject({ method: 'GET', url: `/workspaces/${WORKSPACE_ID}/environments` })
+      expect(listed.statusCode).toBe(200)
+      expect(listed.json()).toEqual({ environments: [] })
+
+      const missing = await server.inject({
+        method: 'GET',
+        url: '/workspaces/00000000-0000-4000-8000-00000000dead/environments',
+      })
+      expect(missing.statusCode).toBe(404)
+      expect(missing.json<{ error: { code: string } }>().error.code).toBe('WORKSPACE_NOT_FOUND')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('answers null for an agent without an environment', async () => {
+    const server = buildServer(config, {
+      agent: stubAgent({
+        workspace: async (id) => (id === WORKSPACE_ID ? workspaceOf() : undefined),
+        agents: async (workspaceId) => (workspaceId === WORKSPACE_ID ? [agentOf()] : []),
+      }),
+    })
+
+    try {
+      const response = await server.inject({
+        method: 'GET',
+        url: `/workspaces/${WORKSPACE_ID}/agents/${AGENT_ID}/environment`,
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual({ environment: null })
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('answers 404 for an agent outside the workspace', async () => {
+    const server = buildServer(config, {
+      agent: stubAgent({
+        workspace: async () => workspaceOf(),
+        agents: async () => [],
+      }),
+    })
+
+    try {
+      const response = await server.inject({
+        method: 'GET',
+        url: `/workspaces/${WORKSPACE_ID}/agents/${AGENT_ID}/environment`,
+      })
+
+      expect(response.statusCode).toBe(404)
+      expect(response.json<{ error: { code: string } }>().error.code).toBe('AGENT_NOT_FOUND')
     } finally {
       await server.close()
     }
