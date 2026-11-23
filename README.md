@@ -8,7 +8,8 @@ and a long-running agent process, sharing TypeScript and lint configuration.
 > typed in the frontend, posted to the backend, answered by a pi-durable session
 > and stored in Postgres (or in memory when no database is configured). That
 > spike is a test of durable, not a product — every route, schema and screen in
-> it is expected to change, and the agent process is still a hello-world. See
+> it is expected to change, and the agent process is a workspace bootstrap, not
+> a long-running agent yet. See
 > [docs/durable.md](docs/durable.md) and
 > [docs/postgres-adapter.md](docs/postgres-adapter.md). What each slice knowingly
 > left out is tracked in [docs/deferred.md](docs/deferred.md).
@@ -41,7 +42,7 @@ pnpm dev:frontend
 
 | Path | Package name | Purpose |
 | --- | --- | --- |
-| `apps/agent` | `@tctcl/agent` | Long-running agent process (placeholder entry point) |
+| `apps/agent` | `@tctcl/agent` | Workspace development image and its bootstrap |
 | `apps/backend` | `backend` | Fastify HTTP service (`GET /health`, `/threads` and `/workspaces` over a durable session in Postgres) |
 | `apps/frontend` | `frontend` | React + Vite web client (layout shell with a chat pane wired to `/threads`) |
 | `packages/typescript-config` | `@tctcl/typescript-config` | Shared `tsconfig` presets |
@@ -119,6 +120,15 @@ remember bumping a version or writing a changelog:
 There is no `dev` or `staging` branch: this is trunk-based, and stability is
 carried by tags (and, later, by deployments), not by long-lived branches. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the full flow.
+
+## Deployment
+
+One supported install path: a fresh Ubuntu server, one `curl` for the installer,
+and one compose stack. Installs follow a channel: `production` pins a release tag,
+and `staging` follows every push to `main`, so a preview of the next release is an
+install rather than a branch.
+[docs/deployment.md](docs/deployment.md) covers the host layout, channels,
+upgrade and rollback, and the Docker access model.
 
 ## Getting help
 

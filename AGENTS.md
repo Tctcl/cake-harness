@@ -13,10 +13,15 @@ one, so conventions do not have to be retrofitted later.
 React frontend and a long-running agent process, plus shared TypeScript and lint
 configuration. It is MIT licensed and intended to be developed in public.
 
-**Current state:** scaffolding only. `apps/agent` prints `Hello, World!`,
-`apps/backend` serves `GET /health`, `apps/frontend` is the stock Vite starter
-screen, `docs/` and `infrastructure/` are empty. Do not describe these as
-features anywhere, and do not assume an API here is stable.
+**Current state:** early scaffold. `apps/agent` holds the workspace development
+image and its bootstrap (`docs/remote-development.md`), `apps/backend` runs the
+durable chat slice (`docs/durable.md`), `apps/frontend` renders a layout shell over
+it, `deploy/` holds the production stack and the installer
+(`docs/deployment.md`), and `infrastructure/` holds the host-side systemd units
+for the update socket. The root `Dockerfile` builds the product image — Fastify
+serving the compiled SPA — and `.github/workflows/images.yml` publishes it on two
+channels, `latest` from a release tag and `staging` from every push to `main`. Do
+not describe these as features anywhere, and do not assume an API here is stable.
 
 ## Non-negotiables
 
@@ -50,9 +55,11 @@ apps/frontend     frontend           React 19 + Vite 8, vite build
 packages/typescript-config           shared tsconfig presets (JSON only)
 packages/oxlint-config               shared oxlint presets (JSON only)
 packages/vitest-config               shared Vitest presets (base + react)
+deploy/                              production compose stack and installer
 docs/                                cross-cutting notes (architecture, ADRs)
-infrastructure/                       deployment assets (empty for now)
-.github/workflows/                   gates, commits (PR title), release
+Dockerfile                           product image: Fastify + the compiled SPA
+infrastructure/                      host-side systemd units for the update socket
+.github/workflows/                   gates, commits (PR title), release, images, bundle
 .github/ISSUE_TEMPLATE/, PULL_REQUEST_TEMPLATE.md, dependabot.yml
 CONTRIBUTING.md                      workflow, commit convention, releases
 CODE_OF_CONDUCT.md                   Contributor Covenant 3.0

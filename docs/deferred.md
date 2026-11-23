@@ -195,8 +195,9 @@ version, not accidentally so.
 **Missing:** the platform does not run the agent as a separate long-running
 process; the harness lives inside the backend.
 
-**Where it stands:** `apps/agent` prints `Hello, World!`. The durable harness, the
-repositories and the routes all run in `apps/backend`, which is fine for one
+**Where it stands:** `apps/agent` holds the workspace bootstrap and its image (see
+`docs/remote-development.md`); the harness, the repositories and the routes all
+run in `apps/backend`, which is fine for one
 process and one user, and is the thing that will need revisiting when runs must
 outlive a backend restart or move to another machine.
 
@@ -275,3 +276,54 @@ obscures a real diff. Until then the `.editorconfig` is the contract.
 - `docs/postgres-adapter.md` and `docs/durable.md` predate `workspaces`, `agents`
   and archiving; neither mentions the platform tables that now sit beside the
   durable ones in the same schema.
+
+## 15. The backend cannot update its own host
+
+**Missing:** the update socket works and nothing calls it.
+
+**Where it stands:** `infrastructure/systemd/tctcl-updater.socket` and
+`tctcl-updater@.service` are installed by `install.sh`, and
+`infrastructure/tctcl-updater.sh` implements the one-line protocol (`UPDATE 1.2.3`
+in, `START`/progress/`OK`/`ERR` out) documented in `docs/deployment.md`. No
+backend code opens `/run/tctcl/updater.sock`: there is no route, no progress
+stream and no container that mounts the directory.
+
+**What it would take:** the application container mounts `/run/tctcl` and runs
+with gid 1001; a backend client that writes one line and streams the reply; a
+route behind whatever authentication item 7 ends up with, since triggering an
+update is a privileged action; and a UI that shows the installer's output instead
+of a spinner.
+
+## 16. No backups, no restore
+
+**Missing:** nothing copies the database or the state directory, and there is no
+restore path to test.
+
+**Where it stands:** Postgres is the named volume `tctcl_postgres-data` and the
+rest of the state is bind-mounted under `/var/lib/tctcl-platform`. Both are
+described in `docs/deployment.md`; neither is copied anywhere.
+
+**What it would take:** the decision that the backend drives backups (it will
+need the state directory mounted, an exception to the "no unnecessary host
+mounts" rule that has to be written down), a `pg_dump` plus a tar of the bind
+mounts on a schedule with retention, and a restore command that is actually
+exercised. A bind-mounted data directory copied while Postgres runs is a torn
+snapshot, so the dump is the unit of restore — not `cp -a`.
+
+Related: an upgrade that ran a migration cannot be rolled back in place. Until a
+schema policy exists, the pre-upgrade dump is the only way back, which is another
+reason this lands before the first real deployment.
+
+## 17. The Docker API is still host root
+
+**Missing:** a real boundary between the backend and the host.
+
+**Where it stands:** both consumers talk to `tecnativa/docker-socket-proxy`
+instead of the socket, with the endpoint list in `deploy/compose.yaml` and the
+caveat spelled out in `docs/deployment.md`. The filter keeps unrelated API
+surface out of reach; it does not stop a privileged container create, and
+`CONTAINERS` plus `POST` are exactly what provisioning a workspace needs.
+
+**What it would take:** rootless Docker on the host, or a provisioning path that
+never creates privileged containers and is enforced somewhere the backend cannot
+edit. Both are architecture decisions, not follow-ups.

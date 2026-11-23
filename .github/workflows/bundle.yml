@@ -1,0 +1,55 @@
+name: bundle
+
+# Publishes the deployment bundle beside the images: the compose file, the
+# installer, the updater and its systemd units. install.sh fetches exactly this
+# tarball, so the file layout here is part of the install contract.
+#
+# The bundle is built from the repository at the tag, not from a second copy
+# somewhere else, so it cannot drift from the compose file that is tested.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bundle-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  bundle:
+    name: deployment bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Assemble
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          staging="$(mktemp -d)"
+          install -m 0755 deploy/install.sh "$staging/install.sh"
+          install -m 0644 deploy/compose.yaml "$staging/compose.yaml"
+          install -m 0644 deploy/.env.example "$staging/.env.example"
+          install -m 0755 infrastructure/tctcl-updater.sh "$staging/updater.sh"
+          install -m 0644 infrastructure/systemd/tctcl-updater.socket "$staging/tctcl-updater.socket"
+          install -m 0644 infrastructure/systemd/tctcl-updater@.service "$staging/tctcl-updater@.service"
+          tar -czf "tctcl-deploy-v${version}.tar.gz" -C "$staging" .
+          tar -tzf "tctcl-deploy-v${version}.tar.gz"
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          gh release upload "$TAG" "tctcl-deploy-v${version}.tar.gz" --clobber
