@@ -234,7 +234,39 @@ schema applied by the same bootstrap the tests use, and `DATABASE_URL` set for t
 test step. The suites already handle cleanup through a per-run table prefix, so
 nothing else has to change.
 
-## 13. Documentation debt
+## 13. No formatter
+
+**Missing:** nothing formats the codebase. Style is held only by `.editorconfig`
+and the warnings oxlint happens to raise.
+
+**Where it stands:** no workspace has a `format` or `format:check` script, no
+formatter is a dependency, and `.github/workflows/gates.yml` runs the four gates
+AGENTS.md names — typecheck, lint, test, build. Root `.editorconfig` enforces
+charset, LF, final newline, trailing whitespace and 2-space indent, which covers
+most of the risk while the codebase is small and written by one person. oxlint
+1.90 lints; it does not format.
+
+**Decision, so it does not have to be relitigated:** when a formatter is adopted
+it is `oxfmt`, not Biome and not Prettier. Biome also lints, which would put a
+second rule set beside `@tctcl/oxlint-config`; Prettier costs the most in a
+turbo/pnpm monorepo for no capability this repository needs. oxfmt keeps the
+vendor, the config lineage and the editor extension (`oxc.oxc-vscode`) already in
+use for lint.
+
+**What it would take:** a shared `@tctcl/oxfmt-config` package beside the other
+presets (AGENTS.md rule 5), `format` and `format:check` scripts per workspace,
+the initial repo-wide reformat as its own `chore:` commit so it never rides along
+with a behavioural change, and a deliberate fifth step in the gates workflow.
+Know two limits before committing to it: oxfmt does not support Prettier plugins,
+so `prettier-plugin-tailwindcss` class sorting is unavailable, and its default
+`printWidth` is 100 rather than Prettier's 80. The formatter is still pre-1.0
+(0.80 at the time of writing) and releases weekly, so expect occasional output
+changes rather than a frozen format.
+
+Revisit when a second regular contributor joins, or when formatting noise
+obscures a real diff. Until then the `.editorconfig` is the contract.
+
+## 14. Documentation debt
 
 - `docs/durable.md` opens with "There are no tools and no streaming" — the backend
   streams now (`/threads/:threadId/stream` plus the frontend store), so that status
