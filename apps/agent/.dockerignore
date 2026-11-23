@@ -1,0 +1,7 @@
+# Only the compiled bootstrap and the image inputs are needed in the build context.
+src
+node_modules
+.turbo
+dist/*.tsbuildinfo
+dev/ssh
+**/*.test.ts
