@@ -13,6 +13,9 @@ describe('loadConfig', () => {
       logLevel: 'info',
       databaseUrl: DATABASE_URL,
       databasePoolSize: 10,
+      docker: { socketPath: '/var/run/docker.sock' },
+      workspaceImage: 'tctcl/dev-env:dev',
+      frontendDir: undefined,
     })
   })
 
@@ -43,6 +46,9 @@ describe('loadConfig', () => {
       logLevel: 'debug',
       databaseUrl: 'postgres://user:pass@db.internal:5432/tlabs',
       databasePoolSize: 4,
+      docker: { socketPath: '/var/run/docker.sock' },
+      workspaceImage: 'tctcl/dev-env:dev',
+      frontendDir: undefined,
     })
   })
 

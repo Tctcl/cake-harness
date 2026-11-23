@@ -28,21 +28,11 @@ const archivedQuery = {
   additionalProperties: false,
 } as const
 
-// `image` names a tooling image the platform publishes, not any registry reference, so the shape is checked on write and
-// unknown keys are refused rather than stored unread.
-const containerSchema = {
-  type: ['object', 'null'],
-  properties: { image: { type: 'string', minLength: 1 } },
-  required: ['image'],
-  additionalProperties: false,
-} as const
-
 const workspaceProperties = {
   id: { type: 'string' },
   name: { type: 'string' },
   description: { type: 'string' },
   isDefault: { type: 'boolean' },
-  container: containerSchema,
   allowAll: { type: 'boolean' },
   archivedAt: { type: ['string', 'null'] },
   createdAt: { type: 'string' },
@@ -57,7 +47,6 @@ const workspaceSchema = {
     'name',
     'description',
     'isDefault',
-    'container',
     'allowAll',
     'archivedAt',
     'createdAt',
@@ -76,20 +65,17 @@ const createWorkspaceBody = {
   properties: {
     name: { type: 'string', minLength: 1 },
     description: { type: 'string' },
-    container: containerSchema,
     allowAll: { type: 'boolean' },
   },
   required: ['name'],
   additionalProperties: false,
 } as const
 
-// No `container: {}` escape hatch: a patch either names an image or clears the container with `null`.
 const updateWorkspaceBody = {
   type: 'object',
   properties: {
     name: { type: 'string', minLength: 1 },
     description: { type: 'string' },
-    container: containerSchema,
     allowAll: { type: 'boolean' },
   },
   additionalProperties: false,
@@ -174,7 +160,6 @@ interface ArchivedQuery {
 type CreateWorkspaceBody = {
   name: string
   description?: string
-  container?: { image: string } | null
   allowAll?: boolean
 }
 

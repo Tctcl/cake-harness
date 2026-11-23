@@ -11,7 +11,6 @@ const workspace = (id: string, name: string, description: string, isDefault: boo
   name,
   description,
   isDefault,
-  container: null,
   allowedTools: [],
   allowedMcpServers: [],
   allowedSkills: [],

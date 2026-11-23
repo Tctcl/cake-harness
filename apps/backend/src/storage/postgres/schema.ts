@@ -32,6 +32,9 @@ export type PostgresSchema = {
     readonly chatThreads: string
     readonly workspaces: string
     readonly agents: string
+    readonly devEnvironments: string
+    readonly workspaceEnvironments: string
+    readonly agentEnvironments: string
     readonly tools: string
     readonly prompts: string
     readonly skills: string
@@ -68,6 +71,8 @@ export type PostgresSchema = {
     readonly oneDefaultWorkspace: string
     readonly agentsByWorkspace: string
     readonly oneDefaultAgent: string
+    readonly devEnvironmentsByOwner: string
+    readonly agentEnvironmentsOnePerAgent: string
     readonly toolsByName: string
     readonly promptsByName: string
     readonly skillsByName: string
@@ -101,6 +106,9 @@ const PLATFORM_TABLE_NAMES = {
   chatThreads: 'chat_threads',
   workspaces: 'workspaces',
   agents: 'agents',
+  devEnvironments: 'dev_environments',
+  workspaceEnvironments: 'workspace_environments',
+  agentEnvironments: 'agent_environments',
   tools: 'tools',
   prompts: 'prompts',
   skills: 'skills',
@@ -141,6 +149,10 @@ const PLATFORM_INDEX_NAMES = {
   oneDefaultWorkspace: 'workspaces_one_default',
   agentsByWorkspace: 'agents_by_workspace',
   oneDefaultAgent: 'agents_one_default',
+  devEnvironmentsByOwner: 'dev_environments_by_owner',
+  // One environment per agent, for now: the index is the constraint, so lifting it later drops the index and
+  // nothing else. The model beneath it is already many-to-many, which is what the composite primary key says.
+  agentEnvironmentsOnePerAgent: 'agent_environments_one_per_agent',
   toolsByName: 'tools_by_owner_name',
   promptsByName: 'prompts_by_owner_name',
   skillsByName: 'skills_by_owner_name',
@@ -597,6 +609,60 @@ const capabilityLinkMigration = (schema: PostgresSchema): readonly string[] => {
   ]
 }
 
+/**
+ * Development environments as rows of their own, instead of a JSON column on the workspace that held one image name.
+ *
+ * A workspace may have several environments (one per repository, in a polyrepo) and an environment may serve several
+ * workspaces, so both relations are link tables. An agent points at one environment for now: the composite primary key
+ * of `agent_environments` is the general many-to-many shape, while a unique index on `agent_id` narrows it to one until
+ * the product needs otherwise. Dropping that index is the whole change when it does.
+ */
+const environmentMigration = (schema: PostgresSchema): readonly string[] => {
+  const { tables, indexes } = schema
+  const hasImage = `jsonb_typeof(container) = 'object' AND container->>'image' <> ''`
+  // The workspace's own id, laid out as a uuid: a stable value that needs no extension and lets the backfill link the
+  // rows it just created without reading them back.
+  const derived = `(substr(md5(w.id::text), 1, 8) || '-' || substr(md5(w.id::text), 9, 4) || '-' ||
+    substr(md5(w.id::text), 13, 4) || '-' || substr(md5(w.id::text), 17, 4) || '-' ||
+    substr(md5(w.id::text), 21, 12))::uuid`
+
+  return [
+    `CREATE TABLE ${tables.devEnvironments} (
+      id uuid PRIMARY KEY,
+      owner_id uuid NOT NULL REFERENCES ${tables.users} (id),
+      name text NOT NULL,
+      image text NOT NULL,
+      -- The container this environment runs as, or NULL until it is first started.
+      container_id text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+    `CREATE INDEX ${indexes.devEnvironmentsByOwner}
+      ON ${tables.devEnvironments} (owner_id, updated_at DESC)`,
+    `CREATE TABLE ${tables.workspaceEnvironments} (
+      workspace_id uuid NOT NULL REFERENCES ${tables.workspaces} (id) ON DELETE CASCADE,
+      environment_id uuid NOT NULL REFERENCES ${tables.devEnvironments} (id) ON DELETE CASCADE,
+      PRIMARY KEY (workspace_id, environment_id)
+    )`,
+    `CREATE TABLE ${tables.agentEnvironments} (
+      agent_id uuid NOT NULL REFERENCES ${tables.agents} (id) ON DELETE CASCADE,
+      environment_id uuid NOT NULL REFERENCES ${tables.devEnvironments} (id) ON DELETE CASCADE,
+      PRIMARY KEY (agent_id, environment_id)
+    )`,
+    `CREATE UNIQUE INDEX ${indexes.agentEnvironmentsOnePerAgent} ON ${tables.agentEnvironments} (agent_id)`,
+
+    // One environment per workspace that named a container, keeping the image it named: an install that is upgraded
+    // keeps the environment it had instead of starting without one.
+    `INSERT INTO ${tables.devEnvironments} (id, owner_id, name, image)
+      SELECT ${derived}, w.owner_id, w.name, w.container->>'image'
+      FROM ${tables.workspaces} w WHERE ${hasImage}`,
+    `INSERT INTO ${tables.workspaceEnvironments} (workspace_id, environment_id)
+      SELECT w.id, ${derived} FROM ${tables.workspaces} w WHERE ${hasImage}`,
+
+    `ALTER TABLE ${tables.workspaces} DROP COLUMN container`,
+  ]
+}
+
 /** Ordered schema history: a released version is never edited, a change appends one. */
 export const MIGRATIONS: readonly { version: number; statements: (schema: PostgresSchema) => readonly string[] }[] = [
   { version: 1, statements: migration },
@@ -606,6 +672,7 @@ export const MIGRATIONS: readonly { version: number; statements: (schema: Postgr
   { version: 5, statements: archiveMigration },
   { version: 6, statements: capabilityMigration },
   { version: 7, statements: capabilityLinkMigration },
+  { version: 8, statements: environmentMigration },
 ]
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0

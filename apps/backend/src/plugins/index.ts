@@ -6,6 +6,7 @@ import { registerErrorHandling } from '../error-handler.js'
 import { healthRoutes } from '../routes/health.js'
 import { meRoutes } from '../routes/me.js'
 import { capabilityRoutes } from '../routes/capabilities.js'
+import { registerStatic } from '../static.js'
 import { threadRoutes } from '../routes/threads.js'
 import { workspaceRoutes } from '../routes/workspaces.js'
 
@@ -13,13 +14,19 @@ export interface PluginOptions {
   readonly agent: Agent
 }
 
-// Single registration point: error handling first, then plugins that add routes.
+// Single registration point: static files and error handling happen in this tick, because the SPA fallback is a
+// not-found handler and those only take effect before the instance boots. Routes follow.
 export async function registerPlugins(
   server: FastifyInstance,
   config: Config,
   options: PluginOptions,
 ): Promise<void> {
-  registerErrorHandling(server, { exposeDetails: config.nodeEnv !== 'production' })
+  const sendIndex = registerStatic(server, config.frontendDir)
+
+  registerErrorHandling(server, {
+    exposeDetails: config.nodeEnv !== 'production',
+    sendIndex,
+  })
 
   await server.register(healthRoutes)
   await server.register(meRoutes, { agent: options.agent })

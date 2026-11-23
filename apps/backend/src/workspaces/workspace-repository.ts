@@ -8,19 +8,14 @@ import { rowsOf, withClient, withTransaction } from '../storage/postgres/db.js'
 import type { PostgresSchema } from '../storage/postgres/schema.js'
 
 /**
- * A dev container is a named image the platform publishes and builds in `apps/agent`, not a reference to an arbitrary
- * registry: a workspace may only ask for tooling the platform can actually provision.
+ * A workspace: the scope threads and agents live in. The container an environment runs is a property of the
+ * environment, not of the workspace — one workspace can have several.
  */
-export interface WorkspaceContainer {
-  readonly image: string
-}
-
 export interface Workspace {
   readonly id: string
   readonly name: string
   readonly description: string
   readonly isDefault: boolean
-  readonly container: WorkspaceContainer | null
   readonly allowAll: boolean
   readonly archivedAt: Date | null
   readonly createdAt: Date
@@ -30,7 +25,6 @@ export interface Workspace {
 export interface WorkspaceInput {
   readonly name: string
   readonly description?: string
-  readonly container?: WorkspaceContainer | null
   readonly allowAll?: boolean
 }
 
@@ -41,19 +35,10 @@ interface WorkspaceRow {
   readonly name: string
   readonly description: string
   readonly is_default: boolean
-  readonly container: unknown
   readonly allow_all: boolean
   readonly archived_at: Date | null
   readonly created_at: Date
   readonly updated_at: Date
-}
-
-// The column is `jsonb` and only `image` is promised, so an unexpected shape is read as "no container" rather than
-// guessed at. Writes are validated by the route schema, so this only guards rows written by something else.
-const toContainer = (value: unknown): WorkspaceContainer | null => {
-  if (typeof value !== 'object' || value === null || !('image' in value)) return null
-
-  return typeof value.image === 'string' ? { image: value.image } : null
 }
 
 const toWorkspace = (row: WorkspaceRow): Workspace => ({
@@ -61,14 +46,13 @@ const toWorkspace = (row: WorkspaceRow): Workspace => ({
   name: row.name,
   description: row.description,
   isDefault: row.is_default,
-  container: toContainer(row.container),
   allowAll: row.allow_all,
   archivedAt: row.archived_at,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 })
 
-const COLUMNS = `id, name, description, is_default, container, allow_all, archived_at, created_at, updated_at`
+const COLUMNS = `id, name, description, is_default, allow_all, archived_at, created_at, updated_at`
 
 const immutable = (): AppError =>
   new AppError('the default workspace cannot be edited, archived or deleted', {
@@ -141,14 +125,13 @@ export class WorkspaceRepository {
 
   async create(ownerId: string, input: WorkspaceInput): Promise<Workspace> {
     const text = `INSERT INTO ${this.#schema.tables.workspaces}
-      (id, owner_id, name, description, container, allow_all)
-      VALUES ($1, $2, $3, $4, $5, $6) RETURNING ${COLUMNS}`
+      (id, owner_id, name, description, allow_all)
+      VALUES ($1, $2, $3, $4, $5) RETURNING ${COLUMNS}`
     const rows = await this.#select(text, [
       randomUUID(),
       ownerId,
       input.name,
       input.description ?? '',
-      containerValue(input.container),
       input.allowAll ?? false,
     ])
     const row = rows[0]
@@ -172,7 +155,6 @@ export class WorkspaceRepository {
 
     if (patch.name !== undefined) assign('name', patch.name)
     if (patch.description !== undefined) assign('description', patch.description)
-    if (patch.container !== undefined) assign('container', containerValue(patch.container))
     if (patch.allowAll !== undefined) assign('allow_all', patch.allowAll)
     if (assignments.length === 0) return existing
 
@@ -256,8 +238,3 @@ export class WorkspaceRepository {
     return withClient(this.#pool, (client) => rowsOf<WorkspaceRow>(client, text, values))
   }
 }
-
-// `jsonb` takes JSON text; `null` clears the container and is distinct from "not part of this write", which is handled
-// by the caller before it gets here.
-const containerValue = (container: WorkspaceContainer | null | undefined): Value =>
-  container === undefined || container === null ? null : JSON.stringify(container)

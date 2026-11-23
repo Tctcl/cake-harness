@@ -190,13 +190,6 @@ export function ThreadInfoSidebar({ thread, workspace, onRenamed }: ThreadInfoSi
           {count(state.usage.cacheRead)} / {count(state.usage.cacheWrite)}
         </Field>
         <Field label="Cost">{money(state.usage.cost)}</Field>
-
-        {workspace === null || workspace.container === null ? null : (
-          <>
-            <Separator />
-            <Field label="Container">{workspace.container.image}</Field>
-          </>
-        )}
       </dl>
 
       {error === null ? null : (

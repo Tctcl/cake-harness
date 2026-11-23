@@ -1,4 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { afterAll, describe, expect, it } from 'vitest'
 
 import type { Agent, ArchiveQuery, ThreadQuery } from './agent.js'
 import type { CapabilityApi } from './capabilities/api.js'
@@ -26,7 +30,6 @@ const workspaceOf = (overrides: Partial<Workspace> = {}): Workspace => ({
   name: 'General',
   description: '',
   isDefault: true,
-  container: null,
   allowAll: true,
   archivedAt: null,
   createdAt: new Date(0),
@@ -502,7 +505,6 @@ describe('workspace routes', () => {
             name: 'General',
             description: '',
             isDefault: true,
-            container: null,
             allowAll: true,
             archivedAt: null,
             createdAt: '1970-01-01T00:00:00.000Z',
@@ -727,6 +729,65 @@ describe('workspace routes', () => {
 
       expect(response.statusCode).toBe(409)
       expect(response.json<{ error: { code: string } }>().error.code).toBe('WORKSPACE_ARCHIVED')
+    } finally {
+      await server.close()
+    }
+  })
+})
+
+describe('static frontend', () => {
+  // The image puts the Vite build in FRONTEND_DIR; the test answers the same three requests the browser makes.
+  const root = mkdtempSync(join(tmpdir(), 'tctcl-frontend-'))
+  writeFileSync(join(root, 'index.html'), '<!doctype html><title>app</title>')
+  const frontendConfig = loadConfig({ NODE_ENV: 'test', DATABASE_URL, FRONTEND_DIR: root })
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('serves index.html at the root', async () => {
+    const server = buildServer(frontendConfig, { agent: stubAgent() })
+
+    try {
+      const response = await server.inject({ method: 'GET', url: '/' })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.headers['content-type']).toContain('text/html')
+      expect(response.body).toContain('<title>app</title>')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('answers a browser navigation that matches no route with the same document', async () => {
+    const server = buildServer(frontendConfig, { agent: stubAgent() })
+
+    try {
+      const response = await server.inject({
+        method: 'GET',
+        url: '/workspaces/some/deep/route',
+        headers: { accept: 'text/html,application/xhtml+xml' },
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.body).toContain('<title>app</title>')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('keeps the JSON shape for an unknown API path', async () => {
+    const server = buildServer(frontendConfig, { agent: stubAgent() })
+
+    try {
+      const response = await server.inject({
+        method: 'GET',
+        url: '/no/such/endpoint',
+        headers: { accept: 'application/json' },
+      })
+
+      expect(response.statusCode).toBe(404)
+      expect(response.json<{ error: { code: string } }>().error.code).toBe('NOT_FOUND')
     } finally {
       await server.close()
     }

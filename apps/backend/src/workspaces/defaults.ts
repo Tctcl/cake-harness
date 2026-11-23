@@ -16,6 +16,6 @@ export const DEFAULT_WORKSPACE_NAME = 'General'
 export const DEFAULT_AGENT_NAME = 'General'
 
 export const DEFAULT_WORKSPACE_DESCRIPTION =
-  'Every tool, MCP server and skill. No dev container: sessions here stay in the backend.'
+  'Every tool, MCP server and skill. Sessions here run on this host, not in an environment.'
 
 export const DEFAULT_AGENT_DESCRIPTION = 'The default profile: everything enabled, no instructions.'

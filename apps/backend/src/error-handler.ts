@@ -1,10 +1,13 @@
 import type { FastifyError, FastifyInstance } from 'fastify'
 
 import { AppError } from './errors.js'
+import type { SendIndex } from './static.js'
 
 export interface ErrorHandlingOptions {
   /** Include the original error message for unexpected failures in responses. */
   readonly exposeDetails: boolean
+  /** Answers a browser navigation that matched no route, or `undefined` when no SPA is mounted. */
+  readonly sendIndex: SendIndex | undefined
 }
 
 interface ErrorBody {
@@ -25,6 +28,17 @@ export function registerErrorHandling(
   options: ErrorHandlingOptions,
 ): void {
   server.setNotFoundHandler((request, reply) => {
+    // A browser navigation that matched no route is the SPA's own route, so it gets index.html. Anything else, an
+    // unknown API path included, gets the JSON shape the frontend already knows how to read.
+    if (
+      options.sendIndex !== undefined &&
+      request.method === 'GET' &&
+      request.headers.accept?.includes('text/html') === true
+    ) {
+      options.sendIndex(reply)
+      return
+    }
+
     reply.code(404).send(errorBody('NOT_FOUND', `Route ${request.method} ${request.url} not found`))
   })
 

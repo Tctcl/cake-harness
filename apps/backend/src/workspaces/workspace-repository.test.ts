@@ -61,27 +61,24 @@ if (url === undefined) {
           name: DEFAULT_WORKSPACE_NAME,
           description: DEFAULT_WORKSPACE_DESCRIPTION,
           isDefault: true,
-          container: null,
           allowAll: true,
         })
         await expect(workspaces.default(ownerId)).resolves.toMatchObject({ id: DEFAULT_WORKSPACE_ID })
       })
     })
 
-    it('records a workspace with its container and ceiling', async () => {
+    it('records a workspace with its ceiling', async () => {
       await withWorkspaces(async (workspaces) => {
         const workspace = await workspaces.create('00000000-0000-4000-8000-000000000001', {
           name: 'Platform',
-          description: 'Needs a container',
-          container: { image: 'devcontainer/node-26' },
+          description: 'Needs to reach everything',
           allowAll: false,
         })
 
         expect(workspace).toMatchObject({
           name: 'Platform',
-          description: 'Needs a container',
+          description: 'Needs to reach everything',
           isDefault: false,
-          container: { image: 'devcontainer/node-26' },
           allowAll: false,
         })
         await expect(workspaces.find(workspace.id)).resolves.toMatchObject({ id: workspace.id })
@@ -105,19 +102,15 @@ if (url === undefined) {
       })
     })
 
-    it('edits a workspace and clears its container', async () => {
+    it('edits a workspace', async () => {
       await withWorkspaces(async (workspaces) => {
         const workspace = await workspaces.create('00000000-0000-4000-8000-000000000001', {
           name: 'Platform',
-          container: { image: 'devcontainer/node-26' },
         })
 
-        const renamed = await workspaces.update(workspace.id, {
-          name: 'Platform v2',
-          container: null,
-        })
+        const renamed = await workspaces.update(workspace.id, { name: 'Platform v2' })
 
-        expect(renamed).toMatchObject({ name: 'Platform v2', container: null })
+        expect(renamed).toMatchObject({ name: 'Platform v2' })
         await expect(workspaces.update(workspace.id, {})).resolves.toMatchObject({
           name: 'Platform v2',
         })

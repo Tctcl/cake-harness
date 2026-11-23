@@ -6,3 +6,7 @@ allowBuilds:
   esbuild: true
   '@google/genai': false
   protobufjs: false
+  # dockerode's optional SSH transport. The backend talks to Docker over a unix socket or the read-write proxy, never
+  # over SSH, so the two native addons behind it are blocked and the pure-JS fallback is what actually runs.
+  ssh2: false
+  cpu-features: false

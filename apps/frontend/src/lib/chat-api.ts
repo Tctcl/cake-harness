@@ -94,13 +94,12 @@ export interface ChatThread {
   readonly agentId: string
 }
 
-/** A whole workspace row: the ceiling its agents narrow, and whether sessions need a dev container. */
+/** A whole workspace row: the ceiling its agents narrow. */
 export interface WorkspaceSummary {
   readonly id: string
   readonly name: string
   readonly description: string
   readonly isDefault: boolean
-  readonly container: { readonly image: string } | null
   /** Whether the workspace reaches every capability, including ones added later. */
   readonly allowAll: boolean
 }
