@@ -198,9 +198,30 @@ by `.github/workflows/bundle.yml` and uploaded to the release. It is fetched ove
 TLS and its contents are checked into this repository, but there is no signature
 and no checksum file yet.
 
+### Knowing when a release lands
+
+The backend asks GitHub for `releases/latest` every fifteen minutes
+(`UPDATE_CHECK_INTERVAL_MS`, `0` turns it off) and records the answer: what the
+install runs from `TCTCL_VERSION`, what the newest release is, and whether the
+first is behind the second. `GET /updates` returns the last answer without
+touching the network; `POST /updates` forces a check. Nothing in the interface
+reads it yet.
+
+Two cases report `available: null` instead of guessing. A staging install tracks
+a moving tag, so every merge would look like an update and the number would mean
+nothing. A checkout has no `TCTCL_VERSION` to compare against. Both still
+record when they last checked.
+
+This is a notification, not an updater: nothing is downloaded and nothing is
+restarted. Applying an update is `install.sh` on the host, over the update
+socket, which the backend does not drive yet.
+
 ## What is not here
 
 - Any backend client for the update socket: no route, no progress streaming.
+- An updater behind the update check: the install is told a release exists and
+  nothing more.
+- Any interface for the update check: the two routes are the whole surface.
 - Backups, restore, and the schema-migration policy that would make in-place
   rollback safe.
 - Signature or checksum verification for the release bundle.

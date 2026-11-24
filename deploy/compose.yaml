@@ -124,6 +124,11 @@ services:
       # What a new environment is created from, so provisioning pulls a released
       # image instead of whatever tag happens to be on the host.
       WORKSPACE_IMAGE: ${TCTCL_WORKSPACE_IMAGE:?set TCTCL_WORKSPACE_IMAGE}
+      # What the update check compares: the channel decides whether a comparison is meaningful at
+      # all, and the version is the half of it the image cannot know on its own.
+      TCTCL_CHANNEL: ${TCTCL_CHANNEL:?set TCTCL_CHANNEL}
+      TCTCL_VERSION: ${TCTCL_VERSION:?set TCTCL_VERSION}
+      UPDATE_CHECK_INTERVAL_MS: ${UPDATE_CHECK_INTERVAL_MS:-900000}
     networks:
       - edge
       - db

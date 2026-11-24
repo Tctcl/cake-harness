@@ -15,6 +15,9 @@ describe('loadConfig', () => {
       databasePoolSize: 10,
       docker: { socketPath: '/var/run/docker.sock' },
       workspaceImage: 'tctcl/dev-env:dev',
+      channel: 'production',
+      version: undefined,
+      updateCheckIntervalMs: 900_000,
       frontendDir: undefined,
     })
   })
@@ -48,6 +51,9 @@ describe('loadConfig', () => {
       databasePoolSize: 4,
       docker: { socketPath: '/var/run/docker.sock' },
       workspaceImage: 'tctcl/dev-env:dev',
+      channel: 'production',
+      version: undefined,
+      updateCheckIntervalMs: 900_000,
       frontendDir: undefined,
     })
   })

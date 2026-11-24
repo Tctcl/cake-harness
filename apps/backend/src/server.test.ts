@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 
 import type { Agent, ArchiveQuery, ThreadQuery } from './agent.js'
 import type { CapabilityApi } from './capabilities/api.js'
@@ -148,6 +148,24 @@ function stubAgent(overrides: Partial<Agent> = {}): Agent {
   return {
     capabilities: capabilitiesOf(),
     environments: environmentsOf(),
+    updateStatus: () => ({
+      channel: 'production',
+      current: null,
+      latest: null,
+      url: null,
+      available: null,
+      checkedAt: null,
+      error: null,
+    }),
+    checkForUpdates: async () => ({
+      channel: 'production',
+      current: null,
+      latest: null,
+      url: null,
+      available: null,
+      checkedAt: null,
+      error: null,
+    }),
     me: async () => ({ id: LOCAL_USER_ID, name: 'Local user' }),
     workspaces: async () => [],
     workspace: async () => undefined,
@@ -961,6 +979,51 @@ describe('environment routes', () => {
 
       expect(response.statusCode).toBe(404)
       expect(response.json<{ error: { code: string } }>().error.code).toBe('AGENT_NOT_FOUND')
+    } finally {
+      await server.close()
+    }
+  })
+})
+
+describe('update routes', () => {
+  const status = {
+    channel: 'production',
+    current: '0.2.0',
+    latest: '0.3.0',
+    url: 'https://github.com/Tctcl/tlabs-platform/releases/tag/v0.3.0',
+    available: true,
+    checkedAt: '2026-01-01T00:00:00.000Z',
+    error: null,
+  } as const
+
+  it('reports the last check without asking GitHub', async () => {
+    const checkForUpdates = vi.fn()
+    const server = buildServer(config, {
+      agent: stubAgent({ updateStatus: () => status, checkForUpdates }),
+    })
+
+    try {
+      const response = await server.inject({ method: 'GET', url: '/updates' })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual(status)
+      expect(checkForUpdates).not.toHaveBeenCalled()
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('forces a check on POST and answers with its result', async () => {
+    const checked = { ...status, checkedAt: '2026-01-01T00:05:00.000Z' }
+    const checkForUpdates = vi.fn(async () => checked)
+    const server = buildServer(config, { agent: stubAgent({ checkForUpdates }) })
+
+    try {
+      const response = await server.inject({ method: 'POST', url: '/updates' })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual(checked)
+      expect(checkForUpdates).toHaveBeenCalledOnce()
     } finally {
       await server.close()
     }

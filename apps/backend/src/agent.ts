@@ -33,6 +33,9 @@ import { retryingStorage } from './storage/postgres/resilient.js'
 import { sharedStorage } from './storage/postgres/shared.js'
 import { isConnectFailure, withRetryUntil } from './storage/postgres/retry.js'
 import { ensureLocalUser, readLocalUser } from './threads/local-user.js'
+import { createUpdateChecker } from './updates/checker.js'
+import type { UpdateStatus } from './updates/checker.js'
+import { createGithubReleases } from './updates/releases.js'
 import type { LocalUser } from './threads/local-user.js'
 import type { ChatThread, ThreadTarget } from './threads/thread-repository.js'
 import { ThreadRepository } from './threads/thread-repository.js'
@@ -159,6 +162,10 @@ export interface Agent {
   capabilities: CapabilityApi
   /** The containers a workspace can run in, and which of them an agent works in. */
   environments: EnvironmentApi
+  /** What this install runs and whether a newer release exists, as of the last check. */
+  updateStatus(): UpdateStatus
+  /** Ask now rather than waiting for the interval. */
+  checkForUpdates(): Promise<UpdateStatus>
   /** Threads of the local user, most recently changed first, narrowed to one workspace when one is named. */
   threads(query?: ThreadQuery): Promise<ChatThread[]>
   /** Create a thread together with the durable conversation that carries it. */
@@ -526,6 +533,14 @@ export async function createAgent(config: Config): Promise<Agent> {
     image: config.workspaceImage,
   })
 
+  const updates = createUpdateChecker({
+    channel: config.channel,
+    version: config.version,
+    releases: createGithubReleases(),
+    intervalMs: config.updateCheckIntervalMs,
+  })
+  updates.start()
+
   const capabilities = createCapabilityApi({
     ownerId,
     tools,
@@ -559,6 +574,14 @@ export async function createAgent(config: Config): Promise<Agent> {
   return {
     capabilities,
     environments,
+
+    updateStatus() {
+      return updates.status()
+    },
+
+    checkForUpdates() {
+      return updates.check()
+    },
 
     me() {
       return readLocalUser(postgres.pool, postgres.schema)
@@ -742,6 +765,7 @@ export async function createAgent(config: Config): Promise<Agent> {
     },
 
     async close() {
+      updates.stop()
       await supervisor.close()
       await postgres.close(CONTEXT)
     },

@@ -29,9 +29,19 @@ export interface Config {
   readonly docker: DockerConnection
   /** The tooling image a new environment is created from unless it records another. */
   readonly workspaceImage: string
+  /** Where this install's releases come from; a staging install tracks a moving tag instead of a version. */
+  readonly channel: ReleaseChannel
+  /** The release this install runs, or `undefined` when nothing said (a checkout, `pnpm dev`). */
+  readonly version: string | undefined
+  /** How often to ask whether a newer release exists; `0` turns the check off. */
+  readonly updateCheckIntervalMs: number
   /** The built SPA to serve, or `undefined` when Vite serves the frontend in development. */
   readonly frontendDir: string | undefined
 }
+
+export const releaseChannels = ['production', 'staging'] as const
+
+export type ReleaseChannel = (typeof releaseChannels)[number]
 
 const environmentSchema = z.object({
   NODE_ENV: z.enum(nodeEnvironments).default('development'),
@@ -56,6 +66,17 @@ const environmentSchema = z.object({
   DOCKER_HOST: z.string().min(1).default('unix:///var/run/docker.sock'),
   // The local development image the agent workspace is built as; an install sets this to the released tag.
   WORKSPACE_IMAGE: z.string().min(1).default('tctcl/dev-env:dev'),
+  TCTCL_CHANNEL: z.enum(releaseChannels).default('production'),
+  // Absent in a checkout: there is nothing to compare against, so the check reports that instead of guessing.
+  TCTCL_VERSION: z
+    .string()
+    .regex(/^\d+\.\d+\.\d+$/, 'must be X.Y.Z')
+    .optional(),
+  UPDATE_CHECK_INTERVAL_MS: z.coerce
+    .number({ error: 'must be a number' })
+    .int('must be an integer')
+    .min(0, 'must be 0 or more')
+    .default(900_000),
   FRONTEND_DIR: z.string().min(1).optional(),
 })
 
@@ -95,6 +116,9 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     databasePoolSize: parsed.data.DATABASE_POOL_SIZE,
     docker,
     workspaceImage: parsed.data.WORKSPACE_IMAGE,
+    channel: parsed.data.TCTCL_CHANNEL,
+    version: parsed.data.TCTCL_VERSION,
+    updateCheckIntervalMs: parsed.data.UPDATE_CHECK_INTERVAL_MS,
     frontendDir: parsed.data.FRONTEND_DIR,
   }
 }

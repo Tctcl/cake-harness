@@ -9,6 +9,7 @@ import { capabilityRoutes } from '../routes/capabilities.js'
 import { environmentRoutes } from '../routes/environments.js'
 import { registerStatic } from '../static.js'
 import { threadRoutes } from '../routes/threads.js'
+import { updateRoutes } from '../routes/updates.js'
 import { workspaceRoutes } from '../routes/workspaces.js'
 
 export interface PluginOptions {
@@ -35,4 +36,5 @@ export async function registerPlugins(
   await server.register(workspaceRoutes, { agent: options.agent })
   await server.register(capabilityRoutes, { agent: options.agent })
   await server.register(environmentRoutes, { agent: options.agent })
+  await server.register(updateRoutes, { agent: options.agent })
 }
