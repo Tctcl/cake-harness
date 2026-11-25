@@ -206,6 +206,85 @@ describe('ChatPane', () => {
     expect(posts).toBe(2)
   })
 
+  it('keeps a failed line where it was sent rather than at the bottom', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_path: string, init?: RequestInit) =>
+        init?.method === 'POST'
+          ? reply({ error: { message: 'the agent is unavailable' } }, false)
+          : reply({ messages: [], nextCursor: null }),
+      ),
+    )
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    await waitFor(() => expect(stream()).toBeDefined())
+
+    const sent = [
+      { id: 4, role: 'assistant', text: 'the first answer' },
+      { id: 5, role: 'user', text: 'a question' },
+    ]
+    stream()?.emit(STREAM_EVENT, frame(sent))
+    await screen.findByText('a question')
+
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'the failed follow-up' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    expect(await screen.findByText('Not sent')).toBeInTheDocument()
+
+    stream()?.emit(STREAM_EVENT, frame([...sent, { id: 6, role: 'assistant', text: 'a later answer' }]))
+    await screen.findByText('a later answer')
+
+    const transcript = screen.getByLabelText('Transcript').textContent ?? ''
+    expect(transcript.indexOf('the failed follow-up')).toBeGreaterThan(transcript.indexOf('a question'))
+    expect(transcript.indexOf('the failed follow-up')).toBeLessThan(transcript.indexOf('a later answer'))
+  })
+
+  it('does not show the working indicator for a line that never reached a run', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_path: string, init?: RequestInit) =>
+        init?.method === 'POST'
+          ? reply({ error: { message: 'the agent is unavailable' } }, false)
+          : reply({ messages: [], nextCursor: null }),
+      ),
+    )
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    await waitFor(() => expect(stream()).toBeDefined())
+
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'still here' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    expect(await screen.findByText('Not sent')).toBeInTheDocument()
+    expect(screen.queryByText('Thinking…')).not.toBeInTheDocument()
+
+    stream()?.emit(STREAM_EVENT, {
+      messages: [],
+      tools: [],
+      run: null,
+      usage: NO_USAGE,
+      live: { blocks: [], tools: [], turns: 0, compacting: 0, failure: null },
+    })
+
+    expect(screen.queryByText('Thinking…')).not.toBeInTheDocument()
+  })
+
+  it('shows the working indicator while the live state says a run is in flight', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => reply({ messages: [], nextCursor: null })))
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    await waitFor(() => expect(stream()).toBeDefined())
+
+    stream()?.emit(STREAM_EVENT, {
+      messages: [],
+      tools: [],
+      run: null,
+      usage: NO_USAGE,
+      live: { blocks: [], tools: [], turns: 1, compacting: 0, failure: null },
+    })
+
+    expect(await screen.findByText('Thinking…')).toBeInTheDocument()
+  })
+
   it('says why a message was refused for want of a key, and offers the fix', async () => {
     const refusal = new Response(
       JSON.stringify({ error: { code: 'AGENT_NO_KEY', message: 'No OpenCode Go key reaches this agent.' } }),
