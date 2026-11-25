@@ -30,9 +30,13 @@ const fieldsOf = (body: unknown): ManifestFields => {
  * Fetches the manifest and validates both documents. Everything the container
  * installs or authenticates with enters the process here.
  */
-export const fetchDocuments = async (url: string, fetchFn: typeof fetch = fetch): Promise<BootstrapDocuments> => {
+export const fetchDocuments = async (
+  url: string,
+  token: string | null,
+  fetchFn: typeof fetch = fetch,
+): Promise<BootstrapDocuments> => {
   const response = await fetchFn(url, {
-    headers: { accept: 'application/json' },
+    headers: { accept: 'application/json', ...(token === null ? {} : { authorization: `Bearer ${token}` }) },
     signal: AbortSignal.timeout(TIMEOUT_MS),
   })
 

@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from 'node:crypto'
 
 /**
  * The TOTP secret is a second factor, and a database dump that holds it in the clear hands out both factors at once.
@@ -15,6 +15,11 @@ export interface SecretBox {
   readonly seal: (plain: string) => string
   /** Throws when the ciphertext or its tag was rewritten: a tampered secret must fail closed, not read as absent. */
   readonly open: (sealed: string) => string
+  /**
+   * A stable keyed value for `label`, so a credential can be derived from the install's secret instead of stored: the
+   * same label always answers the same hex string, and nobody without the secret can produce it.
+   */
+  readonly derive: (label: string) => string
 }
 
 export const createSecretBox = (configured: string): SecretBox => {
@@ -43,6 +48,10 @@ export const createSecretBox = (configured: string): SecretBox => {
       decipher.setAuthTag(tagBytes)
 
       return Buffer.concat([decipher.update(Buffer.from(sealed, 'base64url')), decipher.final()]).toString('utf8')
+    },
+
+    derive(label) {
+      return createHmac('sha256', key).update(label).digest('hex')
     },
   }
 }

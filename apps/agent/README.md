@@ -75,8 +75,11 @@ compose.dev.yml           local harness: build, run, port 2222
   `src/**/*.test.ts` files, Node environment, no globals.
 - Environment variables: `DEV_ENV_MANIFEST_URL` (required — the backend's
   manifest for this environment), `DEV_ENV_STATE_URL` (where the report goes;
-  absent means the environment runs without telling anyone), and
-  `DEV_ENV_INSTALL_RECORD` (default `/var/lib/dev-env/installed.json`). Cake
+  absent means the environment runs without telling anyone), `DEV_ENV_TOKEN`
+  (the bearer token Cake starts the container with; both calls send it, and the
+  backend refuses them without it, because the manifest carries the credentials
+  the container sets up), and `DEV_ENV_INSTALL_RECORD` (default
+  `/var/lib/dev-env/installed.json`). Cake
   installs SSH authorized keys with `docker exec` after the container starts;
   the standalone `compose.dev.yml` harness has no backend key delivery, so it
   does not accept SSH connections until a key is manually installed.

@@ -255,7 +255,7 @@ function Transcript({
             <PendingLine key={item.localId} item={item} threadId={threadId} />
           ))}
 
-          {state.messages.map((message) => (
+          {inReceivedOrder(state.messages).map((message) => (
             <Fragment key={message.id}>
               <MessageScrollerItem messageId={String(message.id)}>
                 <Line
@@ -472,6 +472,22 @@ function newestLineFailed(messages: readonly ChatMessage[]): boolean {
   const newest = messages.at(-1)
 
   return newest?.role === 'assistant' && (newest.stopReason === 'error' || newest.errorMessage !== null)
+}
+
+/**
+ * The transcript in the order the model receives it. Durable writes a request's system entry (the system prompt, the
+ * agent's part, the offered tools) in the same commit as the request, so after the person's line that triggered it;
+ * the model reads that context first. A context line right after a person's line is shown before it.
+ */
+function inReceivedOrder(messages: readonly ChatMessage[]): ChatMessage[] {
+  const ordered: ChatMessage[] = []
+  for (const message of messages) {
+    const previous = ordered.at(-1)
+    if (message.role === 'context' && previous?.role === 'user') ordered.splice(ordered.length - 1, 0, message)
+    else ordered.push(message)
+  }
+
+  return ordered
 }
 
 /** The optimistic lines sent before anything was stored: they precede every message. */
