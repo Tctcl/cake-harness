@@ -72,16 +72,17 @@ if (url === undefined) {
       }
     })
 
-    it('names the field a kind is missing instead of failing in the database', async () => {
+    it('takes a provider key without an email, and names the field an MCP key is missing', async () => {
       const server = await serve()
       try {
+        // The account email is optional on a provider key; only an MCP key must name its server.
         const noEmail = await server.inject({
           method: 'POST',
           url: '/credentials',
           payload: { kind: 'opencode-go', name: 'work', value: 'sk-1' },
         })
-        expect(noEmail.statusCode).toBe(400)
-        expect(noEmail.json()).toMatchObject({ error: { code: 'CREDENTIAL_EMAIL_REQUIRED' } })
+        expect(noEmail.statusCode).toBe(201)
+        expect(noEmail.json()).toMatchObject({ email: null })
 
         const noServer = await server.inject({
           method: 'POST',

@@ -1,7 +1,8 @@
 import type { FastifyPluginAsync } from 'fastify'
 
 import type { Agent } from '../agent.js'
-import type { AgentPatch, AgentProfile } from '../agents/agent-repository.js'
+import type { AgentInput, AgentPatch, AgentProfile } from '../agents/agent-repository.js'
+import { THINKING_LEVELS } from '../agents/agent-repository.js'
 import { AppError } from '../errors.js'
 import type { Workspace, WorkspacePatch } from '../workspaces/workspace-repository.js'
 
@@ -103,6 +104,9 @@ const agentProperties = {
   allowAll: { type: 'boolean' },
   systemPrompt: { type: 'string' },
   instructions: { type: 'string' },
+  credentialId: { type: ['string', 'null'] },
+  modelId: { type: ['string', 'null'] },
+  thinkingLevel: { type: 'string' },
   archivedAt: { type: ['string', 'null'] },
   createdAt: { type: 'string' },
   updatedAt: { type: 'string' },
@@ -120,6 +124,9 @@ const agentSchema = {
     'allowAll',
     'systemPrompt',
     'instructions',
+    'credentialId',
+    'modelId',
+    'thinkingLevel',
     'archivedAt',
     'createdAt',
     'updatedAt',
@@ -132,6 +139,13 @@ const agentListSchema = {
   required: ['agents'],
 } as const
 
+/** What an agent runs with. `null` hands the key or the model back to the workspace's default. */
+const runSettingsProperties = {
+  credentialId: { anyOf: [{ type: 'string', pattern: uuid }, { type: 'null' }] },
+  modelId: { anyOf: [{ type: 'string', minLength: 1, maxLength: 200 }, { type: 'null' }] },
+  thinkingLevel: { type: 'string', enum: [...THINKING_LEVELS] },
+} as const
+
 const createAgentBody = {
   type: 'object',
   properties: {
@@ -140,6 +154,7 @@ const createAgentBody = {
     allowAll: { type: 'boolean' },
     systemPrompt: { type: 'string' },
     instructions: { type: 'string' },
+    ...runSettingsProperties,
   },
   required: ['name'],
   additionalProperties: false,
@@ -153,6 +168,7 @@ const updateAgentBody = {
     allowAll: { type: 'boolean' },
     systemPrompt: { type: 'string' },
     instructions: { type: 'string' },
+    ...runSettingsProperties,
   },
   additionalProperties: false,
 } as const
@@ -180,13 +196,7 @@ type UpdateWorkspaceBody = WorkspacePatch
 
 type ReorderWorkspacesBody = { order: string[] }
 
-type CreateAgentBody = {
-  name: string
-  description?: string
-  allowAll?: boolean
-  systemPrompt?: string
-  instructions?: string
-}
+type CreateAgentBody = AgentInput
 
 type UpdateAgentBody = AgentPatch
 

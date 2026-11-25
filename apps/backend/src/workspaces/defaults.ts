@@ -19,3 +19,7 @@ export const DEFAULT_WORKSPACE_DESCRIPTION =
   'Every tool, MCP server and skill. Sessions here run on this host, not in an environment.'
 
 export const DEFAULT_AGENT_DESCRIPTION = 'The default profile: everything enabled, no instructions.'
+
+/** The agent a workspace other than the default one starts with; it can be renamed and reconfigured, never archived. */
+export const WORKSPACE_AGENT_NAME = 'Assistant'
+export const WORKSPACE_AGENT_DESCRIPTION = 'The agent this workspace started with.'

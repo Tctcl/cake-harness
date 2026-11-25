@@ -109,9 +109,23 @@ if (url === undefined) {
       })
     })
 
-    it('refuses to edit, archive or delete the default agent', async () => {
+    it('edits the default agent like any other, run settings included', async () => {
       await withAgents(async ({ agents }) => {
-        await expect(agents.update(DEFAULT_AGENT_ID, { name: 'Other' })).rejects.toMatchObject({
+        const edited = await agents.update(DEFAULT_AGENT_ID, {
+          name: 'Assistant',
+          modelId: 'kimi-k3',
+          thinkingLevel: 'high',
+        })
+
+        expect(edited).toMatchObject({ name: 'Assistant', modelId: 'kimi-k3', thinkingLevel: 'high', credentialId: null })
+        // null hands the model back to the default.
+        await expect(agents.update(DEFAULT_AGENT_ID, { modelId: null })).resolves.toMatchObject({ modelId: null })
+      })
+    })
+
+    it('refuses to archive or delete the default agent', async () => {
+      await withAgents(async ({ agents }) => {
+        await expect(agents.archive(DEFAULT_AGENT_ID)).rejects.toMatchObject({
           code: 'AGENT_IMMUTABLE',
           statusCode: 403,
         })
@@ -138,8 +152,8 @@ if (url === undefined) {
 
         const archived = await agents.archive(agent.id)
         expect(archived?.archivedAt).toBeInstanceOf(Date)
-        // A user-created workspace starts with no agents of its own, so the archived listing holds this one alone.
-        await expect(agents.list(workspace.id)).resolves.toHaveLength(0)
+        // The workspace's own default agent stays live; the archived listing holds this one alone.
+        await expect(agents.list(workspace.id)).resolves.toMatchObject([{ name: 'Assistant', isDefault: true }])
         await expect(agents.list(workspace.id, { archived: true })).resolves.toMatchObject([
           { id: agent.id },
         ])
@@ -147,7 +161,7 @@ if (url === undefined) {
 
         const restored = await agents.restore(agent.id)
         expect(restored?.archivedAt).toBeNull()
-        await expect(agents.list(workspace.id)).resolves.toMatchObject([{ id: agent.id }])
+        await expect(agents.list(workspace.id)).resolves.toMatchObject([{ name: 'Assistant' }, { id: agent.id }])
         await expect(threads.list(ownerId)).resolves.toHaveLength(0)
         await expect(threads.list(ownerId, { archived: true })).resolves.toMatchObject([
           { id: thread.id },

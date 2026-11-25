@@ -12,18 +12,6 @@ const workspaceIdParams = {
   additionalProperties: false,
 } as const
 
-/** The key is required on the way in and absent on the way out; it is declared here and nowhere else. */
-const createLoginBody = {
-  type: 'object',
-  properties: {
-    provider: { type: 'string', minLength: 1, maxLength: 100 },
-    label: { type: 'string', minLength: 1, maxLength: 200 },
-    key: { type: 'string', minLength: 1, maxLength: 4096 },
-  },
-  required: ['provider', 'label', 'key'],
-  additionalProperties: false,
-} as const
-
 const loginSchema = {
   type: 'object',
   properties: {
@@ -113,12 +101,6 @@ export const providerRoutes: FastifyPluginAsync<{ agent: Agent }> = async (serve
     '/providers/logins',
     { schema: { response: { 200: loginListSchema } } },
     async () => ({ logins: await providers.logins() }),
-  )
-
-  server.post<{ Body: { provider: string; label: string; key: string } }>(
-    '/providers/logins',
-    { schema: { body: createLoginBody, response: { 201: loginSchema } } },
-    async (request, reply) => reply.code(201).send(await providers.createLogin(request.body)),
   )
 
   server.get(
