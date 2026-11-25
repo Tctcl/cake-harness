@@ -1,0 +1,28 @@
+{
+  "name": "website",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "typecheck": "astro check",
+    "lint": "oxlint --config .oxlintrc.json astro.config.mjs vitest.config.ts src --ignore-pattern '**/*.astro'",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "0.43.1",
+    "astro": "7.4.13"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.12",
+    "@cake-harness/oxlint-config": "workspace:*",
+    "@cake-harness/typescript-config": "workspace:*",
+    "@cake-harness/vitest-config": "workspace:*",
+    "@types/node": "26.6.6",
+    "oxlint": "1.95.0",
+    "typescript": "6.0.3",
+    "vitest": "5.1.1"
+  }
+}
