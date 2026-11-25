@@ -32,6 +32,7 @@ export function WorkspaceDetail({
   workspace,
   onChanged,
   onOpenCredentials,
+  onOpenTerminal,
   initialTab = 'overview',
 }: {
   workspace: WorkspaceSummary
@@ -39,6 +40,8 @@ export function WorkspaceDetail({
   onChanged: () => void
   /** Leave for Settings → Credentials, where keys are added. */
   onOpenCredentials: () => void
+  /** Close this window and show the selected workspace's terminal in the shell. */
+  onOpenTerminal: (workspaceId: string) => void
   /** The tab to open on, so a "set up a key" link can land on Providers. */
   initialTab?: TabId
 }) {
@@ -99,7 +102,13 @@ export function WorkspaceDetail({
           </p>
         ) : null}
         {tab === 'overview' ? <WorkspaceOverview workspace={workspace} onChanged={onChanged} /> : null}
-        {tab === 'environment' ? <WorkspaceEnvironmentPanel workspaceId={workspace.id} /> : null}
+        {tab === 'environment' ? (
+          <WorkspaceEnvironmentPanel
+            workspaceId={workspace.id}
+            isDefault={workspace.isDefault}
+            onOpenTerminal={onOpenTerminal}
+          />
+        ) : null}
         {tab === 'mcp' ? <WorkspaceMcp workspaceId={workspace.id} /> : null}
         {tab === 'skills' ? <WorkspaceCapabilities workspaceId={workspace.id} /> : null}
         {tab === 'agents' ? (

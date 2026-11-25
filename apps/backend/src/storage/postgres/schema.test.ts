@@ -3,6 +3,10 @@ import { afterAll, describe, expect, it } from 'vitest'
 
 import { createSchema, openPostgresStorage } from './index.js'
 import { CURRENT_SCHEMA_VERSION, LEGACY_DEFAULT_SYSTEM_PROMPT, MIGRATIONS } from './schema.js'
+import {
+  DEFAULT_WORKSPACE_DESCRIPTION,
+  LEGACY_DEFAULT_WORKSPACE_DESCRIPTION,
+} from '../../workspaces/defaults.js'
 
 const url = process.env['DATABASE_URL']
 
@@ -14,17 +18,17 @@ if (url === undefined) {
   const created: string[] = []
 
   describe('Postgres migrations', () => {
-    it('applies version 21 and drops the prompt catalog and grant tables', async () => {
+    it('applies version 22 and drops the prompt catalog and grant tables', async () => {
       const prefix = `migration_${Math.random().toString(36).slice(2, 8)}_`
       const storage = await openPostgresStorage(url, { prefix })
       const schema = createSchema(prefix)
       created.push(...Object.values(schema.tables))
       try {
-        expect(CURRENT_SCHEMA_VERSION).toBe(21)
+        expect(CURRENT_SCHEMA_VERSION).toBe(22)
         const versions = await storage.pool.query<{ version: number }>(
           `SELECT version FROM ${schema.tables.durableSchema} ORDER BY version`,
         )
-        expect(versions.rows.at(-1)?.version).toBe(21)
+        expect(versions.rows.at(-1)?.version).toBe(22)
 
         for (const table of [schema.tables.prompts, schema.tables.workspacePrompts, schema.tables.agentPrompts]) {
           const result = await storage.pool.query<{ table_name: string | null }>(
@@ -35,6 +39,40 @@ if (url === undefined) {
         }
       } finally {
         await storage.close({} as never)
+      }
+    })
+
+    it('updates only General’s unchanged legacy description', async () => {
+      const prefix = `migration_${Math.random().toString(36).slice(2, 8)}_`
+      const schema = createSchema(prefix)
+      const table = schema.tables.workspaces
+      created.push(table)
+      const client = new Client({ connectionString: url })
+      await client.connect()
+      try {
+        await client.query(`CREATE TABLE ${table} (
+          id integer PRIMARY KEY,
+          description text NOT NULL,
+          is_default boolean NOT NULL,
+          updated_at timestamptz NOT NULL DEFAULT now()
+        )`)
+        await client.query(`INSERT INTO ${table} (id, description, is_default) VALUES
+          (1, $1, true), (2, 'A user-authored description', true), (3, $1, false)`,
+        [LEGACY_DEFAULT_WORKSPACE_DESCRIPTION])
+        const migration = MIGRATIONS.find(({ version }) => version === 22)
+        if (migration === undefined) throw new Error('Migration 22 is missing')
+        for (const statement of migration.statements(schema)) await client.query(statement)
+
+        const rows = await client.query<{ id: number; description: string }>(
+          `SELECT id, description FROM ${table} ORDER BY id`,
+        )
+        expect(rows.rows).toEqual([
+          { id: 1, description: DEFAULT_WORKSPACE_DESCRIPTION },
+          { id: 2, description: 'A user-authored description' },
+          { id: 3, description: LEGACY_DEFAULT_WORKSPACE_DESCRIPTION },
+        ])
+      } finally {
+        await client.end()
       }
     })
 

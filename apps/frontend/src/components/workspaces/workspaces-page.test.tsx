@@ -32,7 +32,7 @@ afterEach(() => {
 
 describe('WorkspacesPage', () => {
   it('lists the workspaces and holds a placeholder until one is picked', async () => {
-    render(<WorkspacesPage onOpenCredentials={() => {}} />)
+    render(<WorkspacesPage onOpenCredentials={() => {}} onOpenTerminal={() => {}} />)
 
     expect(await screen.findByRole('button', { name: /platform/i })).toBeDefined()
     expect(screen.getByText('No workspace selected')).toBeDefined()
@@ -40,7 +40,7 @@ describe('WorkspacesPage', () => {
   })
 
   it('opens the workspace on its overview tab and switches tabs from there', async () => {
-    render(<WorkspacesPage onOpenCredentials={() => {}} />)
+    render(<WorkspacesPage onOpenCredentials={() => {}} onOpenTerminal={() => {}} />)
 
     fireEvent.click(await screen.findByRole('button', { name: /platform/i }))
 
@@ -63,7 +63,7 @@ describe('WorkspacesPage', () => {
   it('starts the next workspace on its overview rather than on the previous one’s tab', async () => {
     const other = { id: 'workspace-2', name: 'Sandbox', description: '', isDefault: false, allowAll: true }
     stubFetch((url) => (url.includes('/workspaces') ? { workspaces: [workspace, other] } : {}))
-    render(<WorkspacesPage onOpenCredentials={() => {}} />)
+    render(<WorkspacesPage onOpenCredentials={() => {}} onOpenTerminal={() => {}} />)
 
     fireEvent.click(await screen.findByRole('button', { name: /platform/i }))
     fireEvent.click(screen.getByRole('tab', { name: 'Providers' }))
@@ -75,7 +75,7 @@ describe('WorkspacesPage', () => {
   })
 
   it('keeps Add workspace usable and points at the name when it is empty', async () => {
-    render(<WorkspacesPage onOpenCredentials={() => {}} />)
+    render(<WorkspacesPage onOpenCredentials={() => {}} onOpenTerminal={() => {}} />)
 
     const add = await screen.findByRole('button', { name: /add workspace/i })
     expect(add).toBeEnabled()
@@ -87,7 +87,7 @@ describe('WorkspacesPage', () => {
   })
 
   it('leaves the way out to the window around it', async () => {
-    render(<WorkspacesPage onOpenCredentials={() => {}} />)
+    render(<WorkspacesPage onOpenCredentials={() => {}} onOpenTerminal={() => {}} />)
 
     await screen.findByRole('button', { name: /platform/i })
 

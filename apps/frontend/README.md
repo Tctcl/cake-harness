@@ -196,7 +196,7 @@ dragged to, so switching panels does not reset the one you just left.
 The terminal is `@xterm/xterm` with the fit addon, one emulator per session so
 scrollback survives a tab switch, and a tab strip at the top of the panel for
 switching and adding sessions. Sessions are the backend's, not the panel's: the
-panel lists what the conversation's environment already has, opening a tab calls
+panel lists what the workspace's environment already has, opening a tab calls
 `POST …/terminals` and closing one calls `DELETE`, and a hidden tab keeps its
 socket so output arriving in the background is not lost. The socket path and the
 frame shapes are in `src/lib/terminal-api.ts`; the protocol is

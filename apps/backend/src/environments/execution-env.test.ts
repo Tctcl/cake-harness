@@ -50,9 +50,18 @@ const options = (current: Workspace, attached: readonly DevEnvironment[]) => {
   return { value, start, ensure }
 }
 
+const attachedEnvironment: DevEnvironment = {
+  id: 'environment-1',
+  name: 'General',
+  image: 'cake-harness/dev-env:dev',
+  containerId: null,
+  createdAt: new Date(0),
+  updatedAt: new Date(0),
+}
+
 describe('createExecutionEnvironment', () => {
-  it('returns undefined for the default workspace without starting a container', async () => {
-    const { value, start, ensure } = options(workspace(true), [])
+  it('returns undefined for General even with an environment, without starting its container', async () => {
+    const { value, start, ensure } = options(workspace(true), [attachedEnvironment])
     const provider = createExecutionEnvironment(value)
 
     await expect(provider.open(target, BACKGROUND_CONTEXT)).resolves.toBeUndefined()

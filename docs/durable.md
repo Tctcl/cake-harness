@@ -71,7 +71,9 @@ The process-wide registry installs pi-durable's `coding-tools` extension (`read`
 `codemode` extension. At startup the registry syncs into the tool catalog
 automatically. Before conversation creation and every submission,
 `agents/tool-selection.ts` removes every extension in `ENV_EXTENSIONS` when the
-workspace is General or has no environment, then gives an allow-all agent every
+workspace is General or has no environment. General does have a container for
+skills, MCP servers and user terminals; this exclusion keeps its agent's shell
+and file tools off deliberately. Selection then gives an allow-all agent every
 remaining tool or a restricted agent exactly its available grants. The read-only
 tools resolve canonical paths inside `/home/dev/workspace`, use argv-based
 execution, cap output and time out after 30 seconds. `git` exposes only
@@ -99,7 +101,8 @@ or missing container and records the container id through the same path as the
 environments API. One `Connection` and `RemoteExecutionEnv` is cached per
 environment id, rooted at `/home/dev/workspace`; a lost connection is dropped and
 all connections close with the backend. General and a workspace without an
-environment return no `ExecutionEnv`.
+environment return no `ExecutionEnv`: General's container runs skills and MCP
+servers, never the agent's own tools.
 
 The product image has no Docker CLI. `Connection` instead spawns the compiled
 `environments/daemon-bridge` with Node. The bridge calls Docker through dockerode

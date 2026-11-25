@@ -41,6 +41,7 @@ export const selectTools = (input: ToolSelectionInput): ToolSelection => {
   const cake = input.registry.extension(CAKE_EXTENSION)
   if (cake === undefined) throw new Error('the Cake system prompt extension is not installed')
 
+  // General's container runs skills and MCP servers, never the agent's own shell or file tools.
   const hasEnvironment = !input.workspace.isDefault && input.hasEnvironment
   const available = input.registry.tools().filter(
     ({ extension }) => hasEnvironment || !ENV_EXTENSIONS.has(extension.name),

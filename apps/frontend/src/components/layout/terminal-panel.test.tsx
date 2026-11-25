@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TerminalPanel } from './terminal-panel.tsx'
 
 const WORKSPACE_ID = '2f1c1f9e-3f6d-4b0a-9d1e-1a2b3c4d5e6f'
-const AGENT_ID = '9b8c7d6e-5f40-4321-8a9b-0c1d2e3f4a5b'
 const ENVIRONMENT_ID = '7d3a2b44-8c1e-4f60-9a05-3b2c1d4e5f60'
 const TERMINAL_ID = 'c4a9d0e2-1b3f-4a55-8e77-9f00aa11bb22'
 
@@ -64,8 +63,8 @@ function backend(options: { environment?: unknown; terminals?: unknown[] } = {})
   const terminals = options.terminals ?? []
 
   return vi.fn((path: string) => {
-    if (path === `/workspaces/${WORKSPACE_ID}/agents/${AGENT_ID}/environment`) {
-      return json({ environment })
+    if (path === `/workspaces/${WORKSPACE_ID}/environments`) {
+      return json({ environments: environment === null ? [] : [environment] })
     }
     if (path === ROOT) return json({ terminals })
 
@@ -73,8 +72,7 @@ function backend(options: { environment?: unknown; terminals?: unknown[] } = {})
   })
 }
 
-const renderPanel = () =>
-  render(<TerminalPanel workspaceId={WORKSPACE_ID} agentId={AGENT_ID} />)
+const renderPanel = () => render(<TerminalPanel workspaceId={WORKSPACE_ID} />)
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -92,13 +90,13 @@ describe('TerminalPanel', () => {
     expect(screen.queryByText('No terminal session yet.')).toBeNull()
   })
 
-  it('says so when the conversation has no environment', async () => {
+  it('says so when the workspace has no environment', async () => {
     vi.stubGlobal('WebSocket', FakeSocket)
     vi.stubGlobal('fetch', backend({ environment: null }))
 
     renderPanel()
 
-    expect(await screen.findByText("This conversation's agent has no environment attached.")).toBeInTheDocument()
+    expect(await screen.findByText('This workspace has no environment attached.')).toBeInTheDocument()
   })
 
   it('opens a session with the backend and makes it the active tab', async () => {

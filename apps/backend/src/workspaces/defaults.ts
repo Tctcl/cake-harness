@@ -15,8 +15,12 @@ export const ALL_CAPABILITIES = '*'
 export const DEFAULT_WORKSPACE_NAME = 'General'
 export const DEFAULT_AGENT_NAME = 'General'
 
-export const DEFAULT_WORKSPACE_DESCRIPTION =
+/** What migration 4 seeded before General gained a container; migration 22 rewrites only this exact copy. */
+export const LEGACY_DEFAULT_WORKSPACE_DESCRIPTION =
   'Every tool, MCP server and skill. Sessions here run on this host, not in an environment.'
+
+export const DEFAULT_WORKSPACE_DESCRIPTION =
+  'Every tool, MCP server and skill. Sessions have no shell or file tools; the container only runs skills and MCP servers.'
 
 /** What migration 4 seeded; kept verbatim because a released migration is never edited. */
 export const DEFAULT_AGENT_DESCRIPTION = 'The default profile: everything enabled, no instructions.'

@@ -22,7 +22,7 @@ Cake is under active development. Its APIs and screens are expected to change. F
 - **Provider credentials.** Add an OpenCode Go key, link it to selected workspaces, and allow selected models. Stored provider keys are encrypted.
 - **Real tool grants.** Sync the registry on a workspace's **Tools** tab, choose its ceiling, and grant capabilities to agents. Container-backed agents run `read`, `write`, `edit`, and `bash` through a pi-env daemon in the workspace container.
 
-The **General** workspace is deliberately different: it has no container and receives only environment-free tools. Today that is `web_fetch`, which refuses private addresses.
+The **General** workspace is deliberately different: its container serves skills, MCP servers and user terminals, while its agent receives only environment-free tools and no shell or file tools.
 
 ## What is not wired up yet
 

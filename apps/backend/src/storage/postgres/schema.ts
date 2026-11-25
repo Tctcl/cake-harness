@@ -7,6 +7,7 @@ import {
   DEFAULT_AGENT_NAME,
   DEFAULT_AGENT_PROMPTED_DESCRIPTION,
   DEFAULT_WORKSPACE_DESCRIPTION,
+  LEGACY_DEFAULT_WORKSPACE_DESCRIPTION,
   DEFAULT_WORKSPACE_ID,
   DEFAULT_WORKSPACE_NAME,
 } from '../../workspaces/defaults.js'
@@ -1050,6 +1051,12 @@ const agentPromptAppendMigration = (schema: PostgresSchema): readonly string[] =
     WHERE system_prompt_append = ${literal(LEGACY_DEFAULT_SYSTEM_PROMPT)}`,
 ]
 
+/** General now has a container for skills and MCP servers; preserve any description the user changed. */
+const generalEnvironmentDescriptionMigration = (schema: PostgresSchema): readonly string[] => [
+  `UPDATE ${schema.tables.workspaces} SET description = ${literal(DEFAULT_WORKSPACE_DESCRIPTION)}, updated_at = now()
+    WHERE is_default AND description = ${literal(LEGACY_DEFAULT_WORKSPACE_DESCRIPTION)}`,
+]
+
 /** Ordered schema history: a released version is never edited, a change appends one. */
 export const MIGRATIONS: readonly { version: number; statements: (schema: PostgresSchema) => readonly string[] }[] = [
   { version: 1, statements: migration },
@@ -1073,6 +1080,7 @@ export const MIGRATIONS: readonly { version: number; statements: (schema: Postgr
   { version: 19, statements: threadRunSettingsMigration },
   { version: 20, statements: removePromptsMigration },
   { version: 21, statements: agentPromptAppendMigration },
+  { version: 22, statements: generalEnvironmentDescriptionMigration },
 ]
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0

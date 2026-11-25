@@ -23,7 +23,7 @@ Each agent either receives every tool available in its workspace or exactly its 
 
 A pi-env daemon inside the workspace container performs file and shell operations. The read-only `grep`, `find`, `ls`, and `git` tools resolve paths inside `/home/dev/workspace`, use argv rather than interpolated shell commands, and cap their output. `git` accepts only `status`, `log`, `diff`, `show`, `blame`, `branch`, and `remote`; it rejects options that can write, access outside paths, or execute commands. Branch and remote operations are restricted to read-only listing and lookup. Cake does not publish a container port for each tool call. The workspace container does not join the database, Docker socket proxy, or secrets networks.
 
-General has no container. It receives only environment-free tools, currently `web_fetch`, `codemode` and `ask_user`; it is not a host shell and cannot use coding tools against the server filesystem. Code mode itself has no filesystem, shell, or network access: JavaScript can only call the conversation's offered tools as `tools.<name>(args)`. It cannot call a tool the agent was not granted or that is unavailable in General. Code mode cannot make model calls. `web_fetch` refuses private addresses to keep it from becoming a proxy into the install's private network. It fetches known URLs rather than performing web search.
+General has a container for skills, MCP servers and user terminals, but its agent receives only environment-free tools, currently `web_fetch`, `codemode` and `ask_user`; it is not a host or container shell and cannot use coding tools against either filesystem. Code mode itself has no filesystem, shell, or network access: JavaScript can only call the conversation's offered tools as `tools.<name>(args)`. It cannot call a tool the agent was not granted or that is unavailable in General. Code mode cannot make model calls. `web_fetch` refuses private addresses to keep it from becoming a proxy into the install's private network. It fetches known URLs rather than performing web search.
 
 ## Configure agents
 
@@ -36,13 +36,13 @@ On the workspace's **Agents** tab:
 3. Or turn it off and select individual grants. New workspaces' **Plan** agent receives exactly `read`, `grep`, `find`, `ls`, `git`, `web_fetch`, and `ask_user`. It does not receive `write`, `edit`, `bash`, or `codemode`. An implementation agent may also need `write`, `edit`, and `bash`.
 4. Save the profile to write its grants. Use `ask_user` when a blocking decision needs the person's input; choose 2–6 short options when useful, and allow free text by default.
 
-In General, `read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`, and `git` remain visible but are greyed out with **Needs a workspace container**. Disabled environment tools are never offered to a run, even if an old grant names them. Code mode remains available there, but its scripts can call only tools that General offers and the agent has been granted.
+In General, `read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`, and `git` remain visible but unavailable to the agent even though its container exists. Disabled environment tools are never offered to a run, even if an old grant names them. Code mode remains available there, but its scripts can call only tools that General offers and the agent has been granted.
 
 ```text
 harness registry
         ↓ automatic startup sync
 agent profile: all available tools, or selected grants
-        ↓ remove environment-backed tools when no container is available
+        ↓ remove environment-backed tools in General or when no container is available
 tools offered to the conversation
         ↓
 tool call shown in the live transcript

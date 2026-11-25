@@ -9,22 +9,24 @@ A workspace is the boundary around a piece of work. It groups conversations and 
 
 | | General | A workspace you create |
 | --- | --- | --- |
-| Container | None | One Docker container owned by the workspace |
-| File and shell tools | Not available | Run through pi-env inside the container |
-| Environment-free tools | `web_fetch` | Available when granted |
-| Browser terminal | No container terminal | PTY inside the workspace container |
+| Container | One for skills, MCP servers and user access | One Docker container owned by the workspace |
+| File and shell tools | Not available to the agent | Run through pi-env inside the container |
+| Environment-free tools | `web_fetch`, `codemode`, `ask_user` | Available when granted |
+| Browser terminal | PTY inside General's container | PTY inside the workspace container |
 | Provider setup | Can use the owner's stored provider access | Link keys and allow models explicitly |
-| Initial agents | **General**, allow-all (only `web_fetch` is available here) | **Build**, allow-all; **Plan**, with `read` and `web_fetch` |
+| Initial agents | **General**, allow-all (environment-free tools only) | **Build**, allow-all; **Plan**, with `read` and `web_fetch` |
 
 `web_fetch` retrieves public HTTP(S) resources and refuses private addresses. It is not web search and does not turn General into a shell on the host.
 
 ## A workspace container
 
-For a container-backed workspace, `read`, `write`, `edit`, and `bash` execute through a pi-env daemon in that workspace's Docker container. No per-tool or per-workspace host ports are opened. The agent harness asks the daemon to perform the operation; tools are not silently executed in the backend process.
+Outside General, `read`, `write`, `edit`, and `bash` execute through a pi-env daemon in that workspace's Docker container. General's container is reserved for skills, MCP servers and user terminals; its agent has no shell or file tools. No per-tool or per-workspace host ports are opened. The agent harness asks the daemon to perform the operation; tools are not silently executed in the backend process.
 
 The container joins the `cake-workspaces` Docker network. On that network it can reach the Cake app, but it does not join the database, Docker API, or secrets networks. This keeps those services out of the workspace's normal network reach.
 
 The workspace image comes from `WORKSPACE_IMAGE`. A production install sets it to the released `ghcr.io/tctcl/cake-harness/workspace` image at the same version as the app.
+
+The **Environment** tab reports running, stopped, or missing state; starts, stops, and restarts the container; samples CPU, memory, network, and disk use; opens its terminal; and shows SSH connection data when a port is published. Cake-created containers do not currently publish SSH or expose an authorized-keys API.
 
 ## Tools belong to each agent
 

@@ -69,7 +69,7 @@ describe('WorkspaceAgents tools', () => {
     expect(read).toBeDisabled()
     expect(write).toBeDisabled()
     expect(web).toBeEnabled()
-    expect(screen.getAllByText('Needs a workspace container')).toHaveLength(2)
+    expect(screen.getAllByText('Unavailable to General’s agent')).toHaveLength(2)
 
     fireEvent.click(web)
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
