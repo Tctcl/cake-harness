@@ -6,7 +6,7 @@ import type { CurrentUser } from '../../lib/chat-api.ts'
 import { ThemePicker } from '../layout/theme-picker.tsx'
 import { CredentialsPage } from './credentials-page.tsx'
 
-type SectionId = 'application' | 'credentials' | 'user'
+export type SectionId = 'application' | 'credentials' | 'user'
 
 interface Section {
   readonly id: SectionId
@@ -85,8 +85,17 @@ function SectionBody({ section, user }: { section: Section; user: CurrentUser | 
  * What belongs to a workspace — its MCP servers, skills, prompts, tools, environment and providers — is not here. It
  * lives behind the workspace manager, because it means nothing outside the workspace it belongs to.
  */
-export function SettingsPage({ user, onClose }: { user: CurrentUser | null; onClose: () => void }) {
-  const [active, setActive] = useState<SectionId>('application')
+export function SettingsPage({
+  user,
+  onClose,
+  initialSection = 'application',
+}: {
+  user: CurrentUser | null
+  onClose: () => void
+  /** The section to open on, so another screen can send the user straight to their keys. */
+  initialSection?: SectionId
+}) {
+  const [active, setActive] = useState<SectionId>(initialSection)
   const section = SECTIONS.find((candidate) => candidate.id === active) ?? SECTIONS[0]
 
   return (
