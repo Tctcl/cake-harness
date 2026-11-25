@@ -16,11 +16,20 @@ import type { Settings } from './settings-repository.js'
 import { SettingsRepository } from './settings-repository.js'
 import { hashSessionToken, newSessionToken } from './session-token.js'
 import { newTotpSecret, totpProvisioningUri, verifyTotp } from './totp.js'
+import { ADMIN_ROLE_ID } from './roles.js'
 import type { UserRecord } from './user-repository.js'
+import { normaliseUsername } from './user-repository.js'
 import { UserRepository } from './user-repository.js'
 
 /** Thirty days: long enough that a browser is not asked twice a week, short enough that a lost laptop ages out. */
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
+export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
+
+/**
+ * Compared against when the username is unknown, so a miss costs the same scrypt run as a wrong password. Without it
+ * the response time alone says which usernames exist. Made once, lazily: hashing at import would slow every test file.
+ */
+let dummyHash: Promise<string> | undefined
+const unknownUserHash = (): Promise<string> => (dummyHash ??= hashPassword(generatePassword()))
 
 /**
  * Whether a second account may exist yet. The accounts are here, but every route still resolves the seeded owner, so a
@@ -30,6 +39,18 @@ const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const MULTI_USER_WIRED = false
 
 const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{2,31}$/
+
+const validUsername = (username: string): string => {
+  const name = normaliseUsername(username)
+  if (!USERNAME_PATTERN.test(name)) {
+    throw new AppError('A username is 3 to 32 characters of lowercase letters, digits, dots, dashes or underscores.', {
+      statusCode: 400,
+      code: 'auth.invalid_username',
+    })
+  }
+
+  return name
+}
 
 export interface AuthDependencies {
   readonly pool: Pool
@@ -137,8 +158,8 @@ export class AuthService {
     // is worth asking.
     const failed = new AppError('Wrong username or password.', { statusCode: 401, code: 'auth.invalid_credentials' })
 
-    if (user === undefined || user.passwordHash === null) throw failed
-    if (!(await verifyPassword(user.passwordHash, password))) throw failed
+    const verified = await verifyPassword(user?.passwordHash ?? (await unknownUserHash()), password)
+    if (user === undefined || user.passwordHash === null || !verified) throw failed
     if (user.disabled) throw new AppError('This account is disabled.', { statusCode: 403, code: 'auth.disabled' })
 
     const token = newSessionToken()
@@ -222,14 +243,41 @@ export class AuthService {
     await this.users.setPassword(user.id, await hashPassword(next), false)
   }
 
+  /**
+   * Gives the seeded owner a username and password and turns accounts on: the one way out of single-user mode while
+   * `MULTI_USER_WIRED` is off. The owner is the only account, so no route can show it anything that is not its own.
+   *
+   * Run once, by the installer. An owner that already has a password is left alone and the answer says so, which keeps a
+   * re-run of the installer from resetting a password the admin has since changed.
+   */
+  async bootstrapOwner(username: string, password: string): Promise<'created' | 'exists'> {
+    const owner = await this.users.findById(LOCAL_USER_ID)
+    if (owner === undefined) throw new Error('the seeded owner row is missing; the schema migrations did not run')
+    if (owner.passwordHash !== null) return 'exists'
+
+    const name = validUsername(username)
+    checkPassword(password)
+
+    await this.users.rename(owner.id, name, owner.displayName === LOCAL_USER_NAME ? name : owner.displayName)
+    await this.users.setRole(owner.id, ADMIN_ROLE_ID)
+    await this.users.setPassword(owner.id, await hashPassword(password), false)
+    // Last: until the password is stored, turning accounts on would lock everyone out.
+    this.#cached = await this.settings.write({ singleUser: false })
+    await this.sessions.removeAll()
+
+    return 'created'
+  }
+
   async createUser(input: NewUserInput): Promise<CreatedUser> {
-    const username = input.username.trim().toLowerCase()
-    if (!USERNAME_PATTERN.test(username)) {
-      throw new AppError(
-        'A username is 3 to 32 characters of lowercase letters, digits, dots, dashes or underscores.',
-        { statusCode: 400, code: 'auth.invalid_username' },
-      )
+    // Every route still answers with the seeded owner's workspaces and threads, so a second account would read them.
+    if (!MULTI_USER_WIRED) {
+      throw new AppError('Accounts need per-user ownership first; a second account cannot be created yet.', {
+        statusCode: 409,
+        code: 'auth.accounts_pending',
+      })
     }
+
+    const username = validUsername(input.username)
 
     const role = await this.permissions.role(input.roleId)
     if (role === undefined) throw new AppError('No such role.', { statusCode: 404, code: 'auth.no_role' })
