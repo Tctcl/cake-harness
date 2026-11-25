@@ -9,13 +9,10 @@ import { createCapabilityApi } from './api.js'
 import type { CapabilityApi } from './api.js'
 import { CapabilityLinks } from './capability-links.js'
 import { WorkspaceMcpServerRepository } from './mcp-repository.js'
-import { PromptRepository, SkillRepository } from './text-repository.js'
+import { SkillRepository } from './text-repository.js'
 import { ToolRepository } from './tool-repository.js'
 
-/** Live-server suite like its neighbours: `DATABASE_URL` names a disposable database, and every case gets a prefix. */
-/** The image a workspace records until its container is first started. */
 const IMAGE = 'cake-harness/dev-env:dev'
-
 const url = process.env['DATABASE_URL']
 
 if (url === undefined) {
@@ -49,26 +46,23 @@ if (url === undefined) {
       const api = createCapabilityApi({
         ownerId,
         tools,
-        prompts: new PromptRepository(storage.pool, schema),
         skills: new SkillRepository(storage.pool, schema),
         servers: new WorkspaceMcpServerRepository(storage.pool, schema),
         links: new CapabilityLinks(storage.pool, schema),
         readWorkspace: async (id) => {
           const workspace = await workspaces.find(id)
-
           return workspace === undefined
             ? undefined
             : { allowAll: workspace.allowAll, archivedAt: workspace.archivedAt }
         },
         readAgent: async (id) => {
           const agent = await agents.find(id)
-
           return agent === undefined
             ? undefined
             : { workspaceId: agent.workspaceId, archivedAt: agent.archivedAt }
         },
-        offeredTools: () => [{ name: 'bash' }, { name: 'read' }],
       })
+      await tools.sync(ownerId, [{ name: 'bash' }, { name: 'read' }])
 
       await use({
         api,
@@ -79,7 +73,6 @@ if (url === undefined) {
         toolId: async (name) => {
           const found = (await tools.list(ownerId)).find((tool) => tool.name === name)
           if (found === undefined) throw new Error(`no tool named ${name}`)
-
           return found.id
         },
       })
@@ -89,34 +82,26 @@ if (url === undefined) {
   }
 
   describe('CapabilityApi', () => {
-    it('fills the tool catalog from what the registry offers', async () => {
+    it('lists the synchronized tool catalog', async () => {
       await withApi(async ({ api }) => {
-        const tools = await api.tools.sync()
-
-        expect(tools.map((tool) => tool.name)).toEqual(['bash', 'read'])
+        expect((await api.tools.list()).map((tool) => tool.name)).toEqual(['bash', 'read'])
       })
     })
 
-    it('refuses an agent grant the workspace does not reach', async () => {
+    it('does not apply a workspace ceiling to agent tool grants', async () => {
       await withApi(async ({ api, workspaces, agents, ownerId, toolId }) => {
         const workspace = await workspaces.create(ownerId, { name: 'Platform' }, IMAGE)
         const agent = await agents.create(workspace.id, { name: 'Reviewer' })
-        await api.tools.sync()
         const bash = await toolId('bash')
         const read = await toolId('read')
 
-        await api.setWorkspaceGrants(workspace.id, {
-          tools: [read],
-          prompts: [],
-          skills: [],
-        })
+        await api.setWorkspaceGrants(workspace.id, { skills: [] })
 
         await expect(
-          api.setAgentGrants(agent.id, { tools: [bash], prompts: [], skills: [], mcpServers: [] }),
-        ).rejects.toMatchObject({ code: 'CAPABILITY_NOT_ALLOWED', statusCode: 400 })
-
+          api.setAgentGrants(agent.id, { tools: [bash], skills: [], mcpServers: [] }),
+        ).resolves.toMatchObject({ tools: [bash] })
         await expect(
-          api.setAgentGrants(agent.id, { tools: [read], prompts: [], skills: [], mcpServers: [] }),
+          api.setAgentGrants(agent.id, { tools: [read], skills: [], mcpServers: [] }),
         ).resolves.toMatchObject({ tools: [read] })
       })
     })
@@ -125,19 +110,13 @@ if (url === undefined) {
       await withApi(async ({ api, tools, workspaces, agents, ownerId }) => {
         const workspace = await workspaces.create(ownerId, { name: 'General', allowAll: true }, IMAGE)
         const agent = await agents.create(workspace.id, { name: 'Anything' })
-        await api.tools.sync()
         const all = await tools.list(ownerId)
 
-        await api.setWorkspaceGrants(workspace.id, {
-          tools: [],
-          prompts: [],
-          skills: [],
-        })
+        await api.setWorkspaceGrants(workspace.id, { skills: [] })
 
         await expect(
           api.setAgentGrants(agent.id, {
             tools: all.map((tool) => tool.id),
-            prompts: [],
             skills: [],
             mcpServers: [],
           }),
@@ -152,8 +131,7 @@ if (url === undefined) {
     await client.connect()
     try {
       for (const table of created) {
-        const drop = `DROP TABLE IF EXISTS ${table} CASCADE`
-        await client.query(drop)
+        await client.query(`DROP TABLE IF EXISTS ${table} CASCADE`)
       }
     } finally {
       await client.end()

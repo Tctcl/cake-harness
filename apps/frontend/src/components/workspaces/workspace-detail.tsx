@@ -16,12 +16,10 @@ const TABS = [
   { id: 'environment', label: 'Environment' },
   { id: 'mcp', label: 'MCP' },
   { id: 'skills', label: 'Skills' },
-  { id: 'prompts', label: 'Prompts' },
-  { id: 'tools', label: 'Tools' },
 ] as const
 
 /** Tabs whose settings are stored and shown, but which no run reads yet (docs/deferred.md, item 2). */
-const NOT_WIRED: ReadonlySet<TabId> = new Set<TabId>(['mcp', 'skills', 'prompts'])
+const NOT_WIRED: ReadonlySet<TabId> = new Set<TabId>(['mcp', 'skills'])
 
 export type WorkspaceTabId = (typeof TABS)[number]['id']
 type TabId = WorkspaceTabId
@@ -96,16 +94,14 @@ export function WorkspaceDetail({
       >
         {NOT_WIRED.has(tab) ? (
           <p className="mb-4 max-w-3xl rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
-            Stored and editable, but not used by agents yet: MCP servers, skills and prompt catalog entries.
+            Stored and editable, but not used by agents yet: MCP servers and skills.
             Tool grants, system prompts and instructions do apply.
           </p>
         ) : null}
         {tab === 'overview' ? <WorkspaceOverview workspace={workspace} onChanged={onChanged} /> : null}
         {tab === 'environment' ? <WorkspaceEnvironmentPanel workspaceId={workspace.id} /> : null}
         {tab === 'mcp' ? <WorkspaceMcp workspaceId={workspace.id} /> : null}
-        {tab === 'skills' ? <WorkspaceCapabilities workspaceId={workspace.id} kind="skills" /> : null}
-        {tab === 'prompts' ? <WorkspaceCapabilities workspaceId={workspace.id} kind="prompts" /> : null}
-        {tab === 'tools' ? <WorkspaceCapabilities workspaceId={workspace.id} kind="tools" /> : null}
+        {tab === 'skills' ? <WorkspaceCapabilities workspaceId={workspace.id} /> : null}
         {tab === 'agents' ? (
           <WorkspaceAgents workspace={workspace} onOpenProviders={() => setTab('providers')} />
         ) : null}

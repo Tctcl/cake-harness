@@ -43,7 +43,7 @@ import { createExecutionEnvironment } from './environments/execution-env.js'
 import { EnvironmentRepository } from './environments/environment-repository.js'
 import { CapabilityLinks } from './capabilities/capability-links.js'
 import { WorkspaceMcpServerRepository } from './capabilities/mcp-repository.js'
-import { PromptRepository, SkillRepository } from './capabilities/text-repository.js'
+import { SkillRepository } from './capabilities/text-repository.js'
 import { createProviderApi } from './providers/api.js'
 import type { ProviderApi } from './providers/api.js'
 import { checkKey, fetchModels } from './providers/provider-client.js'
@@ -58,6 +58,7 @@ import type {
   WorkspaceReach,
 } from './agents/run-settings.js'
 import { selectTools } from './agents/tool-selection.js'
+import { syncToolCatalog } from './agents/tool-catalog.js'
 import { AuthService } from './auth/service.js'
 import { ToolRepository } from './capabilities/tool-repository.js'
 import { createWebExtension } from './capabilities/web.js'
@@ -211,7 +212,7 @@ export interface Agent {
   archiveAgent(id: string): Promise<AgentProfile | undefined>
   restoreAgent(id: string): Promise<AgentProfile | undefined>
   deleteAgent(id: string): Promise<boolean>
-  /** The catalog of tools, prompts, skills and MCP servers, and who may reach which of them. */
+  /** The catalog of tools, skills and MCP servers, and who may reach which of them. */
   capabilities: CapabilityApi
   /** The containers a workspace can run in, and which of them an agent works in. */
   environments: EnvironmentApi
@@ -651,7 +652,6 @@ export async function createAgent(config: Config): Promise<Agent> {
   const workspaces = new WorkspaceRepository(postgres.pool, postgres.schema)
   const agents = new AgentRepository(postgres.pool, postgres.schema)
   const tools = new ToolRepository(postgres.pool, postgres.schema)
-  const prompts = new PromptRepository(postgres.pool, postgres.schema)
   const skills = new SkillRepository(postgres.pool, postgres.schema)
   const servers = new WorkspaceMcpServerRepository(postgres.pool, postgres.schema)
   const links = new CapabilityLinks(postgres.pool, postgres.schema)
@@ -712,6 +712,13 @@ export async function createAgent(config: Config): Promise<Agent> {
     loginIds: (await providerRepository.logins(ownerId)).map((login) => login.id),
     modelIds: chatModels,
   })
+  // One registry for the process, so startup and every session agree about which tools exist.
+  const registry = createRegistry()
+  registry.install(createCodingTools())
+  registry.install(createWebExtension())
+
+  // The catalog is maintained automatically: agent grants and Plan's seeded grants must never need a manual sync.
+  await syncToolCatalog(tools, ownerId, registry.snapshot())
   // Every workspace except the default one runs in a container. The image is configuration, so the row is written here
   // rather than by a migration; on an install that already satisfies the rule this writes nothing.
   await workspaces.ensureEnvironments(ownerId, config.workspaceImage)
@@ -720,11 +727,6 @@ export async function createAgent(config: Config): Promise<Agent> {
 
   // Harnesses come and go as Sessions fail; the storage outlives them and only the process closes it.
   const storage: Storage = sharedStorage(retryingStorage(postgres))
-
-  // One registry for the process, so the tool catalog can be synced from what a session is actually offered.
-  const registry = createRegistry()
-  registry.install(createCodingTools())
-  registry.install(createWebExtension())
 
   const environments = createEnvironmentApi({
     ownerId,
@@ -761,19 +763,14 @@ export async function createAgent(config: Config): Promise<Agent> {
     if (workspace === undefined) {
       throw new AppError('the workspace does not exist', { statusCode: 404, code: 'WORKSPACE_NOT_FOUND' })
     }
-    const [workspaceGrants, agentGrants, catalog, attached] = await Promise.all([
-      links.readWorkspace(workspace.id),
+    const [agentGrants, catalog, attached] = await Promise.all([
       links.readAgent(profile.id),
       tools.list(ownerId),
       environments.ofWorkspace(workspace.id),
     ])
 
     return selectTools({
-      workspace: {
-        isDefault: workspace.isDefault,
-        allowAll: workspace.allowAll,
-        toolGrants: workspaceGrants.tools,
-      },
+      workspace: { isDefault: workspace.isDefault },
       agent: { allowAll: profile.allowAll, toolGrants: agentGrants.tools },
       hasEnvironment: attached.length > 0,
       catalog: new Map(catalog.map((tool) => [tool.id, tool.name])),
@@ -792,7 +789,6 @@ export async function createAgent(config: Config): Promise<Agent> {
   const capabilities = createCapabilityApi({
     ownerId,
     tools,
-    prompts,
     skills,
     servers,
     links,
@@ -810,12 +806,6 @@ export async function createAgent(config: Config): Promise<Agent> {
         ? undefined
         : { workspaceId: agent.workspaceId, archivedAt: agent.archivedAt }
     },
-    offeredTools: () =>
-      registry.snapshot().tools().map(({ tool }) => ({
-        name: tool.name,
-        parameters: tool.parameters,
-        ...(tool.description === undefined ? {} : { description: tool.description }),
-      })),
   })
 
   return {

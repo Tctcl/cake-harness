@@ -7,8 +7,8 @@ import { Input } from '../ui/input.tsx'
 import { Textarea } from '../ui/textarea.tsx'
 
 /**
- * What a workspace is, by name and description, plus the two switches that decide how far it reaches: everything, or the
- * selection made on the Skills, Prompts, Tools and MCP tabs. The default workspace cannot be renamed or archived.
+ * What a workspace is, by name and description, plus the switch that decides how far its skills and providers reach.
+ * General keeps its name and explains why its reach and archive controls cannot act.
  */
 export function WorkspaceOverview({
   workspace,
@@ -21,6 +21,7 @@ export function WorkspaceOverview({
   const [description, setDescription] = useState(workspace.description)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [guard, setGuard] = useState<'reach' | 'archive' | null>(null)
 
   const changed = name.trim() !== workspace.name || description !== workspace.description
 
@@ -85,38 +86,64 @@ export function WorkspaceOverview({
           <input
             id="workspace-allow-all"
             type="checkbox"
-            className="mt-0.5 size-4 shrink-0 accent-foreground"
+            className={`mt-0.5 size-4 shrink-0 accent-foreground ${workspace.isDefault ? 'opacity-50' : ''}`}
             checked={workspace.allowAll}
-            disabled={busy}
-            onChange={(event) => void run(() => updateWorkspace(workspace.id, { allowAll: event.target.checked }))}
+            aria-disabled={workspace.isDefault ? 'true' : undefined}
+            disabled={!workspace.isDefault && busy}
+            onChange={(event) => {
+              if (workspace.isDefault) {
+                event.preventDefault()
+                setGuard('reach')
+                return
+              }
+              void run(() => updateWorkspace(workspace.id, { allowAll: event.target.checked }))
+            }}
           />
           <div className="flex flex-col gap-1">
             <label htmlFor="workspace-allow-all" className="font-medium">
               Reach every capability
             </label>
             <span className="text-muted-foreground">
-              A workspace narrows what its agents may use; this drops the narrowing entirely, including for anything added
-              later. Leave it off to pick tools, skills, prompts, MCP servers and models on their own tabs.
+              A workspace narrows the skills, MCP servers and models its agents may use; this drops the narrowing
+              entirely, including for anything added later. Each agent chooses its own tools.
             </span>
           </div>
         </div>
+        {guard === 'reach' ? (
+          <div role="alert" className="flex items-center justify-between gap-3 text-muted-foreground">
+            <span>General always reaches everything it can use; this cannot be changed.</span>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setGuard(null)}>Dismiss</Button>
+          </div>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-2 rounded-md border p-4">
         <span className="font-medium">Archive</span>
         <span className="text-muted-foreground">
-          Archiving hides the workspace and its conversations from every list without deleting either. The default
-          workspace cannot be archived.
+          Archiving hides the workspace and its conversations from every list without deleting either.
         </span>
         <Button
           size="sm"
           variant="outline"
-          className="w-fit"
-          disabled={busy || workspace.isDefault}
-          onClick={() => void run(() => archiveWorkspace(workspace.id))}
+          className={`w-fit ${workspace.isDefault ? 'opacity-50' : ''}`}
+          aria-disabled={workspace.isDefault ? 'true' : undefined}
+          disabled={!workspace.isDefault && busy}
+          onClick={() => {
+            if (workspace.isDefault) {
+              setGuard('archive')
+              return
+            }
+            void run(() => archiveWorkspace(workspace.id))
+          }}
         >
           Archive workspace
         </Button>
+        {guard === 'archive' ? (
+          <div role="alert" className="flex items-center justify-between gap-3 text-muted-foreground">
+            <span>General is the default workspace and cannot be archived.</span>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setGuard(null)}>Dismiss</Button>
+          </div>
+        ) : null}
       </div>
 
       {error === null ? null : (

@@ -1,6 +1,6 @@
 /**
  * Provider logins and the models behind them. A login is the user's, not a workspace's: it is stored once, and a
- * workspace links the ones it may use, the same way a tool or a prompt is granted rather than copied.
+ * workspace links the ones it may use, the same way a skill is granted rather than copied.
  *
  * Keys are added in Settings → Credentials (`credentials-api.ts`); here they are only listed by label and linked.
  */

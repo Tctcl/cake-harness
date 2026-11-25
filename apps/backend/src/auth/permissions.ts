@@ -10,7 +10,6 @@ export const PERMISSIONS = [
   'agents.create',
   'environments.create',
   'tools.manage',
-  'prompts.manage',
   'skills.manage',
   'mcp.manage',
   'updates.manage',

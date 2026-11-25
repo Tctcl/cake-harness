@@ -11,8 +11,8 @@ instructions and granted tools. Reads are paged (`GET /threads/:threadId/message
 an opaque cursor). A run streams as server-sent events
 (`GET /threads/:threadId/stream`): each frame is the newest window of the
 transcript plus the live run (reasoning, partial text, tool slots) and the usage
-totals. `apps/agent` runs the workspace bootstrap, not the harness. MCP servers,
-prompt catalog entries and skills are stored but are not wired into runs.
+totals. `apps/agent` runs the workspace bootstrap, not the harness. MCP servers and
+skills are stored but are not wired into runs.
 
 Sources (read 2026-11-22):
 
@@ -53,13 +53,13 @@ so the workspace image does not contain a pi-env artifact.
 
 The process-wide registry installs pi-durable's `coding-tools` extension (`read`,
 `write`, `edit`, `bash`) and the backend's env-free `web` extension (`web_fetch`).
-`POST /capabilities/tools/sync` syncs that registry into the tool catalog. Before
-conversation creation and every submission, `agents/tool-selection.ts` applies the
-workspace ceiling, intersects the agent's grants with it, and removes coding tools
-when the workspace is General or has no environment. `web_fetch` remains available
-in every workspace when the grants select it. A new non-default workspace starts
-with `allowAll: false`, so its tools must be synced and granted before its
-allow-all default agent can use them.
+At startup the registry syncs into the tool catalog automatically. Before
+conversation creation and every submission, `agents/tool-selection.ts` removes
+coding tools when the workspace is General or has no environment, then gives an
+allow-all agent every remaining tool or a restricted agent exactly its available
+grants. `web_fetch` remains available in every workspace when the grants select
+it. New non-default workspaces seed an allow-all **Build** agent and a **Plan**
+agent granted exactly `read` and `web_fetch`.
 
 For a container workspace, `HarnessOptions.env` resolves durable conversation id →
 chat thread → workspace → environment. `EnvironmentApi.start()` starts a stopped
@@ -131,7 +131,7 @@ JSON and other text are returned unchanged.
 - Config and secrets: model provider keys live in the backend, validated at
   startup. Currently `apps/backend/src/config.ts` has no secret handling.
 - Container image and bootstrap.
-- MCP, prompt and skill runtime wiring; tool policy itself is implemented.
+- MCP and skill runtime wiring; tool policy itself is implemented.
 
 ## MCP
 

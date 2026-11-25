@@ -171,21 +171,19 @@ const agentGrantsBody = {
   type: 'object',
   properties: {
     tools: stringList,
-    prompts: stringList,
     skills: stringList,
     // Ids of the workspace's own servers: an agent selects from what the workspace created, it does not define one.
     mcpServers: stringList,
   },
-  required: ['tools', 'prompts', 'skills', 'mcpServers'],
+  required: ['tools', 'skills', 'mcpServers'],
   additionalProperties: false,
 } as const
 
-// A workspace owns its MCP servers rather than being granted them, so its grants are the three catalogs only. Reusing
-// the agent body here made every grants response fail serialization on the missing `mcpServers`.
+// A workspace owns its MCP servers and each agent selects its own tools, so only skills remain a workspace grant.
 const workspaceGrantsBody = {
   type: 'object',
-  properties: { tools: stringList, prompts: stringList, skills: stringList },
-  required: ['tools', 'prompts', 'skills'],
+  properties: { skills: stringList },
+  required: ['skills'],
   additionalProperties: false,
 } as const
 
@@ -215,7 +213,7 @@ const toTextEntry = <T extends { archivedAt: Date | null; createdAt: Date; updat
 
 const textRoutes = (
   server: Parameters<FastifyPluginAsync>[0],
-  path: 'prompts' | 'skills',
+  path: 'skills',
   capabilities: Agent['capabilities'],
 ): void => {
   const catalog = capabilities[path]
@@ -296,18 +294,6 @@ export const capabilityRoutes: FastifyPluginAsync<{ agent: Agent }> = async (ser
     }),
   )
 
-  // The registry is the truth about which tools exist, so the catalog is filled from it rather than from the client.
-  server.post(
-    '/tools/sync',
-    {
-      schema: {
-        response: { 200: { type: 'object', properties: { tools: { type: 'array', items: toolSchema } } } },
-      },
-    },
-    async () => ({ tools: (await capabilities.tools.sync()).map(toTextEntry) }),
-  )
-
-  textRoutes(server, 'prompts', capabilities)
   textRoutes(server, 'skills', capabilities)
 
   server.get<{ Params: { workspaceId: string }; Querystring: { archived?: 'true' | 'false' } }>(

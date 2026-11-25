@@ -6,11 +6,7 @@ import { AppError } from '../errors.js'
 import type { Value } from '../storage/postgres/db.js'
 import type { PostgresSchema } from '../storage/postgres/schema.js'
 
-/**
- * A prompt and a skill are the same three columns for now — a name, one line about it, and the text — so one repository
- * serves both tables. A skill grows fields later (files, frontmatter, triggers); it gets them in its own table and this
- * class keeps the shape the two share today.
- */
+/** A skill is a name, one line about it, and the text an agent is given. */
 export interface TextEntry {
   readonly id: string
   readonly name: string
@@ -32,7 +28,7 @@ export type TextPatch = Partial<TextInput>
 /** Where a kind lives and what references it, so one class can archive, refuse a delete and name its errors. */
 export interface TextTable {
   readonly table: string
-  readonly label: 'prompt' | 'skill'
+  readonly label: 'skill'
   readonly linkTable: string
   readonly linkColumn: string
 }
@@ -195,19 +191,7 @@ export class TextRepository {
   }
 }
 
-/** Prompts: the text alone, appended where an agent's instructions go. */
-export class PromptRepository extends TextRepository {
-  constructor(pool: Pool, schema: PostgresSchema) {
-    super(pool, {
-      table: schema.tables.prompts,
-      label: 'prompt',
-      linkTable: schema.tables.workspacePrompts,
-      linkColumn: 'prompt_id',
-    })
-  }
-}
-
-/** Skills: the same shape as a prompt for now, in their own table so they can grow without moving rows. */
+/** Skills live in their own table so they can grow without moving other catalog rows. */
 export class SkillRepository extends TextRepository {
   constructor(pool: Pool, schema: PostgresSchema) {
     super(pool, {

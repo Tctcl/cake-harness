@@ -41,7 +41,7 @@ if (url === undefined) {
       credentials: new CredentialRepository(pool, schema, config.secrets),
     })
     // Single-user mode, as a fresh install is: every request is the owner. The catalogs are looked up at registration.
-    const agent = { auth, credentials, capabilities: { prompts: {}, skills: {} } } as unknown as Agent
+    const agent = { auth, credentials, capabilities: { skills: {} } } as unknown as Agent
 
     return buildServer(config, { agent })
   }

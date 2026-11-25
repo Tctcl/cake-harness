@@ -75,11 +75,7 @@ if (url === undefined) {
     })
 
     it('keeps the servers a workspace owns out of its grants, and lets an agent select one of them', async () => {
-      await withWorld(async ({ links, tools, workspaces, agents, mcp, ownerId }) => {
-        const tool = await tools.sync(ownerId, [{ name: 'bash' }]).then(async () => {
-          const all = await tools.list(ownerId)
-          return all[0]
-        })
+      await withWorld(async ({ links, workspaces, agents, mcp, ownerId }) => {
         const workspace = await workspaces.create(ownerId, { name: 'Platform' }, IMAGE)
         const first = await agents.create(workspace.id, { name: 'first' })
         const second = await agents.create(workspace.id, { name: 'second' })
@@ -90,25 +86,16 @@ if (url === undefined) {
           command: 'github-mcp',
         })
 
-        await links.replaceWorkspace(workspace.id, {
-          tools: tool === undefined ? [] : [tool.id],
-          prompts: [],
-          skills: [],
-        })
-        await links.replaceAgent(first.id, { tools: [], prompts: [], skills: [], mcpServers: [] })
+        await links.replaceWorkspace(workspace.id, { skills: [] })
+        await links.replaceAgent(first.id, { tools: [], skills: [], mcpServers: [] })
         await links.replaceAgent(second.id, {
           tools: [],
-          prompts: [],
           skills: [],
           mcpServers: [server.id],
         })
 
         // A server is owned by the workspace, not granted to it, so it never appears on the workspace ceiling.
-        expect(await links.readWorkspace(workspace.id)).toEqual({
-          tools: tool === undefined ? [] : [tool.id],
-          prompts: [],
-          skills: [],
-        })
+        expect(await links.readWorkspace(workspace.id)).toEqual({ skills: [] })
 
         expect((await links.readAgent(first.id)).mcpServers).toEqual([])
         expect((await links.readAgent(second.id)).mcpServers).toEqual([server.id])
@@ -121,9 +108,7 @@ if (url === undefined) {
 
         await expect(
           links.replaceWorkspace(workspace.id, {
-            tools: ['00000000-0000-4000-8000-0000000000ff'],
-            prompts: [],
-            skills: [],
+            skills: ['00000000-0000-4000-8000-0000000000ff'],
           }),
         ).rejects.toThrow(/foreign key/i)
       })

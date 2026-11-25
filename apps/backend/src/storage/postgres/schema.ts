@@ -1017,6 +1017,15 @@ const threadRunSettingsMigration = (schema: PostgresSchema): readonly string[] =
       CHECK (thinking_level IN ('off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'))`,
 ]
 
+/** Prompts were superseded by skills; their grants and catalog have no remaining readers. */
+const removePromptsMigration = (schema: PostgresSchema): readonly string[] => [
+  `DELETE FROM ${schema.tables.rolePermissions} WHERE permission = 'prompts.manage'`,
+  `DELETE FROM ${schema.tables.userPermissionOverrides} WHERE permission = 'prompts.manage'`,
+  `DROP TABLE ${schema.tables.workspacePrompts}`,
+  `DROP TABLE ${schema.tables.agentPrompts}`,
+  `DROP TABLE ${schema.tables.prompts}`,
+]
+
 /** Ordered schema history: a released version is never edited, a change appends one. */
 export const MIGRATIONS: readonly { version: number; statements: (schema: PostgresSchema) => readonly string[] }[] = [
   { version: 1, statements: migration },
@@ -1038,6 +1047,7 @@ export const MIGRATIONS: readonly { version: number; statements: (schema: Postgr
   { version: 17, statements: agentRunSettingsMigration },
   { version: 18, statements: defaultPromptMigration },
   { version: 19, statements: threadRunSettingsMigration },
+  { version: 20, statements: removePromptsMigration },
 ]
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0

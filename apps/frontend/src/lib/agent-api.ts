@@ -5,6 +5,7 @@ import { request } from './http.ts'
 export interface AgentDraft {
   readonly name: string
   readonly description: string
+  readonly allowAll: boolean
   readonly systemPrompt: string
   readonly instructions: string
   readonly credentialId: string | null

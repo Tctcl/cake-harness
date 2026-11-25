@@ -12,8 +12,8 @@ const notAllowed = (requested: readonly string[], allowed: readonly string[]): r
   requested.filter((id) => !allowed.includes(id))
 
 /**
- * A workspace is the ceiling: an agent may only reach what its workspace reaches. Both sides are catalog ids rather
- * than names, so a grant that survived this check is also a row the database still has.
+ * Skills and MCP servers retain the workspace ceiling; tool grants belong to the agent alone. Both sides are catalog
+ * ids rather than names, so a grant that survived this check is also a row the database still has.
  *
  * `allowAll` on the workspace skips the check entirely — that is the general workspace, which exists so a capability
  * added tomorrow needs no edit here.
@@ -22,8 +22,6 @@ export const assertWithinCeiling = (ceiling: CapabilityCeiling, requested: Agent
   if (ceiling.allowAll) return
 
   const denied = [
-    ...notAllowed(requested.tools, ceiling.tools),
-    ...notAllowed(requested.prompts, ceiling.prompts),
     ...notAllowed(requested.skills, ceiling.skills),
     // A server the workspace never created is not reachable, even by an agent that names it.
     ...notAllowed(requested.mcpServers, ceiling.mcpServers),

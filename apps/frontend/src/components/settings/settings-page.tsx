@@ -70,7 +70,7 @@ function SectionBody({ section }: { section: Section }) {
  * The settings window's two columns: its sections run down the left, the chosen one fills the right. The window's own
  * chrome — its title and the way out — belongs to the overlay around it.
  *
- * What belongs to a workspace — its MCP servers, skills, prompts, tools, environment and providers — is not here. It
+ * What belongs to a workspace — its MCP servers, skills, environment and providers — is not here. It
  * lives behind the workspace manager, because it means nothing outside the workspace it belongs to.
  */
 export function SettingsPage({

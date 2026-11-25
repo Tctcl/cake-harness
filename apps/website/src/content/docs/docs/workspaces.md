@@ -3,7 +3,7 @@ title: Workspaces
 description: Understand Cake workspaces, their isolated containers, provider access, and browser terminals.
 ---
 
-A workspace is the boundary around a piece of work. It groups conversations and agent profiles, decides which provider keys and models may be used, and sets the ceiling for tool grants.
+A workspace is the boundary around a piece of work. It groups conversations and agent profiles, decides which provider keys and models may be used, and provides the container where coding tools run.
 
 ## General and container-backed workspaces
 
@@ -14,7 +14,7 @@ A workspace is the boundary around a piece of work. It groups conversations and 
 | Environment-free tools | `web_fetch` | Available when granted |
 | Browser terminal | No container terminal | PTY inside the workspace container |
 | Provider setup | Can use the owner's stored provider access | Link keys and allow models explicitly |
-| Initial tool grants | `web_fetch` only | None until configured |
+| Initial agents | **General**, allow-all (only `web_fetch` is available here) | **Build**, allow-all; **Plan**, with `read` and `web_fetch` |
 
 `web_fetch` retrieves public HTTP(S) resources and refuses private addresses. It is not web search and does not turn General into a shell on the host.
 
@@ -26,17 +26,16 @@ The container joins the `cake-workspaces` Docker network. On that network it can
 
 The workspace image comes from `WORKSPACE_IMAGE`. A production install sets it to the released `ghcr.io/tctcl/cake-harness/workspace` image at the same version as the app.
 
-## Tools are a workspace ceiling
+## Tools belong to each agent
 
-Creating a workspace does not implicitly grant every tool. On **Tools**, select **Sync from registry**, then allow the tools the workspace needs. Agent profiles can select from that set. **Reach every capability** is the explicit alternative to a selected ceiling.
+The tool catalog syncs from the harness registry automatically at startup. On the workspace's **Agents** tab, each profile either enables **All tools available here** or selects exactly the tools it may use. There is no separate workspace tool ceiling.
 
-This two-level arrangement lets one workspace contain, for example:
+Every new workspace starts with:
 
-- an **Assistant** with `read`, `write`, `edit`, and `bash`;
-- a **Plan** agent with only `read` and `web_fetch`;
-- a **Review** agent with only `read`.
+- **Build**, the default agent, with every available tool;
+- **Plan**, a read-only agent granted exactly `read` and `web_fetch`.
 
-The names and prompts are yours. See [Agents](/docs/agents) for the profile fields and a worked planner.
+You can rename and reconfigure these profiles or add others, such as a **Review** agent with only `read`. Tools that need a container are marked unavailable in General. See [Agents](/docs/agents) for the profile fields and planning instructions.
 
 ## Providers and models
 

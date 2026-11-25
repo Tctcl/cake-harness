@@ -15,7 +15,7 @@ An agent is a reusable profile inside a workspace. Profiles let the same Pi harn
 | Thinking level | `off`, `low`, `medium`, `high`, `xhigh`, or `max` |
 | System prompt | The profile's base behaviour and boundaries |
 | Instructions | Standing instructions for its work |
-| Tool grants | The capabilities this profile may use, inside the workspace's ceiling |
+| Tool grants | Every available tool, or exactly the capabilities this profile may use |
 
 A model or key that the workspace does not permit is rejected when the profile is saved. Cake does not silently fall back to an unrelated credential. If no provider key reaches an agent, add one in **Settings → Credentials**, link it on **Providers**, and select an allowed model.
 
@@ -25,20 +25,15 @@ Changing a profile does not rewrite earlier transcript messages. For a one-chat 
 
 This profile inspects code and public documentation, then returns a plan. It cannot edit files or run shell commands.
 
-### 1. Set the workspace ceiling
+### 1. Create the profile and select its tools
 
-Open the workspace's **Tools** tab:
+New container-backed workspaces already include a **Plan** profile with these grants. To make your own, open **Agents**, select **New agent**, and name it **Plan**. Turn off **All tools available here**, then grant only `read` and `web_fetch`. Do not grant `write`, `edit`, or `bash`.
 
-1. Select **Sync from registry**.
-2. Grant `read` and `web_fetch`.
-3. Do not grant `write`, `edit`, or `bash` to this profile. If other profiles in the same workspace need those tools, they may be in the workspace ceiling; keep them unselected on **Plan**.
-4. Leave **Reach every capability** off for this profile.
+The registry's tool catalog is synchronized at startup, so there is no manual sync step. Other agents in the same workspace can independently keep editing and shell tools.
 
-### 2. Create the profile
+### 2. Choose its run settings
 
-On **Agents**, create a profile named **Plan** with a description such as “Inspect and plan without changing files.” Choose the model, thinking level, and provider key you want planning conversations to use. A higher thinking level can be useful, but it is not required.
-
-Grant only `read` and `web_fetch` to the profile.
+Use a description such as “Inspect and plan without changing files.” Choose the model, thinking level, and provider key you want planning conversations to use. A higher thinking level can be useful, but it is not required.
 
 ### 3. Add the system prompt
 
@@ -68,4 +63,4 @@ Start a conversation with **Plan** and ask for an implementation plan. The trans
 
 ## Profiles versus conversation overrides
 
-Use a **profile** for a durable role you will reuse. Use the **per-conversation controls** for a temporary change in model, thinking level, or provider key. The workspace's provider rules and tool ceiling still provide the outer boundary.
+Use a **profile** for a durable role you will reuse. Use the **per-conversation controls** for a temporary change in model, thinking level, or provider key. The workspace's provider rules still provide the outer boundary for keys and models.

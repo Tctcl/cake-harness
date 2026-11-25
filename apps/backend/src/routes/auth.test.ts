@@ -37,7 +37,7 @@ if (url === undefined) {
     await migrate(pool, schema)
     const auth = new AuthService({ pool, schema, secrets: config.secrets }, now)
     // The catalog routes look up their two text catalogs while registering; nothing here calls them.
-    const agent = { auth, capabilities: { prompts: {}, skills: {} } } as unknown as Agent
+    const agent = { auth, capabilities: { skills: {} } } as unknown as Agent
     const server = buildServer(config, { agent })
 
     return { auth, server, pool, schema, secrets: config.secrets }
