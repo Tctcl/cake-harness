@@ -1,5 +1,5 @@
 import type { EntryRecord } from '@earendil-works/pi-durable'
-import { CompactionEntry, ResetEntry } from '@earendil-works/pi-durable'
+import { CompactionEntry, ResetEntry, SystemEntry } from '@earendil-works/pi-durable'
 import type { AssistantMessage, Message } from '@earendil-works/pi-ai'
 import { describe, expect, it } from 'vitest'
 
@@ -150,6 +150,39 @@ describe('chatMessages', () => {
     ])
   })
 
+  it('projects system prompt sections and tool changes as a context line', () => {
+    const messages = chatMessages([
+      entry(14, SystemEntry.kind, {
+        model: [{
+          role: 'system',
+          content: '',
+          sections: { 'cake-system': 'Base prompt', instructions: null },
+          toolsAdded: [{ name: 'read', description: 'Read files', parameters: { type: 'object' } }],
+          toolsRemoved: [{ name: 'write' }],
+          timestamp: 0,
+        }],
+      }),
+    ])
+
+    expect(messages).toEqual([
+      {
+        id: 14,
+        role: 'context',
+        text: '',
+        blocks: [],
+        stopReason: null,
+        errorMessage: null,
+        reason: null,
+        sections: [
+          { key: 'cake-system', text: 'Base prompt' },
+          { key: 'instructions', text: null },
+        ],
+        toolsAdded: ['read'],
+        toolsRemoved: ['write'],
+      },
+    ])
+  })
+
   it('gives user lines the same ordered block shape', () => {
     expect(chatMessages([entry(13, 'pi.user', { model: [user('hello')] })])).toEqual([
       {
@@ -199,7 +232,41 @@ describe('toolCalls', () => {
         status: 'ok',
         result: '# Cake',
         durationMs: 12,
+        truncated: false,
+        fullByteLength: Buffer.byteLength('{"path":"README.md"}') + Buffer.byteLength('# Cake'),
       },
     ])
+  })
+
+  it('clips stream text while reporting truncation and the full UTF-8 byte length', () => {
+    const output = 'a'.repeat(4001)
+    const calls = toolCalls([
+      entry(30, 'pi.assistant', {
+        model: [
+          assistant([
+            { type: 'toolCall', id: 'call-large', name: 'read', arguments: { path: output } },
+          ]),
+        ],
+      }),
+      entry(31, 'pi.tool-result', {
+        model: [
+          {
+            role: 'toolResult',
+            toolCallId: 'call-large',
+            toolName: 'read',
+            content: [{ type: 'text', text: output }],
+            isError: false,
+            timestamp: 1,
+          },
+        ],
+      }),
+    ])
+
+    expect(calls[0]).toMatchObject({
+      truncated: true,
+      fullByteLength: Buffer.byteLength(JSON.stringify({ path: output })) + Buffer.byteLength(output),
+      arguments: `${JSON.stringify({ path: output }).slice(0, 4000)}…`,
+      result: `${output.slice(0, 4000)}…`,
+    })
   })
 })

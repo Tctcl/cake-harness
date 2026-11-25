@@ -109,6 +109,8 @@ describe('mergeTools', () => {
       status: 'running' as const,
       result: null,
       durationMs: null,
+      truncated: false,
+      fullByteLength: 0,
     }
     const settled = { ...running, status: 'ok' as const, result: '# Cake', durationMs: 12 }
     const other = { ...running, id: 'call-2', entryId: 4, name: 'grep' }

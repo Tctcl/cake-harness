@@ -23,7 +23,7 @@ export interface AgentProfile {
   readonly description: string
   readonly isDefault: boolean
   readonly allowAll: boolean
-  readonly systemPrompt: string
+  readonly systemPromptAppend: string
   readonly instructions: string
   /** The stored key the agent runs with, or `null` to use the one its workspace links. */
   readonly credentialId: string | null
@@ -39,7 +39,7 @@ export interface AgentInput {
   readonly name: string
   readonly description?: string
   readonly allowAll?: boolean
-  readonly systemPrompt?: string
+  readonly systemPromptAppend?: string
   readonly instructions?: string
   readonly credentialId?: string | null
   readonly modelId?: string | null
@@ -55,7 +55,7 @@ interface AgentRow {
   readonly description: string
   readonly is_default: boolean
   readonly allow_all: boolean
-  readonly system_prompt: string
+  readonly system_prompt_append: string
   readonly instructions: string
   readonly credential_id: string | null
   readonly model_id: string | null
@@ -76,7 +76,7 @@ const toAgent = (row: AgentRow): AgentProfile => ({
   description: row.description,
   isDefault: row.is_default,
   allowAll: row.allow_all,
-  systemPrompt: row.system_prompt,
+  systemPromptAppend: row.system_prompt_append,
   instructions: row.instructions,
   credentialId: row.credential_id,
   modelId: row.model_id,
@@ -87,7 +87,7 @@ const toAgent = (row: AgentRow): AgentProfile => ({
 })
 
 const COLUMNS = `id, workspace_id, name, description, is_default, allow_all,
-  system_prompt, instructions, credential_id, model_id, thinking_level, archived_at, created_at, updated_at`
+  system_prompt_append, instructions, credential_id, model_id, thinking_level, archived_at, created_at, updated_at`
 
 const immutable = (): AppError =>
   new AppError('the default agent cannot be archived or deleted', {
@@ -161,7 +161,7 @@ export class AgentRepository {
     await this.#assertWorkspaceOpen(workspaceId)
 
     const text = `INSERT INTO ${this.#schema.tables.agents}
-      (id, workspace_id, name, description, allow_all, system_prompt, instructions, credential_id, model_id,
+      (id, workspace_id, name, description, allow_all, system_prompt_append, instructions, credential_id, model_id,
        thinking_level)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING ${COLUMNS}`
     const rows = await this.#select(text, [
@@ -171,7 +171,7 @@ export class AgentRepository {
       input.description ?? '',
       // An agent is created with everything enabled and the user narrows it, so a profile left alone is general-purpose.
       input.allowAll ?? true,
-      input.systemPrompt ?? '',
+      input.systemPromptAppend ?? '',
       input.instructions ?? '',
       input.credentialId ?? null,
       input.modelId ?? null,
@@ -203,7 +203,7 @@ export class AgentRepository {
     if (patch.name !== undefined) assign('name', patch.name)
     if (patch.description !== undefined) assign('description', patch.description)
     if (patch.allowAll !== undefined) assign('allow_all', patch.allowAll)
-    if (patch.systemPrompt !== undefined) assign('system_prompt', patch.systemPrompt)
+    if (patch.systemPromptAppend !== undefined) assign('system_prompt_append', patch.systemPromptAppend)
     if (patch.instructions !== undefined) assign('instructions', patch.instructions)
     if (patch.credentialId !== undefined) assign('credential_id', patch.credentialId)
     if (patch.modelId !== undefined) assign('model_id', patch.modelId)

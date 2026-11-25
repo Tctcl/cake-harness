@@ -242,16 +242,19 @@ a fixed id, so a restart finds it instead of adding a second.
 `workspaces` and `agents` are one-to-many: a workspace declares the ceiling through
 its grants (the `workspace_*` link tables, plus `allow_all` for "everything,
 including what does not exist yet") and each agent narrows it with its own `agent_*`
-links, `system_prompt` and `instructions`. `allow_all` on either side means a grant
+links, a `system_prompt_append` and `instructions`. The app-owned base system prompt
+comes from the application settings and is sent before either agent section.
+`allow_all` on either side means a grant
 needs no enumeration; `createCapabilityApi()` in `src/capabilities/api.ts` is what
 refuses an agent grant the workspace does not reach, with `400
 CAPABILITY_NOT_ALLOWED`. Migration v4 seeds exactly one workspace and one agent per
 user, both immutable: they are what a new thread uses when it names neither, and a
 thread in a workspace without a default agent is refused with `400 AGENT_REQUIRED`.
-An agent's `system_prompt` and `instructions` are joined and passed to the durable
-conversation as its `instructions` section when the thread is created, so editing an
-agent later rewrites only conversations created afterwards; the grants are stored
-and validated but not yet read by the harness.
+An agent's `system_prompt_append` and `instructions` are passed as separately labelled
+parts of durable's `instructions` section. The process-wide `cake` extension adds the
+current application base prompt in its `cake-system` section, and tool selection
+includes that extension even when no tools are granted. Changes appear in durable
+`pi.system` entries and are visible as expandable context rows in chat.
 
 ### Archiving
 
@@ -298,6 +301,8 @@ row; it is refused with `409 NOT_ARCHIVED` while the row is live, and with
 | `POST /threads/:threadId/restore` | — | the thread, unstamped |
 | `GET /threads/:threadId/messages` | — | `{ "messages": [{ "role", "text" }] }` |
 | `GET /threads/:threadId/context` | — | `{ "provider", "modelId", "contextWindow", "used", "remaining", "categories": [{ "kind", "tokens" }] }`, every number estimated at `chars / 4` |
+| `GET /threads/:threadId/tool-calls/:callId` | — | complete arguments and result text for one recorded call |
+| `GET/PUT /settings` | `{ "systemPrompt"? }` | application settings and the built-in `defaultSystemPrompt` |
 | `POST /threads/:threadId/messages` | `{ "message": "..." }` | `{ "reply": "..." }` |
 | `GET /workspaces?archived=` | — | `{ "workspaces": [...] }`, in the user's stored order |
 | `PUT /workspaces/order` | `{ "order": [workspaceId, …] }` | the whole list renumbered; `400` unless the ids are exactly the live workspaces |
@@ -311,7 +316,7 @@ row; it is refused with `409 NOT_ARCHIVED` while the row is live, and with
 | `POST /workspaces/:workspaceId/restore` | — | the workspace, unstamped |
 | `DELETE /workspaces/:workspaceId` | — | `204` |
 | `GET /workspaces/:workspaceId/agents?archived=` | — | `{ "agents": [...] }`, by name |
-| `POST /workspaces/:workspaceId/agents` | `{ "name", "description"?, "tools"?, "mcpServers"?, "skills"?, "systemPrompt"?, "instructions"? }` | `201` and the agent |
+| `POST /workspaces/:workspaceId/agents` | `{ "name", "description"?, "systemPromptAppend"?, "instructions"? }` | `201` and the agent |
 | `PATCH /workspaces/:workspaceId/agents/:agentId` | any subset of the create body | the agent |
 | `POST /workspaces/:workspaceId/agents/:agentId/archive` | — | the agent, stamped |
 | `POST /workspaces/:workspaceId/agents/:agentId/restore` | — | the agent, unstamped |

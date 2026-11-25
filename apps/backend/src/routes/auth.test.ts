@@ -3,6 +3,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import type { Agent } from '../agent.js'
 import { LOGIN_FAILURE_LIMIT } from '../auth/login-throttle.js'
 import { AuthService } from '../auth/service.js'
+import { DEFAULT_SETTINGS } from '../auth/settings-repository.js'
 import { loadConfig } from '../config.js'
 import { buildServer } from '../server.js'
 import { createPool } from '../storage/postgres/db.js'
@@ -63,6 +64,42 @@ if (url === undefined) {
         expect(session.json()).toMatchObject({ singleUser: true, pending: null })
 
         expect((await login(server, PASSWORD)).statusCode).toBe(404)
+      } finally {
+        await server.close()
+      }
+    })
+
+    it('serves the built-in system prompt and saves or resets an override through settings routes', async () => {
+      const { server } = await install()
+      try {
+        const initial = await server.inject({ method: 'GET', url: '/settings' })
+        expect(initial.statusCode).toBe(200)
+        expect(initial.json()).toMatchObject({
+          systemPrompt: DEFAULT_SETTINGS.systemPrompt,
+          defaultSystemPrompt: DEFAULT_SETTINGS.systemPrompt,
+        })
+
+        const changed = await server.inject({
+          method: 'PUT',
+          url: '/settings',
+          payload: { systemPrompt: 'Use the concise house style.' },
+        })
+        expect(changed.statusCode).toBe(200)
+        expect(changed.json()).toMatchObject({
+          systemPrompt: 'Use the concise house style.',
+          defaultSystemPrompt: DEFAULT_SETTINGS.systemPrompt,
+        })
+
+        const reset = await server.inject({
+          method: 'PUT',
+          url: '/settings',
+          payload: { systemPrompt: DEFAULT_SETTINGS.systemPrompt },
+        })
+        expect(reset.statusCode).toBe(200)
+        expect(reset.json()).toMatchObject({
+          systemPrompt: DEFAULT_SETTINGS.systemPrompt,
+          defaultSystemPrompt: DEFAULT_SETTINGS.systemPrompt,
+        })
       } finally {
         await server.close()
       }

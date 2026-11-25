@@ -17,7 +17,7 @@ const agent = (overrides: Partial<AgentProfile> = {}): AgentProfile => ({
   description: '',
   isDefault: false,
   allowAll: true,
-  systemPrompt: '',
+  systemPromptAppend: '',
   instructions: '',
   credentialId: null,
   modelId: null,

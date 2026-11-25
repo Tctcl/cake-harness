@@ -1,6 +1,7 @@
 import type { Extension, RegistrySnapshot, ToolRegistration } from '@earendil-works/pi-durable'
 
 export const CODING_TOOLS_EXTENSION = 'coding-tools'
+export const CAKE_EXTENSION = 'cake'
 
 export interface ToolSelectionInput {
   readonly workspace: { readonly isDefault: boolean }
@@ -36,6 +37,9 @@ const grantedNames = (ids: readonly string[], catalog: ReadonlyMap<string, strin
  * absent, while read/write/edit/bash require a workspace container.
  */
 export const selectTools = (input: ToolSelectionInput): ToolSelection => {
+  const cake = input.registry.extension(CAKE_EXTENSION)
+  if (cake === undefined) throw new Error('the Cake system prompt extension is not installed')
+
   const environmentTools = !input.workspace.isDefault && input.hasEnvironment
   const available = input.registry.tools().filter(
     ({ extension }) => environmentTools || extension.name !== CODING_TOOLS_EXTENSION,
@@ -44,7 +48,7 @@ export const selectTools = (input: ToolSelectionInput): ToolSelection => {
     ? undefined
     : grantedNames(input.agent.toolGrants, input.catalog)
   const selected = available.filter(({ tool }) => granted === undefined || granted.has(tool.name))
-  const extensions = new Map<string, Extension>()
+  const extensions = new Map<string, Extension>([[cake.name, cake]])
   for (const { extension } of selected) extensions.set(extension.name, extension)
 
   return { extensions: [...extensions.values()], tools: selected.map(({ tool }) => tool) }

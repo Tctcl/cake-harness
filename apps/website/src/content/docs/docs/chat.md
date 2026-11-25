@@ -20,9 +20,11 @@ During streaming, the transcript includes:
 - the assistant's response as it arrives;
 - **thinking**, when the selected model and thinking level produce it;
 - **tool calls inside the turn**, including the operation and its result or running state;
+- **context rows**, showing the system prompt sections and tools offered to the model; expand a row to inspect the exact recorded text;
 - **compaction lines**, marking where earlier context was compacted so the conversation could continue.
 
 These are parts of the same turn rather than separate hidden logs. You can inspect which file an agent read, which edit it made, or which command it ran before accepting its summary.
+Tool-call arguments and results are clipped to 4,000 characters in the stream. Expand a clipped call to load its complete recorded output.
 
 Tool location depends on the workspace. In a container-backed workspace, file and shell calls run in that container through pi-env. In General, only `web_fetch` is available and private addresses are refused. See [Tools](/docs/tools).
 

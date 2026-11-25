@@ -33,7 +33,7 @@ vi.mock('../../lib/chat-api.ts', async (importOriginal) => {
         description: '',
         isDefault: true,
         allowAll: true,
-        systemPrompt: '',
+        systemPromptAppend: '',
         instructions: '',
         credentialId: null,
         modelId: null,
@@ -273,6 +273,33 @@ describe('ChatPane', () => {
     expect(details).not.toBeNull()
     expect(details).not.toHaveAttribute('open')
     expect(details?.querySelector('[data-slot="bubble"]')).toBeNull()
+  })
+
+  it('renders recorded system context collapsed and expands the exact prompt text', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => reply({ messages: [], nextCursor: null })))
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    await waitFor(() => expect(stream()).toBeDefined())
+
+    stream()?.emit(
+      STREAM_EVENT,
+      frame([
+        chatMessage(8, 'context', '', {
+          sections: [{ key: 'cake-system', text: 'The exact Cake base prompt.' }],
+          toolsAdded: ['read', 'web_fetch'],
+          toolsRemoved: [],
+        }),
+      ]),
+    )
+
+    expect(await screen.findByText('Context sent')).toBeInTheDocument()
+    const promptLabel = screen.getByText('System prompt')
+    const promptDetails = promptLabel.closest('details')
+    expect(promptDetails).not.toHaveAttribute('open')
+    fireEvent.click(promptLabel)
+    expect(await screen.findByText('The exact Cake base prompt.')).toBeInTheDocument()
+
+    expect(screen.getByText('Tools offered: read, web_fetch')).toBeInTheDocument()
   })
 
   it('shows a committed assistant error above its answer', async () => {

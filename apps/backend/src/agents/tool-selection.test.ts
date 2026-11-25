@@ -2,6 +2,7 @@ import { createRegistry } from '@earendil-works/pi-durable'
 import { createCodingTools } from '@earendil-works/pi-durable/tools'
 import { describe, expect, it } from 'vitest'
 
+import { createCakeExtension } from './cake-extension.js'
 import { createWebExtension } from '../capabilities/web.js'
 import { selectTools } from './tool-selection.js'
 import type { ToolSelectionInput } from './tool-selection.js'
@@ -9,6 +10,7 @@ import type { ToolSelectionInput } from './tool-selection.js'
 const registry = createRegistry()
 registry.install(createCodingTools())
 registry.install(createWebExtension())
+registry.install(createCakeExtension(async () => 'Cake prompt'))
 const snapshot = registry.snapshot()
 const catalog = new Map([
   ['read-id', 'read'],
@@ -38,14 +40,14 @@ describe('selectTools', () => {
     const selection = selectTools(input())
 
     expect(names(selection)).toEqual(['read', 'write', 'edit', 'bash', 'web_fetch'])
-    expect(selection.extensions.map(({ name }) => name)).toEqual(['coding-tools', 'web'])
+    expect(selection.extensions.map(({ name }) => name)).toEqual(['cake', 'coding-tools', 'web'])
   })
 
   it('never gives the default workspace environment-backed tools', () => {
     const selection = selectTools(input({ workspace: { isDefault: true } }))
 
     expect(names(selection)).toEqual(['web_fetch'])
-    expect(selection.extensions.map(({ name }) => name)).toEqual(['web'])
+    expect(selection.extensions.map(({ name }) => name)).toEqual(['cake', 'web'])
   })
 
   it('drops environment-backed tools when a non-default workspace has no environment', () => {
@@ -74,6 +76,7 @@ describe('selectTools', () => {
       agent: { allowAll: false, toolGrants: ['missing-id'] },
     }))
 
-    expect(selection).toEqual({ extensions: [], tools: [] })
+    expect(selection.extensions.map(({ name }) => name)).toEqual(['cake'])
+    expect(selection.tools).toEqual([])
   })
 })

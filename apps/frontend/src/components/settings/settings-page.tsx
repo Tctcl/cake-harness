@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { ThemePicker } from '../layout/theme-picker.tsx'
 import { AccountSection } from './account-section.tsx'
 import { CredentialsPage } from './credentials-page.tsx'
+import { ApplicationSettings } from './application-settings.tsx'
 
 export type SectionId = 'application' | 'credentials' | 'user'
 
@@ -55,6 +56,7 @@ function SectionBody({ section }: { section: Section }) {
             </div>
             <ThemePicker />
           </div>
+          <ApplicationSettings />
         </div>
       )
     case 'credentials':

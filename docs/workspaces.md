@@ -69,10 +69,17 @@ Two invariants worth stating because they drive the code:
 ## Agents
 
 An agent stays a profile with its own capability selection (`tools`,
-`mcp_servers`, `skills`), with skill and MCP selections inside the workspace's ceilings, its own `system_prompt`
+`mcp_servers`, `skills`), with skill and MCP selections inside the workspace's ceilings, its own `system_prompt_append`
 and `instructions`, and gains three columns it does not have: `allowed_models`,
 `model` and `thinking_level`. Those are what a client changes when a user says
 "use the cheaper model here" — settings, not identity.
+
+The application settings own the shared base system prompt. Every conversation
+receives it first, from the `cake` extension's `cake-system` section; the agent's
+system prompt append and instructions follow as separately labelled parts. New
+agents start with an empty append. The durable `pi.system` entries are projected
+into context rows in the transcript, so readers can expand the exact prompt
+sections and see tools added or removed for each context change.
 
 Which models an agent may offer is decided by the workspace, not by the agent: a
 workspace allows a subset of the credential store, and the agent picks inside that

@@ -10,7 +10,6 @@ import { DEFAULT_AGENT_ID, DEFAULT_WORKSPACE_ID, PLAN_AGENT_INSTRUCTIONS } from 
 import type { Workspace } from '../workspaces/workspace-repository.js'
 import { WorkspaceRepository } from '../workspaces/workspace-repository.js'
 import { AgentRepository } from './agent-repository.js'
-import { DEFAULT_SYSTEM_PROMPT } from './default-prompt.js'
 
 /**
  * Runs against a real server like the other repository suites: `DATABASE_URL` must point at a disposable database, and
@@ -63,7 +62,7 @@ if (url === undefined) {
     workspaces.create(ownerId, { name: 'Platform' }, IMAGE)
 
   describe('AgentRepository', () => {
-    it('lists the seeded default agent with everything enabled and the starter prompt', async () => {
+    it('lists the seeded default agent with everything enabled and no duplicated base prompt', async () => {
       await withAgents(async ({ agents }) => {
         const all = await agents.list(DEFAULT_WORKSPACE_ID)
 
@@ -73,7 +72,7 @@ if (url === undefined) {
           workspaceId: DEFAULT_WORKSPACE_ID,
           isDefault: true,
           allowAll: true,
-          systemPrompt: DEFAULT_SYSTEM_PROMPT,
+          systemPromptAppend: '',
           instructions: '',
         })
         await expect(agents.default(DEFAULT_WORKSPACE_ID)).resolves.toMatchObject({
@@ -94,13 +93,13 @@ if (url === undefined) {
           isDefault: true,
           allowAll: true,
           description: 'Builds and changes things: every tool in this workspace.',
-          systemPrompt: DEFAULT_SYSTEM_PROMPT,
+          systemPromptAppend: '',
         })
         expect(plan).toMatchObject({
           isDefault: false,
           allowAll: false,
           description: 'Read-only: explores and plans, never edits.',
-          systemPrompt: DEFAULT_SYSTEM_PROMPT,
+          systemPromptAppend: '',
           instructions: PLAN_AGENT_INSTRUCTIONS,
         })
         await expect(agents.default(workspace.id)).resolves.toMatchObject({ name: 'Build' })
@@ -123,7 +122,7 @@ if (url === undefined) {
         const agent = await agents.create(workspace.id, {
           name: 'Reviewer',
           allowAll: false,
-          systemPrompt: 'You review code.',
+          systemPromptAppend: 'You review code.',
           instructions: 'Never edit.',
         })
 
@@ -132,7 +131,7 @@ if (url === undefined) {
           name: 'Reviewer',
           isDefault: false,
           allowAll: false,
-          systemPrompt: 'You review code.',
+          systemPromptAppend: 'You review code.',
           instructions: 'Never edit.',
         })
       })

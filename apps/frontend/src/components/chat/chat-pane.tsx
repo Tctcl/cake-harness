@@ -198,6 +198,7 @@ function Transcript({
     ),
   )
   const trailingTools = state.tools.filter((call) => !positionedCallIds.has(call.id))
+  const firstContextId = state.messages.find((message) => message.role === 'context')?.id
 
   // Read by the resize observer, which is attached once and would otherwise see the value of its first render.
   const following = useRef(pinned)
@@ -257,7 +258,13 @@ function Transcript({
           {state.messages.map((message) => (
             <Fragment key={message.id}>
               <MessageScrollerItem messageId={String(message.id)}>
-                <Line message={message} tools={toolsById} streaming={streaming} />
+                <Line
+                  message={message}
+                  tools={toolsById}
+                  streaming={streaming}
+                  firstContext={message.id === firstContextId}
+                  threadId={threadId}
+                />
               </MessageScrollerItem>
 
               {state.pending
@@ -275,7 +282,7 @@ function Transcript({
 
           {trailingTools.length === 0 ? null : (
             <MessageScrollerItem messageId="tools">
-              <ToolTrace calls={trailingTools} active={streaming} />
+              <ToolTrace calls={trailingTools} active={streaming} threadId={threadId} />
             </MessageScrollerItem>
           )}
 
@@ -319,10 +326,14 @@ function Line({
   message,
   tools,
   streaming,
+  firstContext,
+  threadId,
 }: {
   message: ChatMessage
   tools: ReadonlyMap<string, ChatToolCall>
   streaming: boolean
+  firstContext: boolean
+  threadId: string
 }) {
   if (message.role === 'user') {
     return (
@@ -346,6 +357,43 @@ function Line({
           <Markdown text={message.text} />
         </div>
       </details>
+    )
+  }
+
+  if (message.role === 'context') {
+    const sections = message.sections ?? []
+    const added = message.toolsAdded ?? []
+    const removed = message.toolsRemoved ?? []
+
+    return (
+      <div className="flex flex-col gap-1 rounded-sm border border-border/60 px-3 py-2 text-xs">
+        <span className="font-medium text-muted-foreground">
+          {firstContext ? 'Context sent' : 'Context updated'}
+        </span>
+        {sections.map(({ key, text }) => (
+          <details key={key} className="min-w-0">
+            <summary className="cursor-pointer text-muted-foreground">
+              {key === 'cake-system' ? 'System prompt' : key === 'instructions' ? 'Agent instructions' : key}
+            </summary>
+            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-sm bg-muted p-2 font-mono">
+              {text ?? 'Removed'}
+            </pre>
+          </details>
+        ))}
+        {added.length > 0 || removed.length > 0 ? (
+          <details>
+            <summary className="cursor-pointer text-muted-foreground">
+              {added.length > 0 ? `Tools offered: ${added.join(', ')}` : `Tools removed: ${removed.join(', ')}`}
+            </summary>
+            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-sm bg-muted p-2 font-mono">
+              {[
+                ...(added.length > 0 ? [`Added: ${added.join(', ')}`] : []),
+                ...(removed.length > 0 ? [`Removed: ${removed.join(', ')}`] : []),
+              ].join('\n')}
+            </pre>
+          </details>
+        ) : null}
+      </div>
     )
   }
 
@@ -402,10 +450,12 @@ function Line({
                   status: 'running',
                   result: null,
                   durationMs: null,
+                  truncated: false,
+                  fullByteLength: 0,
                 }
               : { ...settled, arguments: block.arguments }
 
-          return <ToolCallRow key={block.callId} call={call} active={streaming} />
+          return <ToolCallRow key={block.callId} call={call} active={streaming} threadId={threadId} />
         })}
       </MessageContent>
     </Message>

@@ -21,12 +21,15 @@ export type ChatBlock =
 /** One line of a thread's transcript, as the backend renders it. `id` is the durable entry id and the merge key. */
 export interface ChatMessage {
   readonly id: number
-  readonly role: 'user' | 'assistant' | 'compaction' | 'reset'
+  readonly role: 'user' | 'assistant' | 'compaction' | 'reset' | 'context'
   readonly text: string
   readonly blocks: readonly ChatBlock[]
   readonly stopReason: string | null
   readonly errorMessage: string | null
   readonly reason: string | null
+  readonly sections?: readonly { readonly key: string; readonly text: string | null }[]
+  readonly toolsAdded?: readonly string[]
+  readonly toolsRemoved?: readonly string[]
 }
 
 /** One tool call from the run, joined with the result that answered it. */
@@ -38,6 +41,13 @@ export interface ChatToolCall {
   readonly status: 'running' | 'ok' | 'error'
   readonly result: string | null
   readonly durationMs: number | null
+  readonly truncated: boolean
+  readonly fullByteLength: number
+}
+
+export interface ChatToolCallDetails {
+  readonly arguments: string | null
+  readonly result: string | null
 }
 
 /** The model the newest answer ran with; absent until the agent has answered once. */
@@ -133,7 +143,7 @@ export interface ChatAgent {
   readonly isDefault: boolean
   /** Whether the agent reaches every available tool, rather than a narrower selection. */
   readonly allowAll: boolean
-  readonly systemPrompt: string
+  readonly systemPromptAppend: string
   readonly instructions: string
   /** The stored key it runs with, or `null` for the workspace's newest linked key. */
   readonly credentialId: string | null
@@ -249,6 +259,12 @@ export const readMessages = async (threadId: string, cursor?: string): Promise<T
 
   return await request<TranscriptPage>(`/threads/${threadId}/messages?${query.toString()}`)
 }
+
+/** Fetch the unabridged entry data only when a reader expands a clipped tool call. */
+export const readToolCallDetails = async (threadId: string, callId: string): Promise<ChatToolCallDetails> =>
+  await request<ChatToolCallDetails>(
+    `/threads/${threadId}/tool-calls/${encodeURIComponent(callId)}`,
+  )
 
 /**
  * Hand one message to the agent. The answer arrives on the thread's stream, not in this response, so a resolved promise

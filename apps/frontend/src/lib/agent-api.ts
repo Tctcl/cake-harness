@@ -6,7 +6,7 @@ export interface AgentDraft {
   readonly name: string
   readonly description: string
   readonly allowAll: boolean
-  readonly systemPrompt: string
+  readonly systemPromptAppend: string
   readonly instructions: string
   readonly credentialId: string | null
   readonly modelId: string | null

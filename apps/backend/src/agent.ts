@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { opencodeGoProvider } from '@earendil-works/pi-ai/providers/opencode-go'
@@ -7,6 +8,7 @@ import {
   Harness,
   LiveDoc,
   ResetEntry,
+  SystemEntry,
   SessionFailed,
   UsageDoc,
   createRegistry,
@@ -59,9 +61,12 @@ import type {
 } from './agents/run-settings.js'
 import { selectTools } from './agents/tool-selection.js'
 import { syncToolCatalog } from './agents/tool-catalog.js'
+import { composeAgentInstructions } from './agents/base-prompt.js'
+import { createCakeExtension } from './agents/cake-extension.js'
 import { AuthService } from './auth/service.js'
 import { ToolRepository } from './capabilities/tool-repository.js'
 import { createWebExtension } from './capabilities/web.js'
+import { TOOL_TEXT_LIMIT } from './live-activity.js'
 import { idFromNumber } from './storage/postgres/ids.js'
 import { openPostgresStorage } from './storage/postgres/index.js'
 import { retryingStorage } from './storage/postgres/resilient.js'
@@ -106,7 +111,7 @@ export type ChatBlock =
 export interface ChatMessage {
   /** Entry id, stable within the conversation and the handle a client keys and merges on. */
   readonly id: number
-  readonly role: 'user' | 'assistant' | 'compaction' | 'reset'
+  readonly role: 'user' | 'assistant' | 'compaction' | 'reset' | 'context'
   /** Concatenated text blocks, kept for callers that only render plain text. */
   readonly text: string
   readonly blocks: ChatBlock[]
@@ -114,6 +119,9 @@ export interface ChatMessage {
   readonly errorMessage: string | null
   /** Why context was compacted; null for every other line kind. */
   readonly reason: string | null
+  readonly sections?: readonly { readonly key: string; readonly text: string | null }[]
+  readonly toolsAdded?: readonly string[]
+  readonly toolsRemoved?: readonly string[]
 }
 
 /**
@@ -131,6 +139,13 @@ export interface ToolCallView {
   /** The result's text, or null while it is still running. */
   readonly result: string | null
   readonly durationMs: number | null
+  readonly truncated: boolean
+  readonly fullByteLength: number
+}
+
+export interface ToolCallDetails {
+  readonly arguments: string | null
+  readonly result: string | null
 }
 
 /** The model the newest answer ran with, so a client names the run instead of repeating a constant. */
@@ -234,6 +249,8 @@ export interface Agent {
   restoreThread(id: string): Promise<ChatThread | undefined>
   /** One page of the thread's transcript, newest page first when no cursor is given. */
   messages(threadId: string, query: MessageQuery): Promise<MessagePage>
+  /** Full recorded arguments and result, or undefined when no call with this id exists in the thread. */
+  toolCallDetails(threadId: string, callId: string): Promise<ToolCallDetails | undefined>
   /** What the thread's next request would carry, split by where its tokens go. */
   contextUsage(threadId: string): Promise<ContextUsage>
   /** Set a thread's title, or answer `undefined` when the id is unknown. */
@@ -273,8 +290,9 @@ const chatBlocks = (message: EntryMessage): ChatBlock[] => {
           type: 'toolCall',
           callId: block.id,
           name: block.name,
-          arguments: JSON.stringify(block.arguments),
+          arguments: clipped(JSON.stringify(block.arguments)),
         },
+
       ]
     }
 
@@ -308,6 +326,24 @@ const textLine = (entry: EntryRecord, role: 'compaction' | 'reset'): ChatMessage
 /** The transcript as chat lines, with compaction and reset entries kept distinct from user input. */
 export const chatMessages = (entries: readonly EntryRecord[]): ChatMessage[] =>
   entries.flatMap((entry): ChatMessage[] => {
+    if (entry.kind === SystemEntry.kind) {
+      const message = entry.model?.find((candidate) => candidate.role === 'system')
+      if (message === undefined) return []
+
+      return [{
+        id: entry.id,
+        role: 'context',
+        text: '',
+        blocks: [],
+        stopReason: null,
+        errorMessage: null,
+        reason: null,
+        sections: Object.entries(message.sections ?? {}).map(([key, text]) => ({ key, text })),
+        toolsAdded: (message.toolsAdded ?? []).map(({ name }) => name),
+        toolsRemoved: (message.toolsRemoved ?? []).map(({ name }) => name),
+      }]
+    }
+
     if (entry.kind === CompactionEntry.kind) return [textLine(entry, 'compaction')]
     if (entry.kind === ResetEntry.kind) return [textLine(entry, 'reset')]
 
@@ -362,26 +398,32 @@ export const toolCalls = (entries: readonly EntryRecord[]): ToolCallView[] => {
         for (const block of message.content) {
           if (block.type !== 'toolCall' || calls.has(block.id)) continue
 
+          const argumentsText = JSON.stringify(block.arguments)
           calls.set(block.id, {
             id: block.id,
             entryId: entry.id,
             name: block.name,
-            arguments: clipped(JSON.stringify(block.arguments)),
+            arguments: clipped(argumentsText),
             status: 'running',
             result: null,
             durationMs: null,
+            truncated: argumentsText.length > TOOL_TEXT_LIMIT,
+            fullByteLength: Buffer.byteLength(argumentsText),
           })
         }
       }
 
       if (message.role !== 'toolResult') continue
 
-      const settled: Pick<ToolCallView, 'status' | 'result' | 'durationMs'> = {
-        status: message.isError ? 'error' : 'ok',
-        result: clipped(messageText(message)),
-        durationMs: message.durationMs ?? null,
-      }
+      const result = messageText(message)
       const call = calls.get(message.toolCallId)
+      const settled: Pick<ToolCallView, 'status' | 'result' | 'durationMs' | 'truncated' | 'fullByteLength'> = {
+        status: message.isError ? 'error' : 'ok',
+        result: clipped(result),
+        durationMs: message.durationMs ?? null,
+        truncated: (call?.truncated ?? false) || result.length > TOOL_TEXT_LIMIT,
+        fullByteLength: (call?.fullByteLength ?? 0) + Buffer.byteLength(result),
+      }
       calls.set(
         message.toolCallId,
         call === undefined
@@ -398,6 +440,41 @@ export const toolCalls = (entries: readonly EntryRecord[]): ToolCallView[] => {
   }
 
   return [...calls.values()]
+}
+
+const readToolCallDetails = async (
+  conversation: Conversation,
+  callId: string,
+): Promise<ToolCallDetails | undefined> => {
+  let cursor: Cursor | undefined
+  let found = false
+  let foundCall = false
+  let args: string | null = null
+  let result: string | null = null
+
+  for (;;) {
+    const page = await conversation.entries({ order: 'descending' }, 100, cursor, CONTEXT)
+    for (const entry of page.items) {
+      for (const message of entry.model ?? []) {
+        if (message.role === 'assistant') {
+          for (const block of message.content) {
+            if (block.type !== 'toolCall' || block.id !== callId) continue
+            found = true
+            foundCall = true
+            args = JSON.stringify(block.arguments)
+          }
+        } else if (message.role === 'toolResult' && message.toolCallId === callId) {
+          found = true
+          result = messageText(message)
+        }
+      }
+    }
+
+    if ((foundCall && result !== null) || page.next === undefined) break
+    cursor = page.next
+  }
+
+  return found ? { arguments: args, result } : undefined
 }
 
 /** The model the newest answer ran with; absent until the agent has answered once. */
@@ -627,17 +704,6 @@ const resolveThreadTarget = async (
 }
 
 /**
- * An agent's prompt and instructions as the durable agent config's `instructions`, which renders as a reserved section
- * of the system prompt. It is applied on every turn along with the model and tool selection, so profile edits affect the
- * next message of an existing conversation. MCP servers and catalog skills stay declarative for now.
- */
-const instructionsOf = (agent: AgentProfile): string | undefined => {
-  const sections = [agent.systemPrompt.trim(), agent.instructions.trim()].filter((part) => part !== '')
-
-  return sections.length === 0 ? undefined : sections.join('\n\n')
-}
-
-/**
  * Postgres holds both the durable log and Cake's tables, so there is no in-process storage to fall back to: a
  * missing or unreachable database is a startup failure, not a degraded mode.
  */
@@ -712,8 +778,10 @@ export async function createAgent(config: Config): Promise<Agent> {
     loginIds: (await providerRepository.logins(ownerId)).map((login) => login.id),
     modelIds: chatModels,
   })
+  const auth = new AuthService({ pool: postgres.pool, schema: postgres.schema, secrets: config.secrets })
   // One registry for the process, so startup and every session agree about which tools exist.
   const registry = createRegistry()
+  registry.install(createCakeExtension(async () => (await auth.currentSettings()).systemPrompt))
   registry.install(createCodingTools())
   registry.install(createWebExtension())
 
@@ -723,7 +791,6 @@ export async function createAgent(config: Config): Promise<Agent> {
   // rather than by a migration; on an install that already satisfies the rule this writes nothing.
   await workspaces.ensureEnvironments(ownerId, config.workspaceImage)
   await workspaces.ensureDefaultAgents(ownerId)
-  const auth = new AuthService({ pool: postgres.pool, schema: postgres.schema, secrets: config.secrets })
 
   // Harnesses come and go as Sessions fail; the storage outlives them and only the process closes it.
   const storage: Storage = sharedStorage(retryingStorage(postgres))
@@ -918,7 +985,7 @@ export async function createAgent(config: Config): Promise<Agent> {
           ownerId,
           input,
         )
-        const instructions = instructionsOf(profile)
+        const instructions = composeAgentInstructions(profile.systemPromptAppend, profile.instructions)
         // Resolved before anything is created: a conversation that could never run is refused with what to fix.
         const [settings, selection] = await Promise.all([runSettingsOf(profile), toolSelectionOf(profile)])
         const harness = await supervisor.harness()
@@ -949,6 +1016,18 @@ export async function createAgent(config: Config): Promise<Agent> {
         const conversation = await conversationFor(supervisor, threads, threadId)
 
         return await readMessages(conversation, query)
+      } catch (error) {
+        if (error instanceof SessionFailed) supervisor.discard()
+
+        throw error instanceof AppError ? error : unavailable(error)
+      }
+    },
+
+    async toolCallDetails(threadId, callId) {
+      try {
+        const conversation = await conversationFor(supervisor, threads, threadId)
+
+        return await readToolCallDetails(conversation, callId)
       } catch (error) {
         if (error instanceof SessionFailed) supervisor.discard()
 
@@ -992,6 +1071,7 @@ export async function createAgent(config: Config): Promise<Agent> {
         runSettingsOf(profile, thread.overrides),
         toolSelectionOf(profile),
       ])
+      const instructions = composeAgentInstructions(profile.systemPromptAppend, profile.instructions)
 
       try {
         const conversation = await conversationOf(
@@ -1005,7 +1085,7 @@ export async function createAgent(config: Config): Promise<Agent> {
             model: settings.model,
             thinkingLevel: settings.thinkingLevel,
             ...selection,
-            instructions: instructionsOf(profile) ?? null,
+            ...(instructions === undefined ? {} : { instructions }),
           },
           CONTEXT,
         )

@@ -34,6 +34,10 @@ Compose supplies `TRUST_PROXY=true` because Traefik terminates TLS. It also sets
 
 The product image supplies `NODE_ENV=production`, `HOST=0.0.0.0`, `PORT=8080`, and `FRONTEND_DIR=/app/public`.
 
+## Application settings
+
+The shared **System prompt** is edited in **Settings → Application settings**, not in the installation `.env`. Cake sends it first for every conversation, followed by that agent's system prompt append and instructions. The settings response also includes the built-in default for **Reset to default**.
+
 ## Backend environment reference
 
 | Variable | Default | Validation and meaning |
