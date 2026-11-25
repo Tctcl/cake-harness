@@ -531,9 +531,11 @@ export async function createAgent(config: Config): Promise<Agent> {
   const ownerId = await ensureLocalUser(postgres.pool, postgres.schema)
   // Provider keys are credentials of one kind, so they live in the same table and are read through their own api.
   const providerRepository = new ProviderRepository(postgres.pool, postgres.schema, config.secrets)
+  const chatModels = new Set(opencodeGoProvider().getModels().map((model) => model.id))
   const providers = createProviderApi({
     ownerId,
     providers: providerRepository,
+    runnable: (modelId) => chatModels.has(modelId),
   })
   // Chats authenticate with the keys stored on the credentials page, each registered as its own provider so an agent's
   // model reference names the key that pays for it. The bare provider serves conversations from before per-agent keys.
@@ -578,7 +580,7 @@ export async function createAgent(config: Config): Promise<Agent> {
 
   const keyCatalog = async (): Promise<KeyCatalog> => ({
     loginIds: (await providerRepository.logins(ownerId)).map((login) => login.id),
-    modelIds: new Set(opencodeGoProvider().getModels().map((model) => model.id)),
+    modelIds: chatModels,
   })
   // Every workspace except the default one runs in a container. The image is configuration, so the row is written here
   // rather than by a migration; on an install that already satisfies the rule this writes nothing.

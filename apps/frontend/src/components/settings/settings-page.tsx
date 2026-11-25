@@ -1,9 +1,9 @@
-import { ArrowLeftIcon, KeyRoundIcon, SettingsIcon, UsersIcon } from 'lucide-react'
+import { ArrowLeftIcon, KeyRoundIcon, SettingsIcon, UserIcon } from 'lucide-react'
 import type { ComponentType } from 'react'
 import { useState } from 'react'
 
-import type { CurrentUser } from '../../lib/chat-api.ts'
 import { ThemePicker } from '../layout/theme-picker.tsx'
+import { AccountSection } from './account-section.tsx'
 import { CredentialsPage } from './credentials-page.tsx'
 
 export type SectionId = 'application' | 'credentials' | 'user'
@@ -29,18 +29,19 @@ const SECTIONS: readonly Section[] = [
     label: 'Credentials',
     icon: KeyRoundIcon,
     title: 'Credentials',
-    description: 'The API keys and MCP keys that belong to you, and what each of them is for.',
+    description:
+      'Your OpenCode Go keys and MCP keys. A key added here is checked, then linked to a workspace on its Providers tab.',
   },
   {
     id: 'user',
-    label: 'User admin',
-    icon: UsersIcon,
-    title: 'User admin',
-    description: 'Who the sessions belong to.',
+    label: 'Account',
+    icon: UserIcon,
+    title: 'Account',
+    description: 'Who you are signed in as, your password and your second factor.',
   },
 ]
 
-function SectionBody({ section, user }: { section: Section; user: CurrentUser | null }) {
+function SectionBody({ section }: { section: Section }) {
   switch (section.id) {
     case 'application':
       return (
@@ -59,20 +60,7 @@ function SectionBody({ section, user }: { section: Section; user: CurrentUser | 
     case 'credentials':
       return <CredentialsPage />
     case 'user':
-      return (
-        <div className="flex max-w-prose flex-col gap-3 text-sm">
-          <div className="flex flex-col gap-2 rounded-md border p-4">
-            <span className="font-medium">{user?.name ?? 'Unknown user'}</span>
-            <span className="text-muted-foreground">
-              Until sign-in exists there is exactly one local user, seeded by the migration. There is no password, no
-              session and no second account to administer.
-            </span>
-            {user === null ? null : (
-              <code className="w-fit rounded-sm bg-muted px-2 py-1 font-mono text-xs">{user.id}</code>
-            )}
-          </div>
-        </div>
-      )
+      return <AccountSection />
     default:
       return null
   }
@@ -86,11 +74,9 @@ function SectionBody({ section, user }: { section: Section; user: CurrentUser | 
  * lives behind the workspace manager, because it means nothing outside the workspace it belongs to.
  */
 export function SettingsPage({
-  user,
   onClose,
   initialSection = 'application',
 }: {
-  user: CurrentUser | null
   onClose: () => void
   /** The section to open on, so another screen can send the user straight to their keys. */
   initialSection?: SectionId
@@ -99,15 +85,16 @@ export function SettingsPage({
   const section = SECTIONS.find((candidate) => candidate.id === active) ?? SECTIONS[0]
 
   return (
-    <div className="flex h-full min-h-0 overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden md:flex-row">
+      {/* A row of sections above the content on a phone, a column beside it from `md` up. */}
       <nav
         aria-label="Settings sections"
-        className="flex w-64 shrink-0 flex-col gap-1 border-r bg-sidebar p-2 text-sidebar-foreground"
+        className="flex shrink-0 gap-1 overflow-x-auto border-b bg-sidebar p-2 text-sidebar-foreground md:w-64 md:flex-col md:overflow-visible md:border-r md:border-b-0"
       >
         <button
           type="button"
           onClick={onClose}
-          className="mb-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          className="flex shrink-0 items-center gap-2 md:mb-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
           <ArrowLeftIcon className="size-4" aria-hidden />
           Back to conversations
@@ -121,7 +108,7 @@ export function SettingsPage({
               type="button"
               aria-current={candidate.id === active ? 'page' : undefined}
               onClick={() => setActive(candidate.id)}
-              className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${
+              className={`flex shrink-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${
                 candidate.id === active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : ''
               }`}
             >
@@ -133,13 +120,13 @@ export function SettingsPage({
       </nav>
 
       <main className="min-w-0 flex-1 overflow-y-auto" aria-label={section?.title}>
-        <div className="flex flex-col gap-4 p-6">
+        <div className="flex flex-col gap-4 p-4 md:p-6">
           <header className="flex flex-col gap-1">
             <h1 className="text-lg font-semibold">{section?.title}</h1>
             <p className="text-sm text-muted-foreground">{section?.description}</p>
           </header>
 
-          {section === undefined ? null : <SectionBody section={section} user={user} />}
+          {section === undefined ? null : <SectionBody section={section} />}
         </div>
       </main>
     </div>

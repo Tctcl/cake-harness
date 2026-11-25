@@ -205,8 +205,9 @@ export const listThreads = async (workspaceId: string | null): Promise<ChatThrea
   return (await request<{ threads: ChatThread[] }>(`/threads${query}`)).threads
 }
 
-export const createThread = async (workspaceId: string): Promise<ChatThread> =>
-  await request<ChatThread>('/threads', send({ workspaceId }))
+/** Without an agent the workspace's default agent answers. */
+export const createThread = async (workspaceId: string, agentId?: string): Promise<ChatThread> =>
+  await request<ChatThread>('/threads', send(agentId === undefined ? { workspaceId } : { workspaceId, agentId }))
 
 /** One page of transcript, newest page first. `cursor` is the `nextCursor` of the page below this one. */
 export const readMessages = async (threadId: string, cursor?: string): Promise<TranscriptPage> => {

@@ -129,6 +129,15 @@ if (url === undefined) {
       )
     })
 
+    it('lists only the models the runtime can chat with, when told which those are', async () => {
+      await withApi(async ({ providers, ownerId, addKey }) => {
+        await addKey('personal', 'sk')
+        const api = createProviderApi({ ownerId, providers, runnable: (id) => id !== MODEL.id })
+
+        await expect(api.models()).resolves.toEqual([])
+      })
+    })
+
     it('fills the catalog from the key that just proved itself', async () => {
       await withApi(async ({ api, addKey }) => {
         await expect(api.models()).resolves.toEqual([])

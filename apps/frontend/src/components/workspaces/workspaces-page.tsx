@@ -8,6 +8,8 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '..
 import { Input } from '../ui/input.tsx'
 import { Spinner } from '../ui/spinner.tsx'
 import { WorkspaceDetail } from './workspace-detail.tsx'
+import type { WorkspaceTabId } from './workspace-detail.tsx'
+import { useNarrowScreen } from '../../lib/use-narrow-screen.ts'
 
 /**
  * Workspace management, a screen of its own rather than a settings section: the list on the left is every workspace, the
@@ -17,13 +19,19 @@ import { WorkspaceDetail } from './workspace-detail.tsx'
 export function WorkspacesPage({
   onClose,
   onOpenCredentials,
+  initialWorkspaceId = null,
+  initialTab = 'overview',
 }: {
   onClose: () => void
   onOpenCredentials: () => void
+  /** The workspace to open on, and its tab; another screen uses this to send the user to a specific fix. */
+  initialWorkspaceId?: string | null
+  initialTab?: WorkspaceTabId
 }) {
+  const narrow = useNarrowScreen()
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(initialWorkspaceId)
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -74,9 +82,10 @@ export function WorkspacesPage({
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden">
+      {/* A phone shows the list or one workspace, never both side by side. */}
       <nav
         aria-label="Workspaces"
-        className="flex w-64 shrink-0 flex-col gap-1 border-r bg-sidebar p-2 text-sidebar-foreground"
+        className={`${narrow && selected !== null ? 'hidden' : 'flex'} w-full shrink-0 flex-col gap-1 bg-sidebar p-2 text-sidebar-foreground md:w-64 md:border-r`}
       >
         <button
           type="button"
@@ -131,7 +140,7 @@ export function WorkspacesPage({
         </form>
       </nav>
 
-      <main className="min-w-0 flex-1 overflow-y-auto">
+      <main className={`${narrow && selected === null ? 'hidden' : ''} min-w-0 flex-1 overflow-y-auto`}>
         {selected === null ? (
           <div className="flex h-full items-center justify-center p-6">
             <Empty>
@@ -148,13 +157,26 @@ export function WorkspacesPage({
             </Empty>
           </div>
         ) : (
-          // Keyed on the id: switching workspace starts the next one on its Overview tab, not on the last one's tab.
-          <WorkspaceDetail
-            key={selected.id}
-            workspace={selected}
-            onChanged={reload}
-            onOpenCredentials={onOpenCredentials}
-          />
+          <>
+            {narrow ? (
+              <button
+                type="button"
+                onClick={() => setSelectedId(null)}
+                className="flex items-center gap-2 px-4 pt-3 text-sm text-muted-foreground"
+              >
+                <ArrowLeftIcon className="size-4" aria-hidden />
+                Workspaces
+              </button>
+            ) : null}
+            {/* Keyed on the id: switching workspace starts the next one on its first tab, not on the last one's. */}
+            <WorkspaceDetail
+              key={selected.id}
+              workspace={selected}
+              onChanged={reload}
+              onOpenCredentials={onOpenCredentials}
+              initialTab={selected.id === initialWorkspaceId ? initialTab : 'overview'}
+            />
+          </>
         )}
       </main>
     </div>

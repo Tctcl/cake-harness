@@ -139,6 +139,7 @@ export function WorkspaceProviders({
               <label className="flex items-center gap-3 rounded-md border p-3">
                 <input
                   type="checkbox"
+                  aria-label={`Use ${login.label} in this workspace`}
                   className="size-4 shrink-0 accent-foreground"
                   disabled={everything}
                   checked={everything || draft.loginIds.includes(login.id)}
@@ -160,6 +161,7 @@ export function WorkspaceProviders({
           <label className="flex items-center gap-2 text-xs">
             <input
               type="checkbox"
+              aria-label="Allow every model"
               className="size-4 accent-foreground"
               disabled={everything}
               checked={everything || draft.allowAllModels}
@@ -180,6 +182,7 @@ export function WorkspaceProviders({
                   <label className="flex items-start gap-3 rounded-md border p-3" aria-label={`Allow ${model.name}`}>
                     <input
                       type="checkbox"
+                      aria-label={`Allow ${model.name}`}
                       className="mt-0.5 size-4 shrink-0 accent-foreground"
                       checked={allowed}
                       disabled={everything || draft.allowAllModels}

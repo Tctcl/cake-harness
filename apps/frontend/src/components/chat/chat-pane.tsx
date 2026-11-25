@@ -4,6 +4,7 @@ import { useCallback, useEffect, useSyncExternalStore, useState } from 'react'
 import type { ChatMessage } from '../../lib/chat-api.ts'
 import type { ThreadSnapshot } from '../../lib/chat-store.ts'
 import {
+  KEY_PROBLEMS,
   loadOlder,
   openThread,
   retry,
@@ -36,7 +37,15 @@ const LOAD_OLDER_THRESHOLD = 160
  * One conversation. The transcript comes from the thread store rather than from this component, so a run keeps going
  * when another conversation is opened and this pane is rebuilt.
  */
-export function ChatPane({ threadId }: { threadId: string | null }) {
+
+export function ChatPane({
+  threadId,
+  onSetUpKeys,
+}: {
+  threadId: string | null
+  /** Where the fix for a missing key or model lives: the workspace manager. */
+  onSetUpKeys?: (() => void) | undefined
+}) {
   const subscribe = useCallback(
     (listener: () => void) => (threadId === null ? () => {} : subscribeToThread(threadId, listener)),
     [threadId],
@@ -69,6 +78,14 @@ export function ChatPane({ threadId }: { threadId: string | null }) {
       {state.error === null ? null : (
         <p role="alert" className="mx-auto w-full max-w-3xl px-4 text-sm text-destructive">
           {state.error}
+          {onSetUpKeys !== undefined && state.errorCode !== null && KEY_PROBLEMS.has(state.errorCode) ? (
+            <>
+              {' '}
+              <button type="button" className="font-medium underline" onClick={onSetUpKeys}>
+                Set up a key
+              </button>
+            </>
+          ) : null}
         </p>
       )}
 
@@ -230,9 +247,10 @@ function NoConversation() {
   return (
     <Empty className="h-full">
       <EmptyHeader>
-        <EmptyTitle>No conversation yet</EmptyTitle>
+        <EmptyTitle>No conversation open</EmptyTitle>
         <EmptyDescription>
-          Pick a conversation on the left, or start one in the selected workspace.
+          Open one from the conversation list, or start a new one with the + next to a workspace. Agents answer with an
+          OpenCode Go key: add one in Settings → Credentials if you have not yet.
         </EmptyDescription>
       </EmptyHeader>
     </Empty>
