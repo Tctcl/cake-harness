@@ -1,5 +1,7 @@
 /** The capability catalogs the backend keeps: what a workspace and an agent can be granted. */
 
+import type { Credential, CredentialInput } from './credentials-api.ts'
+
 /** Columns every catalog row carries; timestamps arrive as ISO strings because they crossed JSON. */
 interface Stamped {
   readonly id: string
@@ -23,35 +25,37 @@ export interface CatalogTool extends Stamped {
 
 export type McpTransport = 'stdio' | 'http'
 
-/** One MCP server definition. It never carries a secret: the consumer and secret names live on a credential. */
-export interface McpServer extends Stamped {
+/**
+ * One MCP server a workspace owns. It never carries a secret: the values under `env` name variables, and what fills them
+ * lives on a credential. A server belongs to the workspace whose container runs it, so editing one here changes nothing
+ * for any other workspace.
+ */
+export interface WorkspaceMcpServer extends Stamped {
+  readonly workspaceId: string
   readonly transport: McpTransport
+  /** stdio only: the executable. The rows after it in the editor are `args`. */
   readonly command: string | null
   readonly args: readonly string[]
+  /** stdio only: the directory the process starts in, inside the workspace's container. */
+  readonly cwd: string | null
+  /** http only: the endpoint. */
   readonly url: string | null
-  readonly envSchema: Readonly<Record<string, string>>
+  /** stdio only: variables handed to the process, name to value. */
+  readonly env: Readonly<Record<string, string>>
+  /**
+   * The id credentials are filed under, so a key written on the credentials page can be offered here. Free text: the
+   * server and the key are recorded separately, and either may be created first.
+   */
+  readonly mcpId: string | null
+  /** The credential this server authenticates with, or `null` while none is chosen. */
+  readonly credentialId: string | null
 }
 
-/** One way to authenticate against a server, naming secrets a secret store holds. */
-export interface McpCredential {
-  readonly id: string
-  readonly serverId: string
-  readonly label: string
-  readonly consumer: string
-  readonly secretMap: Readonly<Record<string, string>>
-  readonly archivedAt: string | null
-  readonly createdAt: string
-  readonly updatedAt: string
-}
+import { request } from './http.ts'
 
-const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
-  const response = await fetch(path, init)
-  if (response.status === 204) return undefined as T
-  const body = (await response.json()) as T & { error?: { message?: string } }
-  if (!response.ok) throw new Error(body.error?.message ?? `request failed with status ${response.status}`)
-
-  return body
-}
+/** A server's credentials are the user's own: the dropdown offers those whose `mcpId` matches the server. */
+export type McpCredential = Credential
+export type McpCredentialInput = CredentialInput
 
 const json = (method: string, body: unknown): RequestInit => ({
   method,
@@ -91,24 +95,31 @@ export interface McpServerInput {
   readonly transport: McpTransport
   readonly command?: string
   readonly args?: readonly string[]
+  readonly cwd?: string
   readonly url?: string
-  readonly envSchema?: Readonly<Record<string, string>>
+  readonly env?: Readonly<Record<string, string>>
+  readonly mcpId?: string
+  readonly credentialId?: string | null
 }
 
-export const serverApi = {
-  list: async (archived = false): Promise<McpServer[]> =>
-    (await request<{ servers: McpServer[] }>(`/mcp/servers${listQuery(archived)}`)).servers,
-  create: async (input: McpServerInput): Promise<McpServer> =>
-    await request<McpServer>('/mcp/servers', json('POST', input)),
-  setArchived: async (id: string, archived: boolean): Promise<McpServer> =>
-    await request<McpServer>(`/mcp/servers/${id}/${archived ? 'archive' : 'restore'}`, { method: 'POST' }),
-  remove: async (id: string): Promise<void> => await request<void>(`/mcp/servers/${id}`, { method: 'DELETE' }),
-}
-
-export interface McpCredentialInput {
-  readonly label: string
-  readonly consumer: string
-  readonly secretMap: Readonly<Record<string, string>>
+/**
+ * The servers of one workspace. They hang off the workspace rather than a shared catalog because a server's process runs in
+ * that workspace's container: its `cwd` and its `env` only mean anything inside it.
+ */
+export const workspaceServerApi = {
+  list: async (workspaceId: string, archived = false): Promise<WorkspaceMcpServer[]> =>
+    (await request<{ servers: WorkspaceMcpServer[] }>(`/workspaces/${workspaceId}/mcp/servers${listQuery(archived)}`))
+      .servers,
+  create: async (workspaceId: string, input: McpServerInput): Promise<WorkspaceMcpServer> =>
+    await request<WorkspaceMcpServer>(`/workspaces/${workspaceId}/mcp/servers`, json('POST', input)),
+  update: async (workspaceId: string, id: string, patch: Partial<McpServerInput>): Promise<WorkspaceMcpServer> =>
+    await request<WorkspaceMcpServer>(`/workspaces/${workspaceId}/mcp/servers/${id}`, json('PATCH', patch)),
+  setArchived: async (workspaceId: string, id: string, archived: boolean): Promise<WorkspaceMcpServer> =>
+    await request<WorkspaceMcpServer>(`/workspaces/${workspaceId}/mcp/servers/${id}/${archived ? 'archive' : 'restore'}`, {
+      method: 'POST',
+    }),
+  remove: async (workspaceId: string, id: string): Promise<void> =>
+    await request<void>(`/workspaces/${workspaceId}/mcp/servers/${id}`, { method: 'DELETE' }),
 }
 
 /** What an agent was granted. Ids, not rows: the catalogs hold the names. */
@@ -116,22 +127,33 @@ export interface ChatAgentGrants {
   readonly tools: readonly string[]
   readonly prompts: readonly string[]
   readonly skills: readonly string[]
-  readonly mcpServers: readonly { readonly serverId: string; readonly credentialId: string | null }[]
+  /** Ids of the servers its workspace owns: an agent selects among them rather than naming one of its own. */
+  readonly mcpServers: readonly string[]
 }
+
+/** What a workspace was granted, and whether it reaches everything instead. Ids, not rows. MCP servers are not
+ * granted, because the workspace owns them already. */
+export interface WorkspaceGrants {
+  readonly tools: readonly string[]
+  readonly prompts: readonly string[]
+  readonly skills: readonly string[]
+}
+
+export interface WorkspaceGrantState {
+  readonly allowAll: boolean
+  readonly grants: WorkspaceGrants
+}
+
+export const getWorkspaceGrants = async (workspaceId: string): Promise<WorkspaceGrantState> =>
+  await request<WorkspaceGrantState>(`/workspaces/${workspaceId}/grants`)
+
+/** One call for the whole selection: the backend replaces what the workspace reaches rather than patching it. */
+export const setWorkspaceGrants = async (
+  workspaceId: string,
+  state: WorkspaceGrantState,
+): Promise<WorkspaceGrantState> =>
+  await request<WorkspaceGrantState>(`/workspaces/${workspaceId}/grants`, json('PUT', state))
 
 export const getAgentGrants = async (agentId: string): Promise<ChatAgentGrants> =>
   await request<ChatAgentGrants>(`/agents/${agentId}/grants`)
 
-export const credentialApi = {
-  list: async (serverId: string, archived = false): Promise<McpCredential[]> =>
-    (
-      await request<{ credentials: McpCredential[] }>(
-        `/mcp/servers/${serverId}/credentials${listQuery(archived)}`,
-      )
-    ).credentials,
-  create: async (serverId: string, input: McpCredentialInput): Promise<McpCredential> =>
-    await request<McpCredential>(`/mcp/servers/${serverId}/credentials`, json('POST', input)),
-  setArchived: async (id: string, archived: boolean): Promise<McpCredential> =>
-    await request<McpCredential>(`/mcp/credentials/${id}/${archived ? 'archive' : 'restore'}`, { method: 'POST' }),
-  remove: async (id: string): Promise<void> => await request<void>(`/mcp/credentials/${id}`, { method: 'DELETE' }),
-}
