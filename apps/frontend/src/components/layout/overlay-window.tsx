@@ -84,7 +84,7 @@ export function OverlayWindow({
       ref={dialog}
       tabIndex={-1}
       aria-labelledby={titleId}
-      className="m-auto h-full max-h-none w-full max-w-none overflow-hidden border-0 bg-background p-0 text-foreground shadow-2xl outline-none backdrop:bg-black/50 md:h-[80vh] md:w-[min(960px,calc(100vw-4rem))] md:rounded-xl md:border"
+      className="m-auto h-full max-h-none w-full max-w-none overflow-hidden border-0 bg-background p-0 text-foreground shadow-2xl outline-none backdrop:bg-black/50 md:h-[85vh] md:w-[min(1440px,calc(100vw-4rem))] md:rounded-xl md:border"
     >
       <div className="flex h-full min-h-0 flex-col overflow-hidden">
         <header className="flex shrink-0 items-center gap-2 border-b px-4 py-2">

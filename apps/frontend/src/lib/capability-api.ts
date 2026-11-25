@@ -12,7 +12,7 @@ interface Stamped {
   readonly updatedAt: string
 }
 
-/** A prompt or a skill: text an agent is given. They differ by how the run uses them, not by shape. */
+/** A skill: text an agent is given. */
 export interface CatalogEntry extends Stamped {
   readonly body: string
 }
@@ -64,11 +64,7 @@ const listQuery = (archived: boolean): string => (archived ? '?archived=true' : 
 export const listTools = async (): Promise<CatalogTool[]> =>
   (await request<{ tools: CatalogTool[] }>('/tools')).tools
 
-/** Ask the backend to read its registry again; returns the catalog as it stands afterwards. */
-export const syncTools = async (): Promise<CatalogTool[]> =>
-  (await request<{ tools: CatalogTool[] }>('/tools/sync', { method: 'POST' })).tools
-
-const catalogRoutes = (path: 'prompts' | 'skills') => ({
+const catalogRoutes = (path: 'skills') => ({
   list: async (archived: boolean): Promise<CatalogEntry[]> =>
     (await request<{ entries: CatalogEntry[] }>(`/${path}${listQuery(archived)}`)).entries,
   create: async (input: { name: string; description: string; body: string }): Promise<CatalogEntry> =>
@@ -80,7 +76,6 @@ const catalogRoutes = (path: 'prompts' | 'skills') => ({
   remove: async (id: string): Promise<void> => await request<void>(`/${path}/${id}`, { method: 'DELETE' }),
 })
 
-export const promptApi = catalogRoutes('prompts')
 export const skillApi = catalogRoutes('skills')
 
 export interface McpServerInput {
@@ -119,7 +114,6 @@ export const workspaceServerApi = {
 /** What an agent was granted. Ids, not rows: the catalogs hold the names. */
 export interface ChatAgentGrants {
   readonly tools: readonly string[]
-  readonly prompts: readonly string[]
   readonly skills: readonly string[]
   /** Ids of the servers its workspace owns: an agent selects among them rather than naming one of its own. */
   readonly mcpServers: readonly string[]
@@ -128,8 +122,6 @@ export interface ChatAgentGrants {
 /** What a workspace was granted, and whether it reaches everything instead. Ids, not rows. MCP servers are not
  * granted, because the workspace owns them already. */
 export interface WorkspaceGrants {
-  readonly tools: readonly string[]
-  readonly prompts: readonly string[]
   readonly skills: readonly string[]
 }
 
@@ -150,4 +142,7 @@ export const setWorkspaceGrants = async (
 
 export const getAgentGrants = async (agentId: string): Promise<ChatAgentGrants> =>
   await request<ChatAgentGrants>(`/agents/${agentId}/grants`)
+
+export const setAgentGrants = async (agentId: string, grants: ChatAgentGrants): Promise<ChatAgentGrants> =>
+  await request<ChatAgentGrants>(`/agents/${agentId}/grants`, json('PUT', grants))
 

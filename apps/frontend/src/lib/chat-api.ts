@@ -124,14 +124,14 @@ export interface WorkspaceSummary {
   readonly position: number
 }
 
-/** One profile inside a workspace: what a conversation gets, and the prompts that steer it. */
+/** One profile inside a workspace: what a conversation gets, and the text that steers it. */
 export interface ChatAgent {
   readonly id: string
   readonly workspaceId: string
   readonly name: string
   readonly description: string
   readonly isDefault: boolean
-  /** Whether the agent reaches everything its workspace allows, rather than a narrower selection. */
+  /** Whether the agent reaches every available tool, rather than a narrower selection. */
   readonly allowAll: boolean
   readonly systemPrompt: string
   readonly instructions: string

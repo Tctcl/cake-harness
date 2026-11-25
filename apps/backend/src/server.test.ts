@@ -116,16 +116,7 @@ const environmentsOf = (overrides: Partial<EnvironmentApi> = {}): EnvironmentApi
 
 // The workspace routes never read the catalog, so the stub answers only what registration needs.
 const capabilitiesOf = (): CapabilityApi => ({
-  tools: { list: async () => [], sync: async () => [] },
-  prompts: {
-    list: async () => [],
-    find: unused,
-    create: unused,
-    update: unused,
-    archive: unused,
-    restore: unused,
-    remove: unused,
-  },
+  tools: { list: async () => [] },
   skills: {
     list: async () => [],
     find: unused,
@@ -1071,8 +1062,19 @@ describe('static frontend', () => {
 })
 
 describe('capability grant routes', () => {
+  it('does not register the removed prompt catalog or manual tool sync', async () => {
+    const server = buildServer(config, { agent: stubAgent() })
+
+    try {
+      expect((await server.inject({ method: 'GET', url: '/prompts' })).statusCode).toBe(404)
+      expect((await server.inject({ method: 'POST', url: '/tools/sync' })).statusCode).toBe(404)
+    } finally {
+      await server.close()
+    }
+  })
+
   it('answers a workspace s grants, which carry no MCP servers because the workspace owns them', async () => {
-    const grants = { allowAll: false, grants: { tools: ['t1'], prompts: [], skills: ['s1'] } }
+    const grants = { allowAll: false, grants: { skills: ['s1'] } }
     const server = buildServer(config, {
       agent: stubAgent({ capabilities: { ...capabilitiesOf(), workspaceGrants: async () => grants } }),
     })

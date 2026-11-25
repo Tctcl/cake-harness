@@ -23,16 +23,16 @@ handshake and connection lifecycle.
 The default General workspace has no container and never receives those
 environment-backed tools. `web_fetch` is env-free and can be granted in every
 workspace; it runs in the backend with public-address and redirect checks. Tool
-grants are effective at conversation creation and before every submission: the
-workspace is the ceiling, and an agent's selection is intersected with it. MCP,
-skills and prompt catalog grants remain unwired.
+grants are effective at conversation creation and before every submission: an
+agent with `allowAll` receives every available registry tool, and a restricted
+agent receives exactly its available grants. There is no workspace tool ceiling.
+MCP and skill grants remain unwired.
 
-A new non-default workspace defaults to `allowAll: false` with no grants. To let
-its default Assistant use coding tools, open **Tools**, click **Sync from
-registry**, select `read`, `write`, `edit`, `bash` (and `web_fetch` if wanted),
-then **Save selection**. Alternatively enable **Reach every capability** on
-**Overview** after syncing. The default agent's own `allowAll` then inherits that
-workspace ceiling; a restricted agent also needs the corresponding agent grants.
+The registry syncs into the tool catalog at startup. Every new non-default
+workspace starts with **Build**, its default allow-all agent, and **Plan**, which
+is granted exactly `read` and `web_fetch`. Agent tool grants are edited on the
+**Agents** tab. General keeps its allow-all **General** agent, but environment
+tools are unavailable there because it has no container.
 
 ## Why
 
@@ -52,7 +52,7 @@ conversation is a thread of work that may pass through more than one agent.
 
 | entity | belongs to | notes |
 | --- | --- | --- |
-| workspace | owner | owns **exactly one** container, and the ceilings (tools, MCP servers, skills) |
+| workspace | owner | owns **exactly one** container, and the ceilings (MCP servers, skills) |
 | container | workspace | one per workspace, created with it, no separate lifecycle API |
 | agent | workspace | a profile: name, prompt, instructions, capability selection, **model**, **thinking level** |
 | conversation | workspace | carries the id of the agent **currently** running it, which may change |
@@ -69,7 +69,7 @@ Two invariants worth stating because they drive the code:
 ## Agents
 
 An agent stays a profile with its own capability selection (`tools`,
-`mcp_servers`, `skills`) inside the workspace's ceilings, its own `system_prompt`
+`mcp_servers`, `skills`), with skill and MCP selections inside the workspace's ceilings, its own `system_prompt`
 and `instructions`, and gains three columns it does not have: `allowed_models`,
 `model` and `thinking_level`. Those are what a client changes when a user says
 "use the cheaper model here" — settings, not identity.

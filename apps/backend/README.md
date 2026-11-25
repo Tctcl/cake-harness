@@ -37,12 +37,12 @@ src/routes/me.ts      GET /me, the identity the sessions belong to
 src/routes/threads.ts /threads, /threads/:threadId/messages and /threads/:threadId/context
 src/context-usage.ts  what a thread's next request is made of, in estimated tokens
 src/routes/workspaces.ts /workspaces and /workspaces/:workspaceId/agents
-src/routes/capabilities.ts /tools, /prompts, /skills, /workspaces/:workspaceId/mcp/servers and the grants of a workspace
+src/routes/capabilities.ts /tools, /skills, /workspaces/:workspaceId/mcp/servers and the grants of a workspace
                       or an agent
 src/routes/providers.ts   /providers/logins, /providers/models and what each workspace may spend
 src/agent.ts          harness, one conversation per thread, the model it runs
 src/threads/          users/chat_threads rows: local-user bootstrap and repository
-src/capabilities/     the catalogs (tools synced from the registry, prompts, skills, the MCP servers of a workspace), the
+src/capabilities/     the catalogs (tools synced from the registry, skills, the MCP servers of a workspace), the
                       link tables that grant them, and the ceiling check
 src/providers/        the OpenCode Go client, the model cache and the keys a workspace may spend
 src/environments/     dev environment rows, Docker runtime, pi-env daemon delivery and stdio bridge
@@ -55,18 +55,19 @@ src/storage/postgres/ durable's `Storage` over Postgres, plus the schema history
 
 Migration 6 adds the catalogs and the links between them and a workspace or an agent.
 `tools` is written only by `ToolRepository.sync()` from what the installed registry
-extensions offer (a row is a pointer at code, so the UI cannot invent one); a tool
-that stops being offered is archived, not deleted. `prompts` and `skills` are the
-same three columns today (name, description, body) and share `TextRepository`, with
-separate tables so a skill can grow without moving rows. `workspace_mcp_servers` says how to
+extensions offer (a row is a pointer at code, so the UI cannot invent one), at every
+startup for every owner; a tool that stops being offered is archived, not deleted.
+`skills` hold a name, description and body (`TextRepository`). Prompts were removed in
+migration 20: skills cover them. `workspace_mcp_servers` says how to
 reach a server, in which working directory and with which environment: a server
 belongs to the workspace whose container runs it, so `cwd` and `env` describe that
 container and nothing else. It stores no secret. `credential_id` names a row of
 `user_credentials` (kind `mcp`), which is where the value lives and which is owned
 by a user rather than by the workspace.
 
-Grants live in `workspace_tools`, `workspace_prompts`, `workspace_skills` and the
-matching `agent_*` tables. Every link is a foreign key, so a grant of a row that
+Tools are granted to agents only (`agent_tools`); the workspace is no longer a tool
+ceiling, a tool simply has to be runnable there (env tools need a container). Skills
+are granted in `workspace_skills` and `agent_skills`. Every link is a foreign key, so a grant of a row that
 does not exist is refused by the database. MCP servers are the exception: they are
 not granted, because the workspace already owns them and a grant would only be a
 list of its own rows. An agent selects among them with `agent_mcp_servers.mcp_server_id`,
@@ -77,7 +78,7 @@ a server an agent still names.
 Tool grants are read when a conversation is created and before every submission.
 The workspace grant set is the ceiling and the agent selection is intersected with
 it. `read`, `write`, `edit` and `bash` run only in a non-default workspace with an
-environment; the env-free `web_fetch` can run in General too. MCP, skill and prompt
+environment; the env-free `web_fetch` can run in General too. MCP and skill
 grants are still stored without a runtime consumer.
 
 Migration 7 dropped the `text[]` columns (`workspaces.allowed_*`, `agents.tools`,
@@ -91,7 +92,7 @@ The routes in `src/routes/capabilities.ts` are the whole surface:
 | Route | What it does |
 | --- | --- |
 | `GET /tools`, `POST /tools/sync` | list the catalog, or refill it from the registry |
-| `GET/POST /prompts`, `PATCH /prompts/:id`, `POST /prompts/:id/{archive,restore}`, `DELETE /prompts/:id` | prompts, same shape for `/skills` |
+| `GET/POST /skills`, `PATCH /skills/:id`, `POST /skills/:id/{archive,restore}`, `DELETE /skills/:id` | skills |
 | `GET/POST /workspaces/:workspaceId/mcp/servers`, `PATCH /workspaces/:workspaceId/mcp/servers/:id`, `POST /workspaces/:workspaceId/mcp/servers/:id/{archive,restore}`, `DELETE /workspaces/:workspaceId/mcp/servers/:id` | the servers one workspace owns |
 | `GET/PUT /workspaces/:workspaceId/grants` | the workspace's selection plus `allowAll` |
 | `GET/PUT /agents/:agentId/grants` | the agent's selection, checked against its workspace |

@@ -23,12 +23,7 @@ const input = (overrides: {
   agent?: Partial<ToolSelectionInput['agent']>
   hasEnvironment?: boolean
 } = {}): ToolSelectionInput => ({
-  workspace: {
-    isDefault: false,
-    allowAll: true,
-    toolGrants: [],
-    ...overrides.workspace,
-  },
+  workspace: { isDefault: false, ...overrides.workspace },
   agent: { allowAll: true, toolGrants: [], ...overrides.agent },
   hasEnvironment: overrides.hasEnvironment ?? true,
   catalog,
@@ -39,7 +34,7 @@ const names = (selection: ReturnType<typeof selectTools>): string[] =>
   selection.tools.map(({ name }) => name)
 
 describe('selectTools', () => {
-  it('gives two allowAll sides every installed tool in registry order', () => {
+  it('gives an allowAll agent every available installed tool in registry order', () => {
     const selection = selectTools(input())
 
     expect(names(selection)).toEqual(['read', 'write', 'edit', 'bash', 'web_fetch'])
@@ -57,15 +52,7 @@ describe('selectTools', () => {
     expect(names(selectTools(input({ hasEnvironment: false })))).toEqual(['web_fetch'])
   })
 
-  it('lets an allowAll agent inherit the full workspace ceiling', () => {
-    const selection = selectTools(input({
-      workspace: { allowAll: false, toolGrants: ['read-id', 'web-id'] },
-    }))
-
-    expect(names(selection)).toEqual(['read', 'web_fetch'])
-  })
-
-  it('lets an allowAll workspace ceiling without widening a restricted agent', () => {
+  it('gives a restricted agent exactly its granted tools', () => {
     const selection = selectTools(input({
       agent: { allowAll: false, toolGrants: ['bash-id', 'web-id'] },
     }))
@@ -73,22 +60,17 @@ describe('selectTools', () => {
     expect(names(selection)).toEqual(['bash', 'web_fetch'])
   })
 
-  it('intersects explicit agent grants with explicit workspace grants', () => {
+  it('filters unavailable environment tools out of explicit grants', () => {
     const selection = selectTools(input({
-      workspace: { allowAll: false, toolGrants: ['read-id', 'write-id', 'web-id'] },
-      agent: { allowAll: false, toolGrants: ['write-id', 'edit-id', 'web-id'] },
+      workspace: { isDefault: true },
+      agent: { allowAll: false, toolGrants: ['read-id', 'web-id'] },
     }))
 
-    expect(names(selection)).toEqual(['write', 'web_fetch'])
-  })
-
-  it('does not let an allowAll agent escape an empty workspace ceiling', () => {
-    expect(names(selectTools(input({ workspace: { allowAll: false, toolGrants: [] } })))).toEqual([])
+    expect(names(selection)).toEqual(['web_fetch'])
   })
 
   it('ignores grants for ids absent from the live catalog', () => {
     const selection = selectTools(input({
-      workspace: { allowAll: false, toolGrants: ['missing-id'] },
       agent: { allowAll: false, toolGrants: ['missing-id'] },
     }))
 

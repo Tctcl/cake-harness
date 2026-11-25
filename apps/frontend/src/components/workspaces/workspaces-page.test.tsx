@@ -19,7 +19,11 @@ const stubFetch = (handler: Handler) =>
   )
 
 beforeEach(() => {
-  stubFetch((url) => (url.includes('/workspaces') ? { workspaces: [workspace] } : {}))
+  stubFetch((url) => {
+    if (url.includes('/mcp/servers')) return { servers: [] }
+    if (url === '/credentials') return { credentials: [] }
+    return url.includes('/workspaces') ? { workspaces: [workspace] } : {}
+  })
 })
 
 afterEach(() => {
@@ -43,13 +47,16 @@ describe('WorkspacesPage', () => {
     const tabs = screen.getByRole('tablist', { name: /platform settings/i })
     expect(tabs).toBeDefined()
     expect(screen.getByRole('tab', { name: 'Overview' }).getAttribute('aria-selected')).toBe('true')
-    for (const label of ['Environment', 'MCP', 'Skills', 'Prompts', 'Tools', 'Providers']) {
+    for (const label of ['Environment', 'MCP', 'Skills', 'Providers']) {
       expect(screen.getByRole('tab', { name: label })).toBeDefined()
     }
+    expect(screen.queryByRole('tab', { name: 'Prompts' })).toBeNull()
+    expect(screen.queryByRole('tab', { name: 'Tools' })).toBeNull()
 
     fireEvent.click(screen.getByRole('tab', { name: 'MCP' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'New server' }))
 
-    expect(screen.getByText('New server')).toBeDefined()
+    expect(screen.getAllByText('New server')).not.toHaveLength(0)
     expect(screen.getByRole('tab', { name: 'MCP' }).getAttribute('aria-selected')).toBe('true')
   })
 

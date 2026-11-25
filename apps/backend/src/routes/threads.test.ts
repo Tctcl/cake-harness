@@ -86,7 +86,7 @@ if (url === undefined) {
     // Registration builds every route, but this suite calls only the two thread routes supplied here.
     const agent = {
       auth,
-      capabilities: { prompts: {}, skills: {} },
+      capabilities: { skills: {} },
       thread: (id: string) => threads.find(id),
       updateThreadRunSettings: (id: string, patch: Parameters<typeof updateThreadRunSettings>[2]) =>
         updateThreadRunSettings(stores, id, patch),
@@ -99,7 +99,7 @@ if (url === undefined) {
     it('applies migration 19 with nullable override columns', async () => {
       const { server, pool, schema } = await serve()
       try {
-        expect(CURRENT_SCHEMA_VERSION).toBe(19)
+        expect(CURRENT_SCHEMA_VERSION).toBeGreaterThanOrEqual(19)
         await expect(
           pool.query(`SELECT credential_id, model_id, thinking_level FROM ${schema.tables.chatThreads} LIMIT 0`),
         ).resolves.toMatchObject({ rowCount: 0 })

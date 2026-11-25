@@ -1,8 +1,9 @@
-import { PlusIcon, Trash2Icon } from 'lucide-react'
+import { Trash2Icon } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import type { Credential, CredentialInput, CredentialKind } from '../../lib/credentials-api.ts'
 import { createCredential, deleteCredential, listCredentials } from '../../lib/credentials-api.ts'
+import { MasterDetail, NEW_SELECTION } from '../layout/master-detail.tsx'
 import { Badge } from '../ui/badge.tsx'
 import { Button } from '../ui/button.tsx'
 import { Input } from '../ui/input.tsx'
@@ -83,7 +84,7 @@ function CredentialRow({
   onDelete: () => void
 }) {
   return (
-    <li className="flex items-start gap-3 rounded-md border p-3">
+    <div className="flex items-start gap-3 rounded-md border p-3">
       <div className="flex min-w-0 flex-col gap-1">
         <span className="flex flex-wrap items-center gap-2 font-medium">
           {credential.name}
@@ -110,7 +111,7 @@ function CredentialRow({
       >
         <Trash2Icon className="size-4" aria-hidden />
       </Button>
-    </li>
+    </div>
   )
 }
 
@@ -261,6 +262,7 @@ function DraftForm({
  */
 export function CredentialsPage() {
   const [credentials, setCredentials] = useState<Credential[] | null>(null)
+  const [selection, setSelection] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [nonce, setNonce] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -302,73 +304,70 @@ export function CredentialsPage() {
     if (draft === null || !isComplete(draft)) return
 
     void run(async () => {
-      await createCredential(toInput(draft))
+      const saved = await createCredential(toInput(draft))
       setDraft(null)
+      setSelection(saved.id)
     })
   }
 
+  const select = (id: string | null): void => {
+    setSelection(id)
+    setDraft(id === NEW_SELECTION ? emptyDraft('opencode-go') : null)
+  }
+
   return (
-    <div className="flex max-w-3xl flex-col gap-6 text-sm">
+    <div className="flex flex-col gap-4 text-sm">
+      <p className="max-w-3xl text-muted-foreground">
+        Provider and MCP keys are stored once and never shown again. Add a key on the right, or select one to see its
+        metadata.
+      </p>
       {error === null ? null : (
         <p role="alert" className="text-destructive">
           {error}
         </p>
       )}
-
-      {KINDS.map((kind) => {
-        const group = (credentials ?? []).filter((credential) => credential.kind === kind.id)
-
-        return (
-          <section key={kind.id} className="flex flex-col gap-2">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex flex-col gap-1">
-                <h2 className="font-medium">{kind.label}</h2>
-                <p className="text-muted-foreground">{kind.description}</p>
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="shrink-0"
-                disabled={busy}
-                onClick={() => setDraft(emptyDraft(kind.id))}
-              >
-                <PlusIcon className="size-4" aria-hidden />
-                Add
-              </Button>
-            </div>
-
-            {credentials === null ? (
-              <p className="flex items-center gap-2 text-muted-foreground">
-                <Spinner /> Loading credentials…
-              </p>
-            ) : group.length === 0 ? (
-              <p className="text-muted-foreground">No {kindLabel(kind.id).toLowerCase()} yet.</p>
-            ) : (
-              <ul className="flex flex-col gap-1">
-                {group.map((credential) => (
-                  <CredentialRow
-                    key={credential.id}
-                    credential={credential}
-                    busy={busy}
-                    onDelete={() => void run(async () => await deleteCredential(credential.id))}
-                  />
-                ))}
-              </ul>
-            )}
-
-            {draft !== null && draft.kind === kind.id ? (
-              <DraftForm
-                draft={draft}
+      {credentials === null ? (
+        <p className="flex items-center gap-2 text-muted-foreground">
+          <Spinner /> Loading credentials…
+        </p>
+      ) : (
+        <MasterDetail
+          listLabel="Credentials"
+          newLabel="New credential"
+          items={credentials.map((credential) => ({
+            id: credential.id,
+            name: credential.name,
+            detail: `${kindLabel(credential.kind)} · ${expiryLabel(credential)}`,
+          }))}
+          selection={selection}
+          onSelect={select}
+          emptyText="No credentials yet."
+          renderDetail={(item) => {
+            const credential = credentials.find((candidate) => candidate.id === item?.id)
+            if (draft !== null) {
+              return (
+                <DraftForm
+                  draft={draft}
+                  busy={busy}
+                  onChange={(next) => setDraft((current) => (current === null ? current : { ...current, ...next }))}
+                  onSubmit={submit}
+                  onCancel={() => select(null)}
+                />
+              )
+            }
+            return credential === undefined ? null : (
+              <CredentialRow
+                credential={credential}
                 busy={busy}
-                onChange={(next) => setDraft((current) => (current === null ? current : { ...current, ...next }))}
-                onSubmit={submit}
-                onCancel={() => setDraft(null)}
+                onDelete={() => {
+                  setSelection(null)
+                  void run(async () => await deleteCredential(credential.id))
+                }}
               />
-            ) : null}
-          </section>
-        )
-      })}
+            )
+          }}
+        />
+      )}
     </div>
   )
 }

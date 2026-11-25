@@ -4,7 +4,9 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { createSchema, openPostgresStorage } from '../storage/postgres/index.js'
 import { ensureLocalUser } from '../threads/local-user.js'
 import { ThreadRepository } from '../threads/thread-repository.js'
-import { DEFAULT_AGENT_ID, DEFAULT_WORKSPACE_ID } from '../workspaces/defaults.js'
+import { CapabilityLinks } from '../capabilities/capability-links.js'
+import { ToolRepository } from '../capabilities/tool-repository.js'
+import { DEFAULT_AGENT_ID, DEFAULT_WORKSPACE_ID, PLAN_AGENT_INSTRUCTIONS } from '../workspaces/defaults.js'
 import type { Workspace } from '../workspaces/workspace-repository.js'
 import { WorkspaceRepository } from '../workspaces/workspace-repository.js'
 import { AgentRepository } from './agent-repository.js'
@@ -32,6 +34,8 @@ if (url === undefined) {
     readonly agents: AgentRepository
     readonly workspaces: WorkspaceRepository
     readonly threads: ThreadRepository
+    readonly links: CapabilityLinks
+    readonly tools: ToolRepository
     readonly ownerId: string
   }
 
@@ -46,6 +50,8 @@ if (url === undefined) {
         agents: new AgentRepository(storage.pool, schema),
         workspaces: new WorkspaceRepository(storage.pool, schema),
         threads: new ThreadRepository(storage.pool, schema),
+        links: new CapabilityLinks(storage.pool, schema),
+        tools: new ToolRepository(storage.pool, schema),
         ownerId,
       })
     } finally {
@@ -76,11 +82,37 @@ if (url === undefined) {
       })
     })
 
-    it('gives a new workspace a default agent with the starter prompt', async () => {
-      await withAgents(async ({ agents, workspaces, ownerId }) => {
+    it('gives a new workspace Build and a read-only Plan', async () => {
+      await withAgents(async ({ agents, workspaces, links, tools, ownerId }) => {
         const workspace = await otherWorkspace(workspaces, ownerId)
+        const all = await agents.list(workspace.id)
+        const build = all.find((agent) => agent.name === 'Build')
+        const plan = all.find((agent) => agent.name === 'Plan')
 
-        await expect(agents.default(workspace.id)).resolves.toMatchObject({ systemPrompt: DEFAULT_SYSTEM_PROMPT })
+        expect(all).toHaveLength(2)
+        expect(build).toMatchObject({
+          isDefault: true,
+          allowAll: true,
+          description: 'Builds and changes things: every tool in this workspace.',
+          systemPrompt: DEFAULT_SYSTEM_PROMPT,
+        })
+        expect(plan).toMatchObject({
+          isDefault: false,
+          allowAll: false,
+          description: 'Read-only: explores and plans, never edits.',
+          systemPrompt: DEFAULT_SYSTEM_PROMPT,
+          instructions: PLAN_AGENT_INSTRUCTIONS,
+        })
+        await expect(agents.default(workspace.id)).resolves.toMatchObject({ name: 'Build' })
+        if (plan === undefined) throw new Error('Plan was not seeded')
+        const granted = await links.readAgent(plan.id)
+        const catalog = await tools.list(ownerId)
+        expect(granted.tools.map((id) => catalog.find((tool) => tool.id === id)?.name).sort()).toEqual([
+          'read',
+          'web_fetch',
+        ])
+        expect(granted.skills).toEqual([])
+        expect(granted.mcpServers).toEqual([])
       })
     })
 
@@ -162,7 +194,7 @@ if (url === undefined) {
         const archived = await agents.archive(agent.id)
         expect(archived?.archivedAt).toBeInstanceOf(Date)
         // The workspace's own default agent stays live; the archived listing holds this one alone.
-        await expect(agents.list(workspace.id)).resolves.toMatchObject([{ name: 'Assistant', isDefault: true }])
+        await expect(agents.list(workspace.id)).resolves.toMatchObject([{ name: 'Build', isDefault: true }, { name: 'Plan', isDefault: false }])
         await expect(agents.list(workspace.id, { archived: true })).resolves.toMatchObject([
           { id: agent.id },
         ])
@@ -170,7 +202,7 @@ if (url === undefined) {
 
         const restored = await agents.restore(agent.id)
         expect(restored?.archivedAt).toBeNull()
-        await expect(agents.list(workspace.id)).resolves.toMatchObject([{ name: 'Assistant' }, { id: agent.id }])
+        await expect(agents.list(workspace.id)).resolves.toMatchObject([{ name: 'Build' }, { name: 'Plan' }, { id: agent.id }])
         await expect(threads.list(ownerId)).resolves.toHaveLength(0)
         await expect(threads.list(ownerId, { archived: true })).resolves.toMatchObject([
           { id: thread.id },

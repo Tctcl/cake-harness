@@ -7,8 +7,8 @@ import type {
   WorkspaceMcpServerPatch,
   WorkspaceMcpServerRepository,
 } from './mcp-repository.js'
-import type { PromptRepository, SkillRepository, TextEntry, TextInput, TextPatch } from './text-repository.js'
-import type { Tool, ToolOffer, ToolRepository } from './tool-repository.js'
+import type { SkillRepository, TextEntry, TextInput, TextPatch } from './text-repository.js'
+import type { Tool, ToolRepository } from './tool-repository.js'
 
 /** A workspace's ceiling as the API reports it: the grants plus the flag that makes the grants moot. */
 export interface WorkspaceGrantSet {
@@ -16,7 +16,7 @@ export interface WorkspaceGrantSet {
   readonly grants: WorkspaceGrants
 }
 
-/** One catalog of named text entries, so prompts and skills share a single set of routes. */
+/** The skill catalog behind its routes. */
 export interface TextCatalog {
   list(query?: { archived?: boolean | undefined }): Promise<TextEntry[]>
   find(id: string): Promise<TextEntry | undefined>
@@ -30,16 +30,13 @@ export interface TextCatalog {
 /**
  * Everything the capability surface needs, in one object the routes can reach through the agent.
  *
- * The catalogs are workspace-independent: a tool, prompt, skill, MCP server or credential exists once per owner, and a
+ * The catalogs are workspace-independent: a tool, skill, MCP server or credential exists once per owner, and a
  * workspace only decides which of them are reachable. That is why the links live here rather than on the catalog rows.
  */
 export interface CapabilityApi {
   readonly tools: {
     list(query?: { archived?: boolean | undefined }): Promise<Tool[]>
-    /** Re-read the registry the harness runs with, so the catalog matches the tools a session can actually call. */
-    sync(): Promise<Tool[]>
   }
-  readonly prompts: TextCatalog
   readonly skills: TextCatalog
   readonly servers: {
     list(workspaceId: string, query?: { archived?: boolean | undefined }): Promise<WorkspaceMcpServer[]>
@@ -59,14 +56,11 @@ export interface CapabilityApi {
 export interface CapabilityApiOptions {
   readonly ownerId: string
   readonly tools: ToolRepository
-  readonly prompts: PromptRepository
   readonly skills: SkillRepository
   readonly servers: WorkspaceMcpServerRepository
   readonly links: CapabilityLinks
   readonly readWorkspace: (id: string) => Promise<{ readonly allowAll: boolean; readonly archivedAt: Date | null } | undefined>
   readonly readAgent: (id: string) => Promise<{ readonly workspaceId: string; readonly archivedAt: Date | null } | undefined>
-  /** The tools the harness registry currently holds. */
-  readonly offeredTools: () => readonly ToolOffer[]
 }
 
 const unknown = (what: string): AppError =>
@@ -77,7 +71,7 @@ const archivedScope = (query: { archived?: boolean | undefined } | undefined) =>
 })
 
 const textCatalog = (
-  repository: PromptRepository | SkillRepository,
+  repository: SkillRepository,
   ownerId: string,
 ): TextCatalog => ({
   list: (query) => repository.list(ownerId, archivedScope(query)),
@@ -112,13 +106,7 @@ export const createCapabilityApi = (options: CapabilityApiOptions): CapabilityAp
   return {
     tools: {
       list: (query) => options.tools.list(ownerId, archivedScope(query)),
-      async sync() {
-        await options.tools.sync(ownerId, options.offeredTools())
-
-        return options.tools.list(ownerId)
-      },
     },
-    prompts: textCatalog(options.prompts, ownerId),
     skills: textCatalog(options.skills, ownerId),
     servers: {
       list: (workspaceId, query) => options.servers.list(workspaceId, archivedScope(query)),
@@ -148,8 +136,7 @@ export const createCapabilityApi = (options: CapabilityApiOptions): CapabilityAp
       const workspace = await options.readWorkspace(agent.workspaceId)
       if (workspace === undefined) throw unknown('workspace')
 
-      // An agent may only reach what its workspace reaches, so the ceiling is checked against the merged result rather
-      // than against whatever the caller happened to send. The servers are the workspace's own rows, not a grant.
+      // Skills and servers retain their workspace ceiling. Tools are agent grants and need no workspace intersection.
       assertWithinCeiling(
         {
           allowAll: workspace.allowAll,

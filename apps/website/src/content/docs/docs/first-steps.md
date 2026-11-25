@@ -32,16 +32,13 @@ Open the workspace's **Providers** tab:
 
 A workspace's usable models are the union of the models offered by its linked keys, narrowed by its model allow-list. Removing a key does not silently substitute another key for an agent that explicitly used it.
 
-## 5. Grant tools
+## 5. Review agent tools
 
-A new workspace starts with **no tool grants**. Open its **Tools** tab and:
+A new workspace starts with **Build**, an allow-all default agent, and **Plan**, which has exactly `read` and `web_fetch`. The tool catalog is synchronized automatically at startup.
 
-1. Choose **Sync from registry** to load the available capabilities.
-2. Select the tools this workspace may use. For a normal coding agent, select `read`, `write`, `edit`, and `bash` as needed.
-3. Alternatively, enable **Reach every capability** to remove the per-tool ceiling.
-4. Open **Agents** and give each agent only the tools it should use within the workspace ceiling.
+Open **Agents** to change a profile's tools. Leave **All tools available here** on for a normal coding agent, or turn it off and select only the tools that profile should use. There is no workspace tool ceiling to configure first.
 
-For a read-only planner, grant only `read` and `web_fetch`. The [Plan agent example](/docs/agents#example-a-plan-agent) includes a complete prompt.
+The [Plan agent example](/docs/agents#example-a-plan-agent) explains the read-only grants and includes planning instructions.
 
 ## 6. Configure an agent
 

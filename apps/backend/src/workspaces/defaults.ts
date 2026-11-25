@@ -25,6 +25,10 @@ export const DEFAULT_AGENT_DESCRIPTION = 'The default profile: everything enable
 export const DEFAULT_AGENT_PROMPTED_DESCRIPTION =
   'The default profile: everything enabled, with a starter system prompt to build your own agents from.'
 
-/** The agent a workspace other than the default one starts with; it can be renamed and reconfigured, never archived. */
-export const WORKSPACE_AGENT_NAME = 'Assistant'
-export const WORKSPACE_AGENT_DESCRIPTION = 'The agent this workspace started with.'
+/** The default agent a non-default workspace starts with; it can be renamed and reconfigured, never archived. */
+export const WORKSPACE_AGENT_NAME = 'Build'
+export const WORKSPACE_AGENT_DESCRIPTION = 'Builds and changes things: every tool in this workspace.'
+
+export const PLAN_AGENT_NAME = 'Plan'
+export const PLAN_AGENT_DESCRIPTION = 'Read-only: explores and plans, never edits.'
+export const PLAN_AGENT_INSTRUCTIONS = `You are in plan mode. Investigate with your read-only tools and ask clarifying questions when requirements are unclear. Then produce a concrete, step-by-step implementation plan, naming the files and changes involved. Never claim to have changed files: you cannot write, edit, or run shell commands.`

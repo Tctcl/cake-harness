@@ -34,27 +34,25 @@ part the model can read but the backend cannot store has nowhere to live.
 - A way to reference uploads from a message entry so the harness sees them, and
   the frontend's vendored `Attachment` element wired to the upload route.
 
-## 2. MCP servers and text catalogs do not yet drive the run
+## 2. MCP servers and skills do not yet drive the run
 
-**Missing:** an agent's `mcp_servers`, `skills` and prompt grants have no effect
-on what the harness may do. Tool grants are wired.
+**Missing:** an agent's `mcp_servers` and `skills` have no effect on what the
+harness may do. Tool grants are wired.
 
-**Where it stands:** model, thinking level, instructions and the workspace/agent
-tool intersection are applied on every submission. Coding tools execute in the
-workspace container and `web_fetch` is env-free. MCP clients and prompt/skill
-sections are still absent.
+**Where it stands:** model, thinking level, instructions and agent tool grants
+are applied on every submission. Coding tools execute in the workspace container
+and `web_fetch` is env-free. MCP clients and skill sections are still absent.
 
 **What it would take:** MCP clients over pi-env `openProcess`, resolving MCP
-credentials at launch, and extension sections for granted text entries.
+credentials at launch, and extension sections for granted skills.
 
-The storage and the write path exist now. Migration 6 added the catalogs
-(`tools`, `prompts`, `skills`, `mcp_servers`, `mcp_credentials`) and the link
-tables; migration 7 dropped the `text[]` columns they replaced, so the links are
-the only place a selection lives. `src/routes/capabilities.ts` reads and writes
-both the catalogs and the grants, the workspace manager's Tools, Skills, Prompts and MCP tabs draw
-them, and `createCapabilityApi().setAgentGrants()` enforces the ceiling with
-`400 CAPABILITY_NOT_ALLOWED`. Tool grants reach the harness; the other grant kinds
-do not yet.
+The storage and the write path exist now. The catalogs (`tools`, `skills`,
+`mcp_servers`, `mcp_credentials`) and their link tables hold the selections.
+`src/routes/capabilities.ts` reads and writes the catalogs and grants, and the
+workspace manager's Skills and MCP tabs draw them. Tool grants are selected in
+each agent's editor and reach the harness; skill and MCP grants do not yet.
+`createCapabilityApi().setAgentGrants()` enforces the remaining workspace
+ceilings with `400 CAPABILITY_NOT_ALLOWED`.
 
 Credentials are never stored here: an `mcp_credentials` row names a CipherGate
 consumer and the secrets that fill a server's `env_schema`, and the value is
@@ -97,23 +95,6 @@ asks for none of them.
 method, an archived view in the left sidebar, and a title strategy (first line of
 the first message, or a generated one) so the rename route has something to
 correct.
-
-## 6. Agents are read-only in the UI
-
-**Missing:** an agent cannot be created, edited, archived or deleted from the
-frontend.
-
-**Where it stands:** the backend serves the whole agent surface
-(`/workspaces/:id/agents` and `/workspaces/:id/agents/:agentId`, in
-`apps/backend/src/routes/workspaces.ts`). The workspace manager
-(`apps/frontend/src/components/workspaces/`) edits everything else a workspace
-has: name, description and `allowAll`, tool, prompt and skill grants, MCP servers,
-providers and the environment. Agents only appear as the profile a conversation
-runs with, read-only in the info panel. Threads still cannot be deleted from the UI
-(item 5).
-
-**What it would take:** an agent editor in the workspace manager over the existing
-routes, with the capability picker narrowed to what the workspace allows.
 
 ## 7. Accounts exist, but the routes still answer as one owner
 

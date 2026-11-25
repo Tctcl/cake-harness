@@ -22,7 +22,6 @@ export default defineConfig({
       '/workspaces': { target: 'http://127.0.0.1:8080', ws: true },
       '/agents': { target: 'http://127.0.0.1:8080' },
       '/tools': { target: 'http://127.0.0.1:8080' },
-      '/prompts': { target: 'http://127.0.0.1:8080' },
       '/skills': { target: 'http://127.0.0.1:8080' },
       '/providers': { target: 'http://127.0.0.1:8080' },
       '/credentials': { target: 'http://127.0.0.1:8080' },

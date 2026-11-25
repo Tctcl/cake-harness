@@ -12,8 +12,8 @@ export const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhig
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number]
 
 /**
- * One profile inside a workspace: the prompts that steer a conversation, the system prompt and whether it reaches
- * everything its workspace allows. Which tools, skills and MCP servers it selected lives in the link tables, because
+ * One profile inside a workspace: the text that steers a conversation and whether it reaches every available tool.
+ * Which tools, skills and MCP servers it selected lives in the link tables, because
  * those are references to catalog rows rather than names a profile could carry as text.
  */
 export interface AgentProfile {

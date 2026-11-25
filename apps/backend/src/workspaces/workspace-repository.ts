@@ -7,7 +7,13 @@ import type { Value } from '../storage/postgres/db.js'
 import { rowsOf, withClient, withTransaction } from '../storage/postgres/db.js'
 import type { PostgresSchema } from '../storage/postgres/schema.js'
 import { DEFAULT_SYSTEM_PROMPT } from '../agents/default-prompt.js'
-import { WORKSPACE_AGENT_DESCRIPTION, WORKSPACE_AGENT_NAME } from './defaults.js'
+import {
+  PLAN_AGENT_DESCRIPTION,
+  PLAN_AGENT_INSTRUCTIONS,
+  PLAN_AGENT_NAME,
+  WORKSPACE_AGENT_DESCRIPTION,
+  WORKSPACE_AGENT_NAME,
+} from './defaults.js'
 
 /**
  * A workspace: the scope threads and agents live in, and the container they run in. Each workspace owns exactly one
@@ -101,6 +107,9 @@ export class WorkspaceRepository {
     readonly insertEnvironment: string
     readonly attachEnvironment: string
     readonly insertDefaultAgent: string
+    readonly insertPlanAgent: string
+    readonly ensurePlanTools: string
+    readonly grantPlanTools: string
   }
 
   constructor(pool: Pool, schema: PostgresSchema) {
@@ -134,6 +143,16 @@ export class WorkspaceRepository {
       insertDefaultAgent: `INSERT INTO ${tables.agents}
           (id, workspace_id, name, description, is_default, allow_all, system_prompt)
         VALUES ($1, $2, '${WORKSPACE_AGENT_NAME}', '${WORKSPACE_AGENT_DESCRIPTION}', true, true, $3)`,
+      insertPlanAgent: `INSERT INTO ${tables.agents}
+          (id, workspace_id, name, description, is_default, allow_all, system_prompt, instructions)
+        VALUES ($1, $2, '${PLAN_AGENT_NAME}', '${PLAN_AGENT_DESCRIPTION}', false, false, $3, $4)`,
+      // Creation also works without a prior startup sync, so Plan's two catalog rows are resolved in this transaction.
+      ensurePlanTools: `INSERT INTO ${tables.tools} (id, owner_id, name)
+        VALUES ($1, $2, 'read'), ($3, $2, 'web_fetch')
+        ON CONFLICT (owner_id, name) DO UPDATE SET archived_at = NULL, updated_at = now()`,
+      grantPlanTools: `INSERT INTO ${tables.agentTools} (agent_id, tool_id)
+        SELECT $1, id FROM ${tables.tools} WHERE owner_id = $2 AND name = ANY($3)
+        ON CONFLICT DO NOTHING`,
     }
   }
 
@@ -182,6 +201,15 @@ export class WorkspaceRepository {
       await client.query(this.#sql.insertEnvironment, [environmentId, ownerId, input.name, environmentImage])
       await client.query(this.#sql.attachEnvironment, [id, environmentId])
       await client.query(this.#sql.insertDefaultAgent, [randomUUID(), id, DEFAULT_SYSTEM_PROMPT])
+      const planId = randomUUID()
+      await client.query(this.#sql.insertPlanAgent, [
+        planId,
+        id,
+        DEFAULT_SYSTEM_PROMPT,
+        PLAN_AGENT_INSTRUCTIONS,
+      ])
+      await client.query(this.#sql.ensurePlanTools, [randomUUID(), ownerId, randomUUID()])
+      await client.query(this.#sql.grantPlanTools, [planId, ownerId, ['read', 'web_fetch']])
 
       return inserted
     })

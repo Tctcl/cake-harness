@@ -3,11 +3,7 @@ import type { Extension, RegistrySnapshot, ToolRegistration } from '@earendil-wo
 export const CODING_TOOLS_EXTENSION = 'coding-tools'
 
 export interface ToolSelectionInput {
-  readonly workspace: {
-    readonly isDefault: boolean
-    readonly allowAll: boolean
-    readonly toolGrants: readonly string[]
-  }
+  readonly workspace: { readonly isDefault: boolean }
   readonly agent: {
     readonly allowAll: boolean
     readonly toolGrants: readonly string[]
@@ -35,25 +31,19 @@ const grantedNames = (ids: readonly string[], catalog: ReadonlyMap<string, strin
 }
 
 /**
- * Resolve durable's object-valued AgentChange from the two grant sets. The workspace is always the ceiling; an agent
- * with allowAll inherits that ceiling rather than escaping it. Only coding-tools needs an ExecutionEnv, so web remains
- * available in General and in a non-default workspace whose environment link is absent.
+ * Resolve durable's object-valued AgentChange from the registry and the agent's grants. The workspace no longer limits
+ * tools; it only determines whether coding-tools can run. Web remains available in General and when an environment is
+ * absent, while read/write/edit/bash require a workspace container.
  */
 export const selectTools = (input: ToolSelectionInput): ToolSelection => {
-  const registered = input.registry.tools()
-  const workspaceNames = input.workspace.allowAll
-    ? new Set(registered.map(({ tool }) => tool.name))
-    : grantedNames(input.workspace.toolGrants, input.catalog)
-  const agentNames = input.agent.allowAll
-    ? workspaceNames
-    : grantedNames(input.agent.toolGrants, input.catalog)
   const environmentTools = !input.workspace.isDefault && input.hasEnvironment
-  const selected = registered.filter(
-    ({ extension, tool }) =>
-      workspaceNames.has(tool.name) &&
-      agentNames.has(tool.name) &&
-      (environmentTools || extension.name !== CODING_TOOLS_EXTENSION),
+  const available = input.registry.tools().filter(
+    ({ extension }) => environmentTools || extension.name !== CODING_TOOLS_EXTENSION,
   )
+  const granted = input.agent.allowAll
+    ? undefined
+    : grantedNames(input.agent.toolGrants, input.catalog)
+  const selected = available.filter(({ tool }) => granted === undefined || granted.has(tool.name))
   const extensions = new Map<string, Extension>()
   for (const { extension } of selected) extensions.set(extension.name, extension)
 

@@ -47,13 +47,13 @@ describe('CredentialsPage', () => {
   it('splits the list by kind and shows no secret', async () => {
     render(<CredentialsPage />)
 
-    expect(await screen.findByText('OpenCode Go API keys')).toBeDefined()
-    expect(screen.getByText('MCP auth keys')).toBeDefined()
-    expect(screen.getByText('work')).toBeDefined()
+    expect(await screen.findByText(/OpenCode Go API keys/)).toBeDefined()
+    expect(screen.getByText(/MCP auth keys/)).toBeDefined()
+    expect(screen.getAllByText('work')).not.toHaveLength(0)
     expect(screen.getByText('me@example.com')).toBeDefined()
-    expect(screen.getByText('github-pat')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: /github-pat/ }))
     expect(screen.getByText('github')).toBeDefined()
-    expect(screen.getAllByText('Never expires')).toHaveLength(2)
+    expect(screen.getAllByText(/Never expires/).length).toBeGreaterThanOrEqual(2)
   })
 
   it('asks a provider key for its account and its expiry', async () => {
@@ -61,7 +61,7 @@ describe('CredentialsPage', () => {
 
     render(<CredentialsPage />)
 
-    fireEvent.click((await screen.findAllByRole('button', { name: /add/i }))[0]!)
+    fireEvent.click(await screen.findByRole('button', { name: 'New credential' }))
     expect(screen.getByLabelText('Account email')).toBeDefined()
     expect(screen.queryByLabelText('MCP id')).toBeNull()
 
@@ -88,7 +88,8 @@ describe('CredentialsPage', () => {
 
     render(<CredentialsPage />)
 
-    fireEvent.click((await screen.findAllByRole('button', { name: /add/i }))[1]!)
+    fireEvent.click(await screen.findByRole('button', { name: 'New credential' }))
+    fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'mcp' } })
     expect(screen.queryByLabelText('Account email')).toBeNull()
 
     fireEvent.change(screen.getByLabelText('Key name'), { target: { value: 'github-pat' } })

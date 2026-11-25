@@ -70,7 +70,7 @@ function stubBackend() {
     if (path.endsWith('/environment')) return reply({ environment: null })
     // Grants before the agent list: both live under /agents, and the panel reads them separately.
     if (path.endsWith('/grants')) {
-      return reply({ tools: ['t1', 't2'], prompts: [], skills: [], mcpServers: [] })
+      return reply({ tools: ['t1', 't2'], skills: [], mcpServers: [] })
     }
     if (path.includes('/agents')) return reply({ agents })
     if (path.includes('/messages')) return reply({ messages: [], nextCursor: null })

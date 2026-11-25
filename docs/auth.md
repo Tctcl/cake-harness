@@ -114,7 +114,7 @@ and every name in it is checked by a route:
 | --- | --- |
 | `workspaces.create` `agents.create` `environments.create` | building your own |
 | `workspaces.manage_any` `agents.manage_any` `environments.manage_any` | the same, on someone else's |
-| `tools.manage` `prompts.manage` `skills.manage` `mcp.manage` | the catalog the install shares |
+| `tools.manage` `skills.manage` `mcp.manage` | the catalog the install shares |
 | `updates.manage` | checking for and applying releases |
 | `users.manage` `roles.manage` `settings.manage` | who else may sign in, and as what |
 

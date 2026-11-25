@@ -5,6 +5,7 @@ import type { McpServerInput, McpTransport, WorkspaceMcpServer } from '../../lib
 import { workspaceServerApi } from '../../lib/capability-api.ts'
 import type { Credential } from '../../lib/credentials-api.ts'
 import { listCredentials } from '../../lib/credentials-api.ts'
+import { MasterDetail, NEW_SELECTION } from '../layout/master-detail.tsx'
 import { Badge } from '../ui/badge.tsx'
 import { Button } from '../ui/button.tsx'
 import { Input } from '../ui/input.tsx'
@@ -95,6 +96,7 @@ const summaryOf = (server: WorkspaceMcpServer): string =>
  */
 export function WorkspaceMcp({ workspaceId }: { workspaceId: string }) {
   const [servers, setServers] = useState<WorkspaceMcpServer[] | null>(null)
+  const [selection, setSelection] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft>(EMPTY)
   const [nonce, setNonce] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -157,9 +159,11 @@ export function WorkspaceMcp({ workspaceId }: { workspaceId: string }) {
     const input = toInput(draft)
 
     void run(async () => {
-      if (draft.id === null) await workspaceServerApi.create(workspaceId, input)
-      else await workspaceServerApi.update(workspaceId, draft.id, input)
-      setDraft(EMPTY)
+      const saved = draft.id === null
+        ? await workspaceServerApi.create(workspaceId, input)
+        : await workspaceServerApi.update(workspaceId, draft.id, input)
+      setSelection(saved.id)
+      setDraft(toDraft(saved))
     })
   }
 
@@ -168,60 +172,48 @@ export function WorkspaceMcp({ workspaceId }: { workspaceId: string }) {
   const setRow = (index: number, value: string): void =>
     patch({ rows: draft.rows.map((row, position) => (position === index ? value : row)) })
 
-  return (
-    <div className="flex max-w-3xl flex-col gap-6 text-sm">
-      <section className="flex flex-col gap-2">
-        <h2 className="font-medium">Servers</h2>
-        <p className="text-muted-foreground">
-          Started inside this workspace&rsquo;s container when a run needs them. A server here reaches this workspace and
-          no other.
-        </p>
-        {error === null ? null : (
-          <p role="alert" className="text-destructive">
-            {error}
-          </p>
-        )}
-        {servers === null ? (
-          <p className="flex items-center gap-2 text-muted-foreground">
-            <Spinner /> Loading servers…
-          </p>
-        ) : servers.length === 0 ? (
-          <p className="text-muted-foreground">No MCP server is configured for this workspace yet.</p>
-        ) : (
-          <ul className="flex flex-col gap-1">
-            {servers.map((server) => (
-              <li key={server.id} className="flex items-start gap-3 rounded-md border p-3">
-                <div className="flex min-w-0 flex-col gap-1">
-                  <span className="flex items-center gap-2 font-medium">
-                    {server.name}
-                    <Badge variant="secondary" className="text-[10px] font-normal">
-                      {server.transport}
-                    </Badge>
-                  </span>
-                  {server.description === '' ? null : (
-                    <span className="text-xs break-words text-muted-foreground">{server.description}</span>
-                  )}
-                  <code className="truncate font-mono text-xs text-muted-foreground">{summaryOf(server)}</code>
-                </div>
-                <span className="ml-auto flex shrink-0 gap-1">
-                  <Button size="sm" variant="ghost" disabled={busy} onClick={() => setDraft(toDraft(server))}>
-                    Edit
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={busy}
-                    onClick={() => void run(async () => await workspaceServerApi.remove(workspaceId, server.id))}
-                  >
-                    Delete
-                  </Button>
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+  const select = (id: string | null): void => {
+    setSelection(id)
+    if (id === NEW_SELECTION) setDraft(EMPTY)
+    else {
+      const server = servers?.find((candidate) => candidate.id === id)
+      if (server !== undefined) setDraft(toDraft(server))
+    }
+  }
 
+  return (
+    <div className="flex flex-col gap-4 text-sm">
+      <p className="max-w-3xl text-muted-foreground">
+        Started inside this workspace&rsquo;s container when a run needs them. A server here reaches this workspace and
+        no other.
+      </p>
+      {error === null ? null : (
+        <p role="alert" className="text-destructive">
+          {error}
+        </p>
+      )}
+      {servers === null ? (
+        <p className="flex items-center gap-2 text-muted-foreground">
+          <Spinner /> Loading servers…
+        </p>
+      ) : (
+        <MasterDetail
+          listLabel="MCP servers"
+          newLabel="New server"
+          items={servers.map((server) => ({
+            id: server.id,
+            name: server.name,
+            detail: server.description || summaryOf(server),
+            badge: (
+              <Badge variant="secondary" className="text-[10px] font-normal">
+                {server.transport}
+              </Badge>
+            ),
+          }))}
+          selection={selection}
+          onSelect={select}
+          emptyText="No MCP server is configured for this workspace yet."
+          renderDetail={() => (
       <form
         className="flex flex-col gap-3 rounded-md border p-4"
         onSubmit={(event) => {
@@ -453,12 +445,33 @@ export function WorkspaceMcp({ workspaceId }: { workspaceId: string }) {
             {draft.id === null ? 'Add server' : 'Save'}
           </Button>
           {draft.id === null ? null : (
-            <Button type="button" size="sm" variant="ghost" onClick={() => setDraft(EMPTY)}>
-              Cancel
-            </Button>
+            <>
+              <Button type="button" size="sm" variant="ghost" onClick={() => select(selection)}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="ml-auto text-destructive"
+                disabled={busy}
+                onClick={() => {
+                  const id = draft.id
+                  if (id === null) return
+                  setSelection(null)
+                  void run(async () => await workspaceServerApi.remove(workspaceId, id))
+                }}
+              >
+                Delete
+              </Button>
+            </>
           )}
         </div>
       </form>
+          )
+        }
+        />
+      )}
     </div>
   )
 }
