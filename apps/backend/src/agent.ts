@@ -1,6 +1,7 @@
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { opencodeGoProvider } from '@earendil-works/pi-ai/providers/opencode-go'
+import { createCodingTools } from '@earendil-works/pi-durable/tools'
 import {
   CompactionEntry,
   Harness,
@@ -36,6 +37,9 @@ import { createEnvironmentApi } from './environments/api.js'
 import type { EnvironmentApi } from './environments/api.js'
 import { noSecrets, createCipherGateSecrets } from './secrets/ciphergate.js'
 import { DockerContainers } from './environments/container-runtime.js'
+import { DockerDaemonInstaller } from './environments/daemon-installer.js'
+import { dockerConnectionString } from './environments/docker-connection.js'
+import { createExecutionEnvironment } from './environments/execution-env.js'
 import { EnvironmentRepository } from './environments/environment-repository.js'
 import { CapabilityLinks } from './capabilities/capability-links.js'
 import { WorkspaceMcpServerRepository } from './capabilities/mcp-repository.js'
@@ -53,8 +57,10 @@ import type {
   RunSettingsPatch,
   WorkspaceReach,
 } from './agents/run-settings.js'
+import { selectTools } from './agents/tool-selection.js'
 import { AuthService } from './auth/service.js'
 import { ToolRepository } from './capabilities/tool-repository.js'
+import { createWebExtension } from './capabilities/web.js'
 import { idFromNumber } from './storage/postgres/ids.js'
 import { openPostgresStorage } from './storage/postgres/index.js'
 import { retryingStorage } from './storage/postgres/resilient.js'
@@ -621,8 +627,8 @@ const resolveThreadTarget = async (
 
 /**
  * An agent's prompt and instructions as the durable agent config's `instructions`, which renders as a reserved section
- * of the system prompt. It is applied when the conversation is created, so editing an agent later does not rewrite
- * conversations that already exist; only tools, MCP servers and skills stay declarative for now, unread by the harness.
+ * of the system prompt. It is applied on every turn along with the model and tool selection, so profile edits affect the
+ * next message of an existing conversation. MCP servers and catalog skills stay declarative for now.
  */
 const instructionsOf = (agent: AgentProfile): string | undefined => {
   const sections = [agent.systemPrompt.trim(), agent.instructions.trim()].filter((part) => part !== '')
@@ -717,10 +723,8 @@ export async function createAgent(config: Config): Promise<Agent> {
 
   // One registry for the process, so the tool catalog can be synced from what a session is actually offered.
   const registry = createRegistry()
-
-  const supervisor = new Supervisor(() =>
-    Harness.open(storage, { models, registry }, CONTEXT),
-  )
+  registry.install(createCodingTools())
+  registry.install(createWebExtension())
 
   const environments = createEnvironmentApi({
     ownerId,
@@ -733,6 +737,49 @@ export async function createAgent(config: Config): Promise<Agent> {
     // No configured store is a reader that knows nothing: the manifest still serves tooling, and no credential.
     secrets: config.ciphergate === undefined ? noSecrets : createCipherGateSecrets(config.ciphergate),
   })
+
+  // Connection has no env option for its child: dockerode reads DOCKER_HOST in the bridge, so publish the validated
+  // connection once before any bridge is spawned rather than making the bridge parse backend configuration itself.
+  process.env['DOCKER_HOST'] = dockerConnectionString(config.docker)
+  const executionEnvironment = createExecutionEnvironment({
+    threads,
+    workspaces,
+    environments,
+    installer: new DockerDaemonInstaller(config.docker),
+  })
+  const supervisor = new Supervisor(() =>
+    Harness.open(
+      storage,
+      { models, registry, env: (target, context) => executionEnvironment.open(target, context) },
+      CONTEXT,
+    ),
+  )
+
+  /** The current grant intersection, resolved on creation and again on every turn. */
+  const toolSelectionOf = async (profile: AgentProfile) => {
+    const workspace = await workspaces.find(profile.workspaceId)
+    if (workspace === undefined) {
+      throw new AppError('the workspace does not exist', { statusCode: 404, code: 'WORKSPACE_NOT_FOUND' })
+    }
+    const [workspaceGrants, agentGrants, catalog, attached] = await Promise.all([
+      links.readWorkspace(workspace.id),
+      links.readAgent(profile.id),
+      tools.list(ownerId),
+      environments.ofWorkspace(workspace.id),
+    ])
+
+    return selectTools({
+      workspace: {
+        isDefault: workspace.isDefault,
+        allowAll: workspace.allowAll,
+        toolGrants: workspaceGrants.tools,
+      },
+      agent: { allowAll: profile.allowAll, toolGrants: agentGrants.tools },
+      hasEnvironment: attached.length > 0,
+      catalog: new Map(catalog.map((tool) => [tool.id, tool.name])),
+      registry: registry.snapshot(),
+    })
+  }
 
   const updates = createUpdateChecker({
     channel: config.channel,
@@ -883,7 +930,7 @@ export async function createAgent(config: Config): Promise<Agent> {
         )
         const instructions = instructionsOf(profile)
         // Resolved before anything is created: a conversation that could never run is refused with what to fix.
-        const settings = await runSettingsOf(profile)
+        const [settings, selection] = await Promise.all([runSettingsOf(profile), toolSelectionOf(profile)])
         const harness = await supervisor.harness()
         // Ownerless: a thread is a top-level transcript, not work a parent task owns. Forks get a task owner instead.
         const conversation = await harness.createConversation(
@@ -892,6 +939,7 @@ export async function createAgent(config: Config): Promise<Agent> {
             agent: {
               model: settings.model,
               thinkingLevel: settings.thinkingLevel,
+              ...selection,
               ...(instructions === undefined ? {} : { instructions }),
             },
           },
@@ -950,7 +998,10 @@ export async function createAgent(config: Config): Promise<Agent> {
       const profile = await agents.find(thread.agentId)
       if (profile === undefined) throw new AppError('the agent does not exist', { statusCode: 404, code: 'AGENT_NOT_FOUND' })
       // Outside the try: a missing key is the user's to fix, so it answers 409 with the fix rather than 503.
-      const settings = await runSettingsOf(profile, thread.overrides)
+      const [settings, selection] = await Promise.all([
+        runSettingsOf(profile, thread.overrides),
+        toolSelectionOf(profile),
+      ])
 
       try {
         const conversation = await conversationOf(
@@ -963,6 +1014,7 @@ export async function createAgent(config: Config): Promise<Agent> {
           {
             model: settings.model,
             thinkingLevel: settings.thinkingLevel,
+            ...selection,
             instructions: instructionsOf(profile) ?? null,
           },
           CONTEXT,
@@ -1022,8 +1074,13 @@ export async function createAgent(config: Config): Promise<Agent> {
 
     async close() {
       updates.stop()
-      await supervisor.close()
-      await postgres.close(CONTEXT)
+      try {
+        await supervisor.close()
+      } finally {
+        // No daemon or bridge may outlive the backend, even if harness shutdown reports a failed task.
+        await executionEnvironment.close()
+        await postgres.close(CONTEXT)
+      }
     },
   }
 }

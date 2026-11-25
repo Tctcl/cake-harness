@@ -214,6 +214,9 @@ importers:
       '@earendil-works/pi-durable':
         specifier: ^1.6.0
         version: 1.6.0(@aws-sdk/credential-provider-node@3.972.98)(@smithy/signature-v4@5.7.5)(esbuild@0.28.2)(google-auth-library@10.9.1)(react@19.3.1)(undici@8.13.1)(ws@8.23.0)(zod@4.6.7)
+      '@earendil-works/pi-env':
+        specifier: 1.6.0
+        version: 1.6.0(@aws-sdk/credential-provider-node@3.972.98)(@smithy/signature-v4@5.7.5)(esbuild@0.28.2)(google-auth-library@10.9.1)(react@19.3.1)(undici@8.13.1)(ws@8.23.0)(zod@4.6.7)
       '@fastify/static':
         specifier: ^10.1.12
         version: 10.1.12
@@ -600,6 +603,10 @@ packages:
 
   '@earendil-works/pi-durable@1.6.0':
     resolution: {integrity: sha512-nyPjInj/7ZjLEUCDMS7oNGRj1ynftOCVqXilWRBhIuT/xoRHrPy5yFNle/64hvs3F1rukMZ7Ar/4reA7auvUWQ==}
+    engines: {node: '>=22.19.0'}
+
+  '@earendil-works/pi-env@1.6.0':
+    resolution: {integrity: sha512-UjMM0b75zRDadNXzABfy9gnRO3p8NAWvRBNab5LtnhFYbNJhqnEfOTPASO6LV0Tsrx4HywMEkDchY3bFtICoBw==}
     engines: {node: '>=22.19.0'}
 
   '@earendil-works/pi-schema@1.6.0':
@@ -4298,6 +4305,26 @@ snapshots:
       '@earendil-works/pi-telemetry': 1.6.0
       '@silvia-odwyer/photon': 0.3.3
       diff: 8.0.4
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - bufferutil
+      - esbuild
+      - google-auth-library
+      - kerberos
+      - react
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@earendil-works/pi-env@1.6.0(@aws-sdk/credential-provider-node@3.972.98)(@smithy/signature-v4@5.7.5)(esbuild@0.28.2)(google-auth-library@10.9.1)(react@19.3.1)(undici@8.13.1)(ws@8.23.0)(zod@4.6.7)':
+    dependencies:
+      '@earendil-works/chord': 1.6.0(esbuild@0.28.2)(react@19.3.1)(ws@8.23.0)
+      '@earendil-works/pi-durable': 1.6.0(@aws-sdk/credential-provider-node@3.972.98)(@smithy/signature-v4@5.7.5)(esbuild@0.28.2)(google-auth-library@10.9.1)(react@19.3.1)(undici@8.13.1)(ws@8.23.0)(zod@4.6.7)
     transitivePeerDependencies:
       - '@aws-sdk/credential-provider-node'
       - '@modelcontextprotocol/sdk'

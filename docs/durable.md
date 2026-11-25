@@ -3,16 +3,16 @@
 Research notes and the architecture decision for running agents in this platform.
 Written so an agent (human or AI) can pick this up without re-reading upstream.
 
-Status: **chat slice over Postgres.** `apps/backend` runs a durable `Harness` over
-the Postgres adapter ([`docs/postgres-adapter.md`](./postgres-adapter.md)) and keeps
-one conversation per row of `chat_threads`, on `opencode-go`/`deepseek-v4.1-flash`
-with the key stored on the credentials page. Reads are paged
-(`GET /threads/:threadId/messages`, an opaque cursor). A run streams as
-server-sent events (`GET /threads/:threadId/stream`): each frame is the newest
-window of the transcript plus the live run (reasoning, partial text, tool slots)
-and the usage totals. A thread is filed under a `workspaces` row and an `agents`
-row, but the selection only supplies the system prompt: the harness runs with no
-tools and no MCP. `apps/agent` runs a workspace bootstrap, not the harness.
+Status: **chat and container tools over Postgres.** `apps/backend` runs a durable
+`Harness` over the Postgres adapter
+([`docs/postgres-adapter.md`](./postgres-adapter.md)) and keeps one conversation
+per row of `chat_threads`. The agent profile chooses the model, thinking level,
+instructions and granted tools. Reads are paged (`GET /threads/:threadId/messages`,
+an opaque cursor). A run streams as server-sent events
+(`GET /threads/:threadId/stream`): each frame is the newest window of the
+transcript plus the live run (reasoning, partial text, tool slots) and the usage
+totals. `apps/agent` runs the workspace bootstrap, not the harness. MCP servers,
+prompt catalog entries and skills are stored but are not wired into runs.
 
 Sources (read 2026-11-22):
 
@@ -43,6 +43,65 @@ Rejected alternative: running pi (RPC mode or SDK) inside the agent app and havi
 the backend orchestrate. That produces two agent loops, no atomicity between
 backend state and agent state, and a control protocol we would have to invent.
 
+The owner approved `@earendil-works/pi-env@1.6.0` as an exact backend dependency
+for this design. It supplies `RemoteExecutionEnv`, `Connection` and the packaged
+Linux daemon binaries; the platform does not reimplement durable's filesystem and
+shell semantics over individual Docker execs. The daemon is delivered at run time,
+so the workspace image does not contain a pi-env artifact.
+
+## Tools, grants and the container transport
+
+The process-wide registry installs pi-durable's `coding-tools` extension (`read`,
+`write`, `edit`, `bash`) and the backend's env-free `web` extension (`web_fetch`).
+`POST /capabilities/tools/sync` syncs that registry into the tool catalog. Before
+conversation creation and every submission, `agents/tool-selection.ts` applies the
+workspace ceiling, intersects the agent's grants with it, and removes coding tools
+when the workspace is General or has no environment. `web_fetch` remains available
+in every workspace when the grants select it. A new non-default workspace starts
+with `allowAll: false`, so its tools must be synced and granted before its
+allow-all default agent can use them.
+
+For a container workspace, `HarnessOptions.env` resolves durable conversation id →
+chat thread → workspace → environment. `EnvironmentApi.start()` starts a stopped
+or missing container and records the container id through the same path as the
+environments API. One `Connection` and `RemoteExecutionEnv` is cached per
+environment id, rooted at `/home/dev/workspace`; a lost connection is dropped and
+all connections close with the backend. General and a workspace without an
+environment return no `ExecutionEnv`.
+
+The product image has no Docker CLI. `Connection` instead spawns the compiled
+`environments/daemon-bridge` with Node. The bridge calls Docker through dockerode
+and starts this exec as `dev`, with stdin/stdout/stderr attached and `Tty: false`:
+
+```text
+/home/dev/.local/share/tlabs/pi-env-1.6.0 serve --token <32 hex characters>
+```
+
+`Connection` generates the random token and appends those three serve arguments
+to the bridge argv. The bridge forwards them unchanged. The daemon writes
+`PI-ENV <token>\\n` first; `Connection` discards preceding noise, verifies that
+sync line and then exchanges length-prefixed protocol 1 frames, beginning with
+`hello { protocol: 1 }`. Docker's 8-byte non-TTY multiplex headers are removed by
+`docker.modem.demuxStream`, so those frames are the only daemon stdout the client
+sees. The token protects the stdio handshake; it is not an authorization secret.
+No port or SSH connection is opened for tools.
+
+Before the first connection, the backend inspects the container image's
+architecture (`amd64` → `x64`, `arm64` → `arm64`, with the backend architecture as
+fallback). It checks the versioned daemon path with `test -x`. If absent, it
+streams the binary shipped by the npm package into an exec of `sh -c` which makes
+the directory, writes a temporary file, applies mode `0755`, and renames it into
+place. The daemon therefore runs on the container's glibc base without changing
+the image.
+
+`web_fetch` executes in the backend and never touches `api.env`. It permits only
+public HTTP(S) destinations, resolves and checks every redirect hop (at most
+five), uses GET with a 15-second timeout, and caps streamed output at 200 KB by
+default or 1 MiB at most. DNS and literal-address checks reject local,
+single-label, loopback, private, link-local, unique-local, CGNAT, unspecified and
+multicast destinations, including IPv4-mapped IPv6. HTML is reduced to text;
+JSON and other text are returned unchanged.
+
 ## What durable is (and is not)
 
 - `Harness.open(storage, { models, registry, env, settings }, context)` owns
@@ -71,8 +130,8 @@ backend state and agent state, and a control protocol we would have to invent.
 - Domain logic around agents (the "extra functions" the backend needs).
 - Config and secrets: model provider keys live in the backend, validated at
   startup. Currently `apps/backend/src/config.ts` has no secret handling.
-- Container image and pi-env daemon deployment.
-- Tool policy (which tools per conversation, which hosts).
+- Container image and bootstrap.
+- MCP, prompt and skill runtime wiring; tool policy itself is implemented.
 
 ## MCP
 
@@ -107,25 +166,21 @@ not reach into the container by magic — only through an `ExecutionEnv` or
 - **Node.** Durable is ESM-only TypeScript; `pi-coding-agent` requires Node ≥ 22.19.
   We pin Node 26.13.1, fine.
 
-## Open questions — resolve before writing backend code
+## Open questions
 
-1. **Container transport.** pi-env's documented path is SSH (`connectSsh`, host-key
-   pinning) or `localDaemon()` on the same machine. The underlying `Connection` takes
-   a spawn command and the daemon speaks framed stdin/stdout, so
-   `docker exec -i <container> pi-env` (or a K8s exec) *should* work — decides whether
-   the image needs `sshd`.
-2. **Registry wiring.** How `Harness.open(...)`'s `registry` plus per-conversation
-   config accepts our `mcp_*` `AgentTool`s, and how `env` is pinned to the remote
-   `RemoteExecutionEnv`.
-3. **Storage choice** per environment: `openNodeSqliteStorage` (dev + single node), JSONL,
+1. **Storage choice** per environment: `openNodeSqliteStorage` (dev + single node), JSONL,
    or a Postgres adapter — see [`docs/postgres-adapter.md`](./postgres-adapter.md).
    Answered the narrow way: the backend always uses the Postgres adapter and has no
    in-process fallback; which file backend a single-node deployment might prefer is
    still open.
-4. **Session → process mapping**, i.e. the sharding rule, once more than one backend
+2. **Session → process mapping**, i.e. the sharding rule, once more than one backend
    instance exists.
 
-## Spike plan (not done)
+Container transport and registry wiring are answered above. An end-to-end run
+against a real container still needs to verify the packaged daemon's compatibility
+with the workspace image; unit tests do not replace that deployment check.
+
+## Remaining runtime validation
 
 Validate in `apps/agent` (or a scratch workspace) — **not** `apps/backend`:
 
