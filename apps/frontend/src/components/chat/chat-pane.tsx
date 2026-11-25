@@ -1,5 +1,5 @@
 import { ArrowDownIcon } from 'lucide-react'
-import { Fragment, useCallback, useEffect, useSyncExternalStore, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useSyncExternalStore, useState } from 'react'
 
 import type { ChatAgent, ChatLive, ChatMessage, ChatThread, ChatToolCall } from '../../lib/chat-api.ts'
 import { getWorkspace, listAgents, readThread } from '../../lib/chat-api.ts'
@@ -143,7 +143,11 @@ export function ChatPane({
       <div className="px-4">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
           <PromptInput label="Message" onSend={(text) => send(threadId, text)} />
-          {visibleRunControls === null ? null : (
+          {/* The row is reserved before the controls load: appearing later would shrink the transcript under the
+              reader and leave it scrolled off its newest line, which stops it following the conversation. */}
+          {visibleRunControls === null ? (
+            <div className="h-7" aria-hidden />
+          ) : (
             <RunControls
               key={threadId}
               thread={visibleRunControls.thread}
@@ -165,6 +169,9 @@ export function ChatPane({
 
 /** How close to the bottom the viewport has to be before the newest line counts as in view. */
 const NEAR_BOTTOM_THRESHOLD = 64
+
+/** How long after a wheel, touch, pointer or key event a scroll still counts as the reader's own. */
+const GESTURE_WINDOW_MS = 1000
 
 /**
  * The transcript, and whether it is following the newest line. Following is the default; scrolling up stops it, because a
@@ -192,9 +199,34 @@ function Transcript({
   )
   const trailingTools = state.tools.filter((call) => !positionedCallIds.has(call.id))
 
+  // Read by the resize observer, which is attached once and would otherwise see the value of its first render.
+  const following = useRef(pinned)
+  // When the reader last scrolled on purpose. Only that may stop following: off-screen lines are laid out at an
+  // estimated height until they render (`content-visibility`), and the browser's correction afterwards also arrives
+  // as a scroll event, which would otherwise read as the reader leaving the newest line.
+  const gestureAt = useRef(0)
+  const markGesture = (): void => {
+    gestureAt.current = Date.now()
+  }
+  const content = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
+    following.current = pinned
     if (pinned) scrollToEnd({ behavior: 'auto' })
   }, [pinned, size, scrollToEnd])
+
+  // Lines also grow after they arrive (code highlighting, tables, a thinking block opening), which `size` cannot see.
+  useEffect(() => {
+    const element = content.current
+    if (element === null || typeof ResizeObserver !== 'function') return
+
+    const observer = new ResizeObserver(() => {
+      if (following.current) scrollToEnd({ behavior: 'auto' })
+    })
+    observer.observe(element)
+
+    return () => observer.disconnect()
+  }, [scrollToEnd])
 
   return (
     <>
@@ -202,14 +234,20 @@ function Transcript({
         preserveScrollOnPrepend
         aria-label="Transcript"
         className="px-4"
+        onWheel={markGesture}
+        onTouchMove={markGesture}
+        onPointerDown={markGesture}
+        onKeyDown={markGesture}
         onScroll={(event) => {
           const viewport = event.currentTarget
           const fromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
-          setPinned(fromBottom < NEAR_BOTTOM_THRESHOLD)
+          if (fromBottom < NEAR_BOTTOM_THRESHOLD) setPinned(true)
+          else if (Date.now() - gestureAt.current < GESTURE_WINDOW_MS) setPinned(false)
           if (viewport.scrollTop < LOAD_OLDER_THRESHOLD) loadOlder(threadId)
         }}
       >
         <MessageScrollerContent className="mx-auto w-full max-w-3xl pb-2">
+          <div ref={content} className="flex flex-col gap-6">
           {/* A pending line sits after the entry that was newest when it was sent, and before every line if there was
               none: a failure belongs where the person typed it, not under whatever arrived since. */}
           {leadingPending(state.pending).map((item) => (
@@ -244,6 +282,7 @@ function Transcript({
           <MessageScrollerItem messageId="live">
             <LiveRun live={state.live} streaming={streaming} />
           </MessageScrollerItem>
+          </div>
         </MessageScrollerContent>
       </MessageScrollerViewport>
 
