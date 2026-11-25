@@ -167,6 +167,7 @@ function stubAgent(overrides: Partial<Agent> = {}): Agent {
     environments: environmentsOf(),
     // Only the credential routes read a key; a test that needs another store stubs that one instead.
     credentials: { list: async () => [], create: unused, remove: unused },
+    answerQuestion: async () => 'not-found',
     // Same rule for the provider routes: the stub answers only what registration needs.
     providers: {
       logins: async () => [],

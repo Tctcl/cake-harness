@@ -287,7 +287,12 @@ function Transcript({
           )}
 
           <MessageScrollerItem messageId="live">
-            <LiveRun live={state.live} streaming={streaming} failureShown={newestLineFailed(state.messages)} />
+            <LiveRun
+              live={state.live}
+              streaming={streaming}
+              threadId={threadId}
+              failureShown={newestLineFailed(state.messages)}
+            />
           </MessageScrollerItem>
           </div>
         </MessageScrollerContent>

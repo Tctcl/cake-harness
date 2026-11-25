@@ -134,6 +134,7 @@ describe('liveActivity', () => {
         droppedBytes: 0,
         droppedLines: 3,
         diagnostics: [],
+        question: null,
       },
       {
         id: 'call-2',
@@ -143,6 +144,7 @@ describe('liveActivity', () => {
         droppedBytes: 0,
         droppedLines: 0,
         diagnostics: ['the pattern matched nothing'],
+        question: null,
       },
       {
         id: 'call-3',
@@ -152,8 +154,28 @@ describe('liveActivity', () => {
         droppedBytes: 0,
         droppedLines: 0,
         diagnostics: [],
+        question: null,
       },
     ])
+  })
+
+  it('exposes an ask_user question from its live tool details', () => {
+    const activity = liveActivity({
+      tools: [
+        {
+          callId: 'question-call',
+          name: 'ask_user',
+          status: 'sleeping',
+          details: { text: 'Which option?', options: ['A', 'B'], allowFreeText: false },
+        },
+      ],
+    })
+
+    expect(activity.tools[0]?.question).toEqual({
+      text: 'Which option?',
+      options: ['A', 'B'],
+      allowFreeText: false,
+    })
   })
 
   it('reports why a run ended without an answer, with its detail when there is one', () => {

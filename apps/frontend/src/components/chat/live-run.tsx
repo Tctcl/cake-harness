@@ -1,6 +1,9 @@
 import { AlertTriangleIcon, LoaderCircleIcon, WrenchIcon } from 'lucide-react'
+import { useState } from 'react'
 
+import { answerQuestion } from '../../lib/chat-api.ts'
 import type { ChatLive, ChatLiveBlock, ChatLiveTool, ChatRunFailure } from '../../lib/chat-api.ts'
+import { Button } from '../ui/button.tsx'
 import { Markdown } from './markdown.tsx'
 import { ThinkingBlock } from './thinking-block.tsx'
 
@@ -50,7 +53,91 @@ const CallLine = ({ name, arguments: args }: { name: string; arguments: string }
   </div>
 )
 
-const ToolSlot = ({ tool }: { tool: ChatLiveTool }) => {
+const QuestionCard = ({
+  threadId,
+  callId,
+  question,
+}: {
+  threadId: string
+  callId: string
+  question: NonNullable<ChatLiveTool['question']>
+}) => {
+  const [draft, setDraft] = useState('')
+  const [sending, setSending] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
+
+  const submit = async (answer: string): Promise<void> => {
+    setSending(true)
+    setFailure(null)
+    try {
+      await answerQuestion(threadId, callId, answer)
+      setSubmitted(true)
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : 'Your answer could not be sent.')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const disabled = sending || submitted
+
+  return (
+    <section aria-label="Question from assistant" className="flex flex-col gap-3 rounded-sm border border-border px-3 py-3">
+      <p className="text-sm font-medium">{question.text}</p>
+      {question.options.length === 0 ? null : (
+        <div className="flex flex-wrap gap-2">
+          {question.options.map((option) => (
+            <Button
+              key={option}
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={disabled}
+              onClick={() => void submit(option)}
+            >
+              {option}
+            </Button>
+          ))}
+        </div>
+      )}
+      {question.allowFreeText ? (
+        <form
+          className="flex flex-wrap gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const answer = draft.trim()
+            if (answer !== '') void submit(answer)
+          }}
+        >
+          <input
+            aria-label="Your answer"
+            className="min-w-0 flex-1 rounded-sm border border-input bg-background px-3 py-2 text-sm"
+            disabled={disabled}
+            maxLength={4000}
+            value={draft}
+            onChange={(event) => setDraft(event.currentTarget.value)}
+          />
+          <Button type="submit" disabled={disabled || draft.trim() === ''}>
+            {sending ? 'Sending…' : 'Answer'}
+          </Button>
+        </form>
+      ) : null}
+      {submitted ? <p className="text-xs text-muted-foreground">Answer sent</p> : null}
+      {failure === null ? null : <p role="alert" className="text-sm text-destructive">{failure}</p>}
+    </section>
+  )
+}
+
+const ToolSlot = ({ tool, threadId }: { tool: ChatLiveTool; threadId: string }) => {
+  if (
+    tool.name === 'ask_user' &&
+    tool.question !== null &&
+    (tool.status === 'sleeping' || tool.status === 'waiting')
+  ) {
+    return <QuestionCard threadId={threadId} callId={tool.id} question={tool.question} />
+  }
+
   const running = tool.status !== 'done'
 
   return (
@@ -87,17 +174,19 @@ const SegmentView = ({
   segment,
   streaming,
   tool,
+  threadId,
 }: {
   segment: Segment
   streaming: boolean
   tool: ChatLiveTool | undefined
+  threadId: string
 }) => {
   if (segment.kind === 'thinking') {
     return <ThinkingBlock text={segment.text} redacted={segment.redacted} streaming={streaming} />
   }
 
   if (segment.kind === 'text') return <Markdown text={segment.text} />
-  if (tool !== undefined) return <ToolSlot tool={tool} />
+  if (tool !== undefined) return <ToolSlot tool={tool} threadId={threadId} />
 
   return <CallLine arguments={segment.call.arguments} name={segment.call.name} />
 }
@@ -119,10 +208,12 @@ const FailureNotice = ({ failure }: { failure: ChatRunFailure }) => (
 export function LiveRun({
   live,
   streaming,
+  threadId,
   failureShown = false,
 }: {
   live: ChatLive
   streaming: boolean
+  threadId: string
   /** The newest transcript line already carries this run's error, so a second notice would only repeat it. */
   failureShown?: boolean
 }) {
@@ -134,6 +225,12 @@ export function LiveRun({
   )
   const trailingTools = live.tools.filter((tool) => !blockCallIds.has(tool.id))
   const working = streaming || live.compacting > 0
+  const waitingForAnswer = live.tools.some(
+    (tool) =>
+      tool.name === 'ask_user' &&
+      tool.question !== null &&
+      (tool.status === 'sleeping' || tool.status === 'waiting'),
+  )
 
   // Nothing is in flight and nothing failed: the view has nothing to say, and the transcript speaks for itself.
   const busy = live.blocks.length > 0 || live.tools.length > 0 || failure !== null || working
@@ -148,12 +245,19 @@ export function LiveRun({
           segment={segment}
           streaming={streaming}
           tool={segment.kind === 'toolCall' ? toolsById.get(segment.call.callId) : undefined}
+          threadId={threadId}
         />
       ))}
 
       {trailingTools.map((tool) => (
-        <ToolSlot key={`${tool.id}-${tool.status}-${String(tool.output?.length ?? 0)}`} tool={tool} />
+        <ToolSlot
+          key={`${tool.id}-${tool.status}-${String(tool.output?.length ?? 0)}`}
+          tool={tool}
+          threadId={threadId}
+        />
       ))}
+
+      {waitingForAnswer ? <p className="text-sm">Waiting for your answer</p> : null}
 
       {live.compacting === 0 ? null : (
         <p className="text-xs">
@@ -161,7 +265,7 @@ export function LiveRun({
         </p>
       )}
 
-      {working && segments.length === 0 && live.tools.length === 0 ? (
+      {working && !waitingForAnswer && segments.length === 0 && live.tools.length === 0 ? (
         <p className="text-sm">
           <span className="shimmer">Thinking…</span>
         </p>

@@ -26,6 +26,8 @@ During streaming, the transcript includes:
 These are parts of the same turn rather than separate hidden logs. You can inspect which file an agent read, which edit it made, or which command it ran before accepting its summary.
 Tool-call arguments and results are clipped to 4,000 characters in the stream. Expand a clipped call to load its complete recorded output.
 
+When a decision blocks progress, the agent can call `ask_user`. The run pauses with a question card in the transcript until you choose an option or enter a free-text answer; the answer becomes the tool result and the run continues. This pause is durable and remains available after a backend restart.
+
 Tool location depends on the workspace. In a container-backed workspace, file and shell calls run in that container through pi-env. In General, only `web_fetch` is available and private addresses are refused. See [Tools](/docs/tools).
 
 ## Per-conversation controls

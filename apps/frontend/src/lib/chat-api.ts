@@ -79,6 +79,7 @@ export interface ChatLiveTool {
   readonly droppedBytes: number
   readonly droppedLines: number
   readonly diagnostics: readonly string[]
+  readonly question: { readonly text: string; readonly options: readonly string[]; readonly allowFreeText: boolean } | null
 }
 
 /** Why a run ended without an answer, kept until a later run starts. */
@@ -272,6 +273,14 @@ export const readToolCallDetails = async (threadId: string, callId: string): Pro
  */
 export const sendMessage = async (threadId: string, message: string): Promise<void> => {
   await request(`/threads/${threadId}/messages`, send({ message }))
+}
+
+/** Deliver the person's answer to one parked ask_user call. */
+export const answerQuestion = async (threadId: string, callId: string, answer: string): Promise<void> => {
+  await request(
+    `/threads/${threadId}/questions/${encodeURIComponent(callId)}/answer`,
+    send({ answer }),
+  )
 }
 
 export const streamPath = (threadId: string): string => `/threads/${threadId}/stream`

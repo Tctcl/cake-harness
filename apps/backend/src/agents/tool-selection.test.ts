@@ -5,6 +5,7 @@ import { CodemodeSandbox } from '@earendil-works/pi-codemode'
 import { afterAll, describe, expect, it } from 'vitest'
 
 import { createCakeExtension } from './cake-extension.js'
+import { createAskUserExtension } from '../capabilities/ask-user.js'
 import { createReadonlyToolsExtension } from '../capabilities/readonly-tools.js'
 import { createWebExtension } from '../capabilities/web.js'
 import { selectTools } from './tool-selection.js'
@@ -12,11 +13,13 @@ import type { ToolSelectionInput } from './tool-selection.js'
 
 const registry = createRegistry()
 const sandbox = new CodemodeSandbox({ memoryLimitBytes: 256 * 1024 * 1024 })
+// The same order agent.ts installs them in, so "registry order" below is the order a real run offers tools.
+registry.install(createCakeExtension(async () => 'Cake prompt'))
 registry.install(createCodingTools())
 registry.install(createReadonlyToolsExtension())
 registry.install(createWebExtension())
-registry.install(createCakeExtension(async () => 'Cake prompt'))
 registry.install(createCodemodeExtension({ sandbox, models: false }))
+registry.install(createAskUserExtension())
 const snapshot = registry.snapshot()
 const catalog = new Map([
   ['read-id', 'read'],
@@ -29,6 +32,7 @@ const catalog = new Map([
   ['ls-id', 'ls'],
   ['git-id', 'git'],
   ['codemode-id', 'codemode'],
+  ['ask-user-id', 'ask_user'],
 ])
 
 const input = (overrides: {
@@ -63,6 +67,7 @@ describe('selectTools', () => {
       'git',
       'web_fetch',
       'codemode',
+      'ask_user',
     ])
     expect(selection.extensions.map(({ name }) => name)).toEqual([
       'cake',
@@ -70,35 +75,36 @@ describe('selectTools', () => {
       'readonly-tools',
       'web',
       'codemode',
+      'ask-user',
     ])
   })
 
   it('keeps code mode available in General but drops every environment-backed extension', () => {
     const selection = selectTools(input({ workspace: { isDefault: true } }))
 
-    expect(names(selection)).toEqual(['web_fetch', 'codemode'])
-    expect(selection.extensions.map(({ name }) => name)).toEqual(['cake', 'web', 'codemode'])
+    expect(names(selection)).toEqual(['web_fetch', 'codemode', 'ask_user'])
+    expect(selection.extensions.map(({ name }) => name)).toEqual(['cake', 'web', 'codemode', 'ask-user'])
   })
 
   it('drops environment-backed tools when a non-default workspace has no environment', () => {
-    expect(names(selectTools(input({ hasEnvironment: false })))).toEqual(['web_fetch', 'codemode'])
+    expect(names(selectTools(input({ hasEnvironment: false })))).toEqual(['web_fetch', 'codemode', 'ask_user'])
   })
 
   it('gives a restricted agent exactly its granted tools', () => {
     const selection = selectTools(input({
-      agent: { allowAll: false, toolGrants: ['bash-id', 'web-id'] },
+      agent: { allowAll: false, toolGrants: ['bash-id', 'web-id', 'ask-user-id'] },
     }))
 
-    expect(names(selection)).toEqual(['bash', 'web_fetch'])
+    expect(names(selection)).toEqual(['bash', 'web_fetch', 'ask_user'])
   })
 
   it('filters unavailable environment tools out of explicit grants', () => {
     const selection = selectTools(input({
       workspace: { isDefault: true },
-      agent: { allowAll: false, toolGrants: ['read-id', 'web-id'] },
+      agent: { allowAll: false, toolGrants: ['read-id', 'web-id', 'ask-user-id'] },
     }))
 
-    expect(names(selection)).toEqual(['web_fetch'])
+    expect(names(selection)).toEqual(['web_fetch', 'ask_user'])
   })
 
   it('ignores grants for ids absent from the live catalog', () => {

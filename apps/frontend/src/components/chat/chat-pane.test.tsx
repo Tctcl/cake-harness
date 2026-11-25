@@ -385,6 +385,7 @@ describe('ChatPane', () => {
             droppedBytes: 0,
             droppedLines: 0,
             diagnostics: [],
+            question: null,
           },
         ],
         turns: 1,
@@ -530,6 +531,110 @@ describe('ChatPane', () => {
     })
 
     expect(await screen.findByText('Thinking…')).toBeInTheDocument()
+  })
+
+  it('renders the question at its tool position, answers an option, and waits instead of thinking', async () => {
+    const fetcher = vi.fn((_path: string, init?: RequestInit) =>
+      init?.method === 'POST' ? reply({ answered: true }) : reply({ messages: [], nextCursor: null }),
+    )
+    vi.stubGlobal('fetch', fetcher)
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    await waitFor(() => expect(stream()).toBeDefined())
+    stream()?.emit(STREAM_EVENT, {
+      messages: [],
+      tools: [],
+      run: null,
+      usage: NO_USAGE,
+      live: {
+        blocks: [
+          { type: 'text', text: 'Before' },
+          { type: 'toolCall', callId: 'question-1', name: 'ask_user', arguments: '{}' },
+          { type: 'text', text: 'After' },
+        ],
+        tools: [
+          {
+            id: 'question-1',
+            name: 'ask_user',
+            status: 'sleeping',
+            output: null,
+            droppedBytes: 0,
+            droppedLines: 0,
+            diagnostics: [],
+            question: { text: 'Which channel?', options: ['Stable', 'Preview'], allowFreeText: false },
+          },
+        ],
+        turns: 1,
+        compacting: 0,
+        failure: null,
+      },
+    })
+
+    expect(await screen.findByText('Which channel?')).toBeInTheDocument()
+    expect(screen.getByText('Waiting for your answer')).toBeInTheDocument()
+    expect(screen.queryByText('Thinking…')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Message')).toBeEnabled()
+    const transcript = screen.getByLabelText('Transcript').textContent ?? ''
+    expect(transcript.indexOf('Before')).toBeLessThan(transcript.indexOf('Which channel?'))
+    expect(transcript.indexOf('Which channel?')).toBeLessThan(transcript.indexOf('After'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+
+    await waitFor(() =>
+      expect(fetcher).toHaveBeenCalledWith(
+        `/threads/${THREAD_ID}/questions/question-1/answer`,
+        expect.objectContaining({ body: JSON.stringify({ answer: 'Preview' }) }),
+      ),
+    )
+    expect(await screen.findByText('Answer sent')).toBeInTheDocument()
+  })
+
+  it('submits free text to the answer route and shows a send error inline', async () => {
+    const fetcher = vi.fn((_path: string, init?: RequestInit) =>
+      init?.method === 'POST'
+        ? reply({ error: { code: 'QUESTION_ALREADY_ANSWERED', message: 'This question has already been answered.' } }, false)
+        : reply({ messages: [], nextCursor: null }),
+    )
+    vi.stubGlobal('fetch', fetcher)
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    await waitFor(() => expect(stream()).toBeDefined())
+    stream()?.emit(STREAM_EVENT, {
+      messages: [],
+      tools: [],
+      run: null,
+      usage: NO_USAGE,
+      live: {
+        blocks: [{ type: 'toolCall', callId: 'question-2', name: 'ask_user', arguments: '{}' }],
+        tools: [
+          {
+            id: 'question-2',
+            name: 'ask_user',
+            status: 'sleeping',
+            output: null,
+            droppedBytes: 0,
+            droppedLines: 0,
+            diagnostics: [],
+            question: { text: 'What should change?', options: [], allowFreeText: true },
+          },
+        ],
+        turns: 1,
+        compacting: 0,
+        failure: null,
+      },
+    })
+
+    expect(await screen.findByText('What should change?')).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Your answer' }), {
+      target: { value: 'Keep the current behavior' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Answer' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('This question has already been answered.')
+    expect(fetcher).toHaveBeenCalledWith(
+      `/threads/${THREAD_ID}/questions/question-2/answer`,
+      expect.objectContaining({ body: JSON.stringify({ answer: 'Keep the current behavior' }) }),
+    )
   })
 
   it('says why a message was refused for want of a key, and offers the fix', async () => {
