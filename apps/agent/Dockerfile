@@ -3,7 +3,7 @@
 # The base image provides the runtime for the bootstrap and the floor of tooling;
 # everything above that floor is installed by reconciliation against the desired
 # configuration the backend serves. See docs/remote-development.md.
-FROM node:22-bookworm-slim
+FROM node:25-bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive \
     DEV_ENV_INSTALL_RECORD=/var/lib/dev-env/installed.json
