@@ -11,14 +11,15 @@ import { AppError } from '../errors.js'
  * This is a function rather than a plugin on purpose: a hook added inside `register` is encapsulated to that plugin's
  * children, so it would never run for the route plugins registered beside it. The error handler has the same constraint.
  *
- * It is a `preHandler` rather than an `onRequest` hook for the other half of the same care: a `preHandler` only runs for
- * a route that matched, so the SPA fallback still hands `index.html` to a browser that has no session yet.
+ * Fastify runs `preHandler` hooks for the not-found handler too, so a request that matched no route is let through here:
+ * the fallback answers it with `index.html` (a browser navigation, signed in or not) or a JSON 404, and neither reads
+ * anything a session protects. The built SPA files are matched routes; `static.ts` marks them public.
  */
 export const registerActor = (server: FastifyInstance, auth: AuthServiceType): void => {
   server.addHook('preHandler', async (request) => {
     const config = request.routeOptions.config
 
-    if (config.public === true) return
+    if (config.public === true || request.is404) return
 
     const token = readCookie(request.headers.cookie, SESSION_COOKIE)
     const actor = await auth.resolve(token)
