@@ -21,7 +21,7 @@ Accepted keys are encrypted before they reach the database. A key added here is 
 
 Use **New workspace…** in the sidebar. Cake creates the workspace, its container record, and an initial **Assistant** agent.
 
-The built-in **General** workspace is different. It has no container and only environment-free tools: currently `web_fetch`, which refuses private addresses. Use a container-backed workspace for reading project files, editing, or running shell commands.
+The built-in **General** workspace is different. Its container is reserved for skills, MCP servers and user terminals; its agent has only environment-free tools and no shell or file tools. Use another workspace for agent-driven project reads, edits, or shell commands.
 
 ## 4. Allow providers and models
 
@@ -63,4 +63,4 @@ Conversations are stored with pi-durable in Postgres. Reloading or restarting th
 
 The workspace's terminal is a real PTY inside its container. Closing a terminal view does not stop a running build; reattaching replays retained scrollback. A terminal session accepts one attached client at a time.
 
-Defaults are eight sessions per workspace container, 256 KiB of replayed scrollback per session, and reaping after 30 minutes without a client. Backend restarts end terminal sessions even though chat conversations remain durable. General has no container and therefore no container terminal.
+Defaults are eight sessions per workspace container, 256 KiB of replayed scrollback per session, and reaping after 30 minutes without a client. Backend restarts end terminal sessions even though chat conversations remain durable. General's Environment tab can open its container terminal too.

@@ -16,7 +16,7 @@ import {
 
 /**
  * A workspace: the scope threads and agents live in, and the container they run in. Each workspace owns exactly one
- * environment, created with it; the default workspace is the exception and has none, because it runs on this host.
+ * environment, created with it or repaired at startup; General's container serves skills and MCP servers, not agent tools.
  */
 export interface Workspace {
   readonly id: string
@@ -228,18 +228,18 @@ export class WorkspaceRepository {
   }
 
   /**
-   * Give every non-default workspace that has no environment one, and answer how many were created.
+   * Give every workspace that has no environment one, and answer how many were created.
    *
    * The image comes from configuration, which a migration cannot see, so this runs at startup instead: a migration that
    * guessed a tag would pin the install to whatever was current the day the schema moved. Idempotent — it repairs an
-   * install that predates the rule and does nothing on the next boot.
+   * install that predates the rule, including General's formerly host-only workspace, and does nothing on the next boot.
    */
   async ensureEnvironments(ownerId: string, image: string): Promise<number> {
     const missing = await withClient(this.#pool, (client) =>
       rowsOf<MissingEnvironmentRow>(
         client,
         `SELECT w.id, w.owner_id, w.name FROM ${this.#schema.tables.workspaces} w
-          WHERE w.owner_id = $1 AND NOT w.is_default
+          WHERE w.owner_id = $1
             AND NOT EXISTS (SELECT 1 FROM ${this.#schema.tables.workspaceEnvironments} link WHERE link.workspace_id = w.id)
           ORDER BY w.position`,
         [ownerId],

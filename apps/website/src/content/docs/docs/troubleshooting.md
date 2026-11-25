@@ -62,7 +62,7 @@ Related errors:
 
 For a new workspace, open **Tools** and select **Sync from registry**. A new workspace has no tool grants until you select tools or enable **Reach every capability**. Then check the individual agent's grants.
 
-If `read`, `write`, `edit`, or `bash` is expected, make sure this is a container-backed workspace and its container is running. General has no container and receives only `web_fetch`; private-address URLs are refused there and anywhere that tool runs.
+If `read`, `write`, `edit`, or `bash` is expected, use a non-General workspace and make sure its container is running. General's agent has no shell or file tools even though its container exists; private-address URLs are refused by `web_fetch` there and anywhere else.
 
 Tool calls appear in the transcript. Inspect the failed call rather than inferring its location from the final response.
 
@@ -83,7 +83,7 @@ Do not re-run account bootstrap as a password reset: an owner that already has a
 | `409 TERMINAL_LIMIT_REACHED` | The container already has `TERMINAL_MAX_SESSIONS` sessions (default 8) |
 | `409 TERMINAL_BUSY` or close code `4409` | Another client is attached to that session |
 | Close code `4404` | The session is gone, commonly because the backend restarted |
-| No terminal for General | General has no container |
+| No environment attached for General | Restart the backend so startup repairs General's environment |
 
 Create another session for a second browser tab. Reattach to replay retained scrollback. Chat durability does not imply terminal-session durability.
 

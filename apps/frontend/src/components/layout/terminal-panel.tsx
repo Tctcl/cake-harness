@@ -4,7 +4,7 @@ import { PlusIcon, XIcon } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import '@xterm/xterm/css/xterm.css'
 
-import { getAgentEnvironment } from '../../lib/environment-api.ts'
+import { getWorkspaceEnvironment } from '../../lib/environment-api.ts'
 import type { TerminalAttachment, TerminalPayload } from '../../lib/terminal-api.ts'
 import {
   attachTerminal,
@@ -144,15 +144,14 @@ function TerminalView({ workspaceId, environmentId, terminal, active, onGone }: 
 
 type TerminalPanelProps = {
   workspaceId: string
-  agentId: string
 }
 
 /**
- * The panel's other face: shell sessions in the environment the open conversation's agent works in. Sessions belong to
- * the backend and outlive this panel, so opening it lists what already exists instead of starting from nothing, and a
- * tab is closed through the backend rather than by dropping a socket.
+ * Shell sessions in the workspace's one environment, including General's user-only container. Sessions belong to the
+ * backend and outlive this panel, so opening it lists what already exists instead of starting from nothing, and a tab
+ * is closed through the backend rather than by dropping a socket.
  */
-export function TerminalPanel({ workspaceId, agentId }: TerminalPanelProps) {
+export function TerminalPanel({ workspaceId }: TerminalPanelProps) {
   const [environmentId, setEnvironmentId] = useState<string | null>(null)
   const [sessions, setSessions] = useState<TerminalPayload[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -161,7 +160,7 @@ export function TerminalPanel({ workspaceId, agentId }: TerminalPanelProps) {
 
   useEffect(() => {
     let cancelled = false
-    void getAgentEnvironment(workspaceId, agentId).then(
+    void getWorkspaceEnvironment(workspaceId).then(
       (environment) => {
         if (!cancelled) setEnvironmentId(environment?.id ?? null)
       },
@@ -173,7 +172,7 @@ export function TerminalPanel({ workspaceId, agentId }: TerminalPanelProps) {
     return () => {
       cancelled = true
     }
-  }, [workspaceId, agentId])
+  }, [workspaceId])
 
   useEffect(() => {
     if (environmentId === null) return
@@ -240,7 +239,7 @@ export function TerminalPanel({ workspaceId, agentId }: TerminalPanelProps) {
   }
 
   if (environmentId === null) {
-    return <Hint>This conversation's agent has no environment attached.</Hint>
+    return <Hint>This workspace has no environment attached.</Hint>
   }
 
   return (

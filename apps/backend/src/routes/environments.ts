@@ -377,7 +377,7 @@ export const environmentRoutes: FastifyPluginAsync<{ agent: Agent; terminals: Te
       // delete: the workspace keeps its container until the workspace itself goes.
       for (const workspaceId of await environments.workspacesOf(request.params.environmentId)) {
         const workspace = await options.agent.workspace(workspaceId)
-        if (workspace !== undefined && !workspace.isDefault) throw environmentInUse()
+        if (workspace !== undefined) throw environmentInUse()
       }
 
       // The container is removed before the row, so a failure here leaves a state the next attempt can see.
@@ -495,16 +495,10 @@ export const environmentRoutes: FastifyPluginAsync<{ agent: Agent; terminals: Te
   server.delete<{ Params: WorkspaceEnvironmentParams }>(
     '/workspaces/:workspaceId/environments/:environmentId',
     { schema: { params: workspaceEnvironmentParams } },
-    async (request, reply) => {
-      // A non-default workspace without a container is a broken workspace, so the link is not a thing the client may
-      // drop; the default one runs on the host and has nothing to detach anyway.
-      const workspace = await requireWorkspace(request.params.workspaceId)
-      if (!workspace.isDefault) throw environmentRequired()
-
-      const detached = await environments.detach(request.params.workspaceId, request.params.environmentId)
-      if (!detached) throw notFound('the workspace does not offer that environment', 'ENVIRONMENT_NOT_ATTACHED')
-
-      return reply.code(204).send()
+    async (request) => {
+      // Every workspace owns exactly one environment, General included, so the link is not the client's to drop.
+      await requireWorkspace(request.params.workspaceId)
+      throw environmentRequired()
     },
   )
 

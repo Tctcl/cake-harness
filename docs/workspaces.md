@@ -20,9 +20,10 @@ a stopped container through `EnvironmentApi.start()` and deploys the versioned
 daemon if needed. See [`docs/durable.md`](./durable.md) for the stdio bridge,
 handshake and connection lifecycle.
 
-The default General workspace has no container and never receives those
-environment-backed tools. `web_fetch` is env-free and can be granted in every
-workspace; it runs in the backend with public-address and redirect checks. Tool
+The default General workspace has a container for skills, MCP servers and the
+user's terminal, but its agent never receives environment-backed shell or file
+tools. `web_fetch` is env-free and can be granted in every workspace; it runs in
+the backend with public-address and redirect checks. Tool
 grants are effective at conversation creation and before every submission: an
 agent with `allowAll` receives every available registry tool, and a restricted
 agent receives exactly its available grants. There is no workspace tool ceiling.
@@ -32,7 +33,8 @@ The registry syncs into the tool catalog at startup. Every new non-default
 workspace starts with **Build**, its default allow-all agent, and **Plan**, which
 is granted exactly `read` and `web_fetch`. Agent tool grants are edited on the
 **Agents** tab. General keeps its allow-all **General** agent, but environment
-tools are unavailable there because it has no container.
+tools are deliberately unavailable there: its container serves skills and MCP
+servers, never the agent's own tools.
 
 ## Why
 
@@ -249,8 +251,8 @@ fingerprint is only ever a display hint.
    unique index on `workspace_environments.workspace_id` holds it to one, and the
    routes refuse a second attach (`409 ENVIRONMENT_ALREADY_ATTACHED`), a detach
    (`409 ENVIRONMENT_REQUIRED`) and the deletion of an environment a workspace
-   runs in (`409 ENVIRONMENT_IN_USE`). The default workspace is the exception: it
-   has no container and can use only env-free tools. The fold itself — one table, one
+   runs in (`409 ENVIRONMENT_IN_USE`). General now has the same single environment;
+   its agent still uses only env-free tools by explicit selection. The fold itself — one table, one
    id — is still ahead, so `dev_environments` remains a separate table reached by
    `environment_id`.
 3. Lazy boot and state streaming: the container starts on the first run that

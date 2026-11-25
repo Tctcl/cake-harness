@@ -95,6 +95,8 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
   const [drawerOpen, setDrawerOpen] = useState(false)
   // Nothing shown is the default: the right column is a place with content, not a fixture of the layout.
   const [rightPanel, setRightPanel] = useState<PanelKind | null>(null)
+  // Unlike the conversation-derived panels, a terminal can be opened for a workspace that has no selected thread.
+  const [terminalWorkspaceId, setTerminalWorkspaceId] = useState<string | null>(null)
   // A new conversation in a workspace with several agents waits here for the user to pick one.
   const [picking, setPicking] = useState<{ readonly workspace: WorkspaceSummary; readonly agents: ChatAgent[] } | null>(
     null,
@@ -175,6 +177,25 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
     setView('settings')
   }
 
+  const openTerminal = (workspaceId: string): void => {
+    setTerminalWorkspaceId(workspaceId)
+    setRightPanel('terminal')
+    setView('chat')
+    setError(null)
+    // Closing the workspace window by this route has the same refresh semantics as its Close button.
+    loadWorkspaces()
+    loadThreads()
+  }
+
+  const togglePanel = (next: PanelKind): void => {
+    if (rightPanel === next) {
+      setRightPanel(null)
+      return
+    }
+    if (next === 'terminal') setTerminalWorkspaceId(selectedWorkspace?.id ?? null)
+    setRightPanel(next)
+  }
+
   /** The fix for a missing key or a disallowed model lives on the workspace's Providers tab. */
   const setUpKeys = (workspaceId: string | null): void => openWorkspaces({ workspaceId, tab: 'providers' })
 
@@ -201,6 +222,7 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
       const created = await createThread(workspaceId, agentId)
       setThreads((current) => [created, ...current])
       setThreadId(created.id)
+      setTerminalWorkspaceId(created.workspaceId)
       setDrawerOpen(false)
       // The + that started it may have been in a folded group; opening it is how the new conversation is reachable.
       setCollapsed((current) => {
@@ -276,6 +298,7 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
             initialWorkspaceId={workspacesTarget.workspaceId}
             initialTab={workspacesTarget.tab}
             onOpenCredentials={() => openSettings('credentials')}
+            onOpenTerminal={openTerminal}
           />
         )}
       </OverlayWindow>
@@ -305,6 +328,7 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
       onCreate={(workspaceId) => void newConversation(workspaceId)}
       onSelect={(id) => {
         setThreadId(id)
+        setTerminalWorkspaceId(threads.find((thread) => thread.id === id)?.workspaceId ?? null)
         setDrawerOpen(false)
       }}
       onReorder={(ids) => void reorder(ids)}
@@ -315,7 +339,7 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
     <Topbar
       thread={selectedThread}
       panel={rightPanel}
-      onToggle={(next) => setRightPanel((current) => (current === next ? null : next))}
+      onToggle={togglePanel}
       onRenamed={(renamed) =>
         setThreads((current) => current.map((thread) => (thread.id === renamed.id ? renamed : thread)))
       }
@@ -402,7 +426,13 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
                 </Button>
               </div>
               <div className="flex min-h-0 flex-1">
-                <RightPanel kind={rightPanel} width={window.innerWidth} thread={selectedThread} workspace={selectedWorkspace} />
+                <RightPanel
+                  kind={rightPanel}
+                  width={window.innerWidth}
+                  thread={selectedThread}
+                  workspace={selectedWorkspace}
+                  terminalWorkspaceId={terminalWorkspaceId}
+                />
               </div>
             </div>
           )}
@@ -472,6 +502,7 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
                   width={rightWidth}
                   thread={selectedThread}
                   workspace={selectedWorkspace}
+                  terminalWorkspaceId={terminalWorkspaceId}
                 />
               </>
             )}

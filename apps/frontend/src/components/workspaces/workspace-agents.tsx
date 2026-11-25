@@ -402,7 +402,7 @@ function AgentEditor({
                     <Label htmlFor={id}>{tool.name}</Label>
                     <span className="break-words text-xs text-muted-foreground">{tool.description}</span>
                     {unavailable ? (
-                      <span className="text-xs text-muted-foreground">Needs a workspace container</span>
+                      <span className="text-xs text-muted-foreground">Unavailable to General’s agent</span>
                     ) : null}
                   </div>
                 </div>

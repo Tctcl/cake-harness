@@ -119,7 +119,9 @@ export const createExecutionEnvironment = (
       const thread = await options.threads.findByConversation(Number(target.conversationId))
       if (thread === undefined) return undefined
       const workspace = await options.workspaces.find(thread.workspaceId)
-      if (workspace === undefined || workspace.isDefault) return undefined
+      if (workspace === undefined) return undefined
+      // General's container runs skills and MCP servers, never the agent's own shell or file tools.
+      if (workspace.isDefault) return undefined
       const environment = (await options.environments.ofWorkspace(workspace.id))[0]
       if (environment === undefined) return undefined
 

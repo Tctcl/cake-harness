@@ -10,13 +10,14 @@ type RightPanelProps = {
   width: number
   thread: ChatThread | null
   workspace: WorkspaceSummary | null
+  terminalWorkspaceId: string | null
 }
 
 /**
  * The right column, whose content the topbar chooses. It is only mounted while something is shown, so closing it
  * gives the chat the whole width rather than leaving a rail behind.
  */
-function RightPanel({ kind, width, thread, workspace }: RightPanelProps) {
+function RightPanel({ kind, width, thread, workspace, terminalWorkspaceId }: RightPanelProps) {
   return (
     <aside
       className="flex shrink-0 flex-col border-l bg-background text-foreground"
@@ -39,12 +40,12 @@ function RightPanel({ kind, width, thread, workspace }: RightPanelProps) {
             )}
           </div>
         </ScrollArea>
-      ) : thread === null ? (
+      ) : terminalWorkspaceId === null ? (
         <p className="px-3 py-2 text-xs text-muted-foreground">
-          Open a conversation to use the terminal of its container.
+          Open a conversation or a workspace’s Environment tab to use its terminal.
         </p>
       ) : (
-        <TerminalPanel workspaceId={thread.workspaceId} agentId={thread.agentId} />
+        <TerminalPanel workspaceId={terminalWorkspaceId} />
       )}
     </aside>
   )

@@ -101,14 +101,21 @@ if (url === undefined) {
       })
     })
 
-    it('leaves the default workspace without an environment', async () => {
-      await withWorkspaces(async (_workspaces, _threads, _ownerId, environments) => {
+    it('gives General an environment at startup, once', async () => {
+      await withWorkspaces(async (workspaces, _threads, ownerId, environments) => {
         await expect(environments.ofWorkspace(DEFAULT_WORKSPACE_ID)).resolves.toEqual([])
+        await expect(workspaces.ensureEnvironments(ownerId, IMAGE)).resolves.toBe(1)
+
+        const attached = await environments.ofWorkspace(DEFAULT_WORKSPACE_ID)
+        expect(attached).toHaveLength(1)
+        expect(attached[0]).toMatchObject({ name: DEFAULT_WORKSPACE_NAME, image: IMAGE, containerId: null })
+        await expect(workspaces.ensureEnvironments(ownerId, IMAGE)).resolves.toBe(0)
       })
     })
 
     it('gives a workspace that lost its environment one again, once', async () => {
       await withWorkspaces(async (workspaces, _threads, ownerId, environments) => {
+        await workspaces.ensureEnvironments(ownerId, IMAGE)
         const workspace = await workspaces.create(ownerId, { name: 'Platform' }, IMAGE)
         const [environment] = await environments.ofWorkspace(workspace.id)
         if (environment === undefined) throw new Error('the workspace was created without an environment')

@@ -16,6 +16,29 @@ export interface DevEnvironment {
   readonly updatedAt: string
 }
 
+export type EnvironmentStatus = 'running' | 'stopped' | 'missing'
+
+export interface EnvironmentDetail extends DevEnvironment {
+  readonly status: EnvironmentStatus
+}
+
+export interface ContainerMetrics {
+  readonly cpuPercent: number
+  readonly memoryUsedBytes: number
+  readonly memoryLimitBytes: number
+  readonly networkReceiveBytes: number
+  readonly networkTransmitBytes: number
+  readonly blockReadBytes: number
+  readonly blockWriteBytes: number
+}
+
+export interface SshAccess {
+  readonly command: string
+  readonly host: string
+  readonly port: number
+  readonly user: string
+}
+
 const json = (method: string, body: unknown): RequestInit => ({
   method,
   headers: { 'content-type': 'application/json' },
@@ -37,6 +60,13 @@ export const getWorkspaceEnvironment = async (workspaceId: string): Promise<DevE
  * Changing the image applies to the next start; a container already running keeps the image it was created from. Throws
  * when the workspace is attached to nothing, because there is no row to change.
  */
+export const getEnvironment = async (environmentId: string): Promise<EnvironmentDetail> =>
+  await request<EnvironmentDetail>(`/environments/${environmentId}`)
+
+/** `null` means sshd has no published endpoint, including while the container is stopped. */
+export const getEnvironmentSsh = async (environmentId: string): Promise<SshAccess | null> =>
+  await request<SshAccess | null>(`/environments/${environmentId}/ssh`)
+
 export const setWorkspaceImage = async (workspaceId: string, image: string): Promise<DevEnvironment> => {
   const environment = await getWorkspaceEnvironment(workspaceId)
   if (environment === null) throw new Error('this workspace is attached to no environment')
@@ -74,23 +104,18 @@ export interface EnvironmentStats {
   readonly memoryLimit: number
 }
 
-/** The same reading as the backend reports it: byte counts, plus the counters this panel leaves out. */
-interface ContainerMetrics {
-  readonly cpuPercent: number
-  readonly memoryUsedBytes: number
-  readonly memoryLimitBytes: number
-}
-
 export const startEnvironment = async (environmentId: string): Promise<DevEnvironment> =>
   await request<DevEnvironment>(`/environments/${environmentId}/start`, { method: 'POST' })
 
 export const stopEnvironment = async (environmentId: string): Promise<DevEnvironment> =>
   await request<DevEnvironment>(`/environments/${environmentId}/stop`, { method: 'POST' })
 
+export const getEnvironmentMetrics = async (environmentId: string): Promise<ContainerMetrics> =>
+  await request<ContainerMetrics>(`/environments/${environmentId}/metrics`)
+
 export const getEnvironmentStats = async (environmentId: string): Promise<EnvironmentStats | null> => {
-  // The route is `/metrics` and it reports bytes and more counters than the panel shows; the reading is renamed here so
-  // the component is not coupled to the wire names.
-  const metrics = await request<ContainerMetrics>(`/environments/${environmentId}/metrics`)
+  // The compact conversation card predates the full metrics panel and uses only these three readings.
+  const metrics = await getEnvironmentMetrics(environmentId)
 
   return {
     cpuPercent: metrics.cpuPercent,

@@ -18,10 +18,12 @@ import { useNarrowScreen } from '../../lib/use-narrow-screen.ts'
  */
 export function WorkspacesPage({
   onOpenCredentials,
+  onOpenTerminal,
   initialWorkspaceId = null,
   initialTab = 'overview',
 }: {
   onOpenCredentials: () => void
+  onOpenTerminal: (workspaceId: string) => void
   /** The workspace to open on, and its tab; another screen uses this to send the user to a specific fix. */
   initialWorkspaceId?: string | null
   initialTab?: WorkspaceTabId
@@ -170,6 +172,7 @@ export function WorkspacesPage({
               workspace={selected}
               onChanged={reload}
               onOpenCredentials={onOpenCredentials}
+              onOpenTerminal={onOpenTerminal}
               initialTab={selected.id === initialWorkspaceId ? initialTab : 'overview'}
             />
           </>

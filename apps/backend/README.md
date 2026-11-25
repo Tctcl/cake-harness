@@ -337,10 +337,11 @@ name and the `WORKSPACE_IMAGE` the process was started with — the image is con
 and `WorkspaceRepository.ensureEnvironments` fills in the workspaces that predate the rule on every boot (idempotent; it
 writes nothing once every workspace has one).
 
-The default workspace is the exception: it runs on this host, has no environment, and is the only workspace that may be
-detached from one. `workspace_environments` carries a unique index on `workspace_id`, so a second link is a constraint
-violation rather than something the routes have to remember; `DELETE /environments/:environmentId` answers
-`409 ENVIRONMENT_IN_USE` while a non-default workspace runs in it.
+General is repaired by the same startup pass: its container serves skills, MCP servers and user terminals, while its
+agent still receives no environment-backed shell or file tools. No workspace may be detached from its environment.
+`workspace_environments` carries a unique index on `workspace_id`, so a second link is a constraint violation rather
+than something the routes have to remember; `DELETE /environments/:environmentId` answers `409 ENVIRONMENT_IN_USE`
+while any workspace runs in it.
 
 ### Environments
 

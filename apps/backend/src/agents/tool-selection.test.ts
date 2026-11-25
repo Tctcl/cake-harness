@@ -79,7 +79,7 @@ describe('selectTools', () => {
     ])
   })
 
-  it('keeps code mode available in General but drops every environment-backed extension', () => {
+  it('keeps code mode in General but drops environment tools even though its container exists', () => {
     const selection = selectTools(input({ workspace: { isDefault: true } }))
 
     expect(names(selection)).toEqual(['web_fetch', 'codemode', 'ask_user'])
