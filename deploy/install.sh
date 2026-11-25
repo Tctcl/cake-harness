@@ -32,6 +32,7 @@ VERSION="latest"
 CHANNEL="production"
 IMAGE=""
 WORKSPACE_IMAGE=""
+CIPHERGATE_IMAGE=""
 DOMAIN="${TCTCL_DOMAIN:-}"
 ACME_EMAIL=""
 
@@ -179,6 +180,7 @@ resolve_images() {
 
   IMAGE="$registry:$tag"
   WORKSPACE_IMAGE="$registry/workspace:$tag"
+  CIPHERGATE_IMAGE="$registry/ciphergate:$tag"
 }
 
 install_docker() {
@@ -275,8 +277,9 @@ write_env() {
     [ -n "$DOMAIN" ] || die "--domain is required for a first install"
     log "writing $env_file"
     if [ "$DRY_RUN" = false ]; then
-      local password
+      local password secret_key
       password="$(openssl rand -hex 32)"
+      secret_key="$(openssl rand -hex 32)"
       (
         umask 077
         cat >"$env_file" <<EOF
@@ -291,6 +294,9 @@ TCTCL_VERSION=$VERSION
 TCTCL_CHANNEL=$CHANNEL
 TCTCL_IMAGE=$IMAGE
 TCTCL_WORKSPACE_IMAGE=$WORKSPACE_IMAGE
+TCTCL_CIPHERGATE_IMAGE=$CIPHERGATE_IMAGE
+# Seals the second-factor secrets. Regenerating it makes every enrolled authenticator unreadable.
+SECRET_KEY=$secret_key
 EOF
       )
     fi
@@ -303,11 +309,76 @@ EOF
     set_env "$env_file" TCTCL_CHANNEL "$CHANNEL"
     set_env "$env_file" TCTCL_IMAGE "$IMAGE"
     set_env "$env_file" TCTCL_WORKSPACE_IMAGE "$WORKSPACE_IMAGE"
+    set_env "$env_file" TCTCL_CIPHERGATE_IMAGE "$CIPHERGATE_IMAGE"
   fi
 }
 
 compose() {
   docker compose --env-file "$STATE_DIR/.env" -f "$INSTALL_DIR/compose.yaml" "$@"
+}
+
+# The secrets store. Nothing about it is pre-required: the keyfile is generated here, `init` creates the
+# database and the admin consumer, and a reader consumer is created for the backend. The admin key is
+# printed once and never stored; the reader key goes into .env, which is why the whole stack needs exactly
+# one bootstrap secret of its own.
+#
+# The keyfile is the root of trust for every value in the store: whoever can read it can read every
+# secret. It is generated once and never rotated by this script, because rotating it does not re-encrypt
+# anything.
+provision_secrets() {
+  step "Secrets store"
+  local data_dir="$STATE_DIR/ciphergate"
+  local env_file="$STATE_DIR/.env"
+  local consumer="tctcl-backend"
+  # Compose interpolates the whole file before it runs a single service, and the app service requires
+  # CIPHERGATE_TOKEN with `:?`. Until the consumer below exists there is no real key, so these two CLI
+  # calls carry a placeholder in the environment, which takes precedence over the env file.
+  local pending_token="not-created-yet"
+
+  run mkdir -p "$data_dir"
+  run chown 1000:1000 "$data_dir"
+  run chmod 0700 "$data_dir"
+
+  if [ -f "$data_dir/gateway.key" ]; then
+    log "keeping the existing $data_dir/gateway.key"
+  else
+    log "generating $data_dir/gateway.key — back it up separately from the database"
+    if [ "$DRY_RUN" = false ]; then
+      (
+        umask 077
+        head -c 32 /dev/urandom | base64 >"$data_dir/gateway.key"
+      )
+      chown 1000:1000 "$data_dir/gateway.key"
+      chmod 0600 "$data_dir/gateway.key"
+    fi
+  fi
+
+  if [ -f "$data_dir/gateway.db" ]; then
+    log "keeping the existing $data_dir/gateway.db"
+  else
+    log "initialising the database"
+    if [ "$DRY_RUN" = false ]; then
+      local admin_key
+      admin_key="$(CIPHERGATE_TOKEN="$pending_token" compose run --rm --no-deps --entrypoint gateway ciphergate init | tail -n1)"
+      printf '\n  admin API key, shown once and not stored anywhere: %s\n\n' "$admin_key"
+    fi
+  fi
+
+  if grep -q '^CIPHERGATE_TOKEN=' "$env_file" 2>/dev/null; then
+    log "keeping the existing backend consumer key"
+  else
+    log "creating the backend reader consumer ($consumer)"
+    if [ "$DRY_RUN" = false ]; then
+      local token
+      if ! token="$(CIPHERGATE_TOKEN="$pending_token" compose run --rm --no-deps --entrypoint gateway ciphergate consumer add "$consumer" | tail -n1)"; then
+        die "could not create the '$consumer' consumer — if it already exists, rotate it with 'docker compose exec ciphergate gateway consumer rotate-key $consumer' and write the key into $env_file as CIPHERGATE_TOKEN"
+      fi
+      (
+        umask 077
+        set_env "$env_file" CIPHERGATE_TOKEN "$token"
+      )
+    fi
+  fi
 }
 
 start_stack() {
@@ -330,6 +401,7 @@ summary() {
   log "version:   $VERSION"
   log "install:   $INSTALL_DIR"
   log "state:     $STATE_DIR"
+  log "secrets:   $STATE_DIR/ciphergate (keyfile: gateway.key, back it up)"
   if [ -n "$DOMAIN" ]; then
     log "url:       https://$DOMAIN (once DNS points here and 443 is open)"
   fi
@@ -338,6 +410,9 @@ summary() {
 Next, if this is a fresh host:
   - point the domain's A/AAAA record at this server
   - allow 80/tcp and 443/tcp, and 22/tcp if you use a firewall
+  - copy the secrets keyfile somewhere safe, away from the database: without it the
+    store's contents cannot be decrypted, and a copy beside the database is one leak
+    away from handing over every credential
 EOF
   printf '  - upgrade: %s/install.sh --version X.Y.Z, or over the socket\n' "$INSTALL_DIR"
 }
@@ -353,6 +428,7 @@ main() {
   fetch_bundle
   prepare_host
   write_env
+  provision_secrets
   start_stack
   install_units
   summary

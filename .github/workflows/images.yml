@@ -1,6 +1,6 @@
 name: images
 
-# Two channels, two images each.
+# Two channels, three images each.
 #
 #   release published  → `X.Y.Z`, `X.Y` and `latest` — what an install resolves.
 #   push to main       → `staging`, overwritten on every merge — what a staging
@@ -42,17 +42,43 @@ jobs:
             context: .
             dockerfile: Dockerfile
             prebuild: 'false'
+            upstream: ''
+            upstreamRef: ''
           - name: workspace
             suffix: /workspace
             context: apps/agent
             dockerfile: apps/agent/Dockerfile
             prebuild: 'true'
+            upstream: ''
+            upstreamRef: ''
+          # CipherGate, the secrets store. Upstream publishes neither a container nor an
+          # npm package, and the install has to bring everything its stack runs, so this
+          # repository builds it from a pinned commit and republishes it on both channels.
+          # `upstreamRef` is the commit `v1.4.1` points at; move it deliberately, never
+          # through a workflow that resolves `main`.
+          - name: ciphergate
+            suffix: /ciphergate
+            context: .ciphergate
+            dockerfile: .ciphergate/Dockerfile
+            prebuild: 'false'
+            upstream: maverick0628/ciphergate
+            upstreamRef: c86c5ec6aa06a101da26b55e7be9f71f9e372900
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.release.tag_name || github.ref }}
+
+      # A second checkout into a subdirectory, so the build context for the upstream image is
+      # a copy of upstream at the pinned commit and not a vendored tree in this repository.
+      - name: Check out the upstream source
+        if: matrix.upstream != ''
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ matrix.upstream }}
+          ref: ${{ matrix.upstreamRef }}
+          path: .ciphergate
 
       - name: Enable pnpm
         uses: pnpm/action-setup@v6
@@ -96,6 +122,11 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},value=${{ github.event.release.tag_name }},enable=${{ github.event_name == 'release' }}
             type=raw,value=latest,enable=${{ github.event_name == 'release' }}
             type=raw,value=staging,enable=${{ github.event_name == 'push' }}
+          # Name where the code came from. For the upstream image that is upstream's repository
+          # and the pinned commit, not ours: an operator who pulls it should be able to find out.
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ matrix.upstream || github.repository }}
+            org.opencontainers.image.revision=${{ matrix.upstreamRef || github.sha }}
 
       - name: Build and push
         uses: docker/build-push-action@v6

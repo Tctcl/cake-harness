@@ -105,6 +105,29 @@ services:
       timeout: 5s
       retries: 5
 
+  # The secrets store. Every credential the stack needs at run time lives here instead of in .env,
+  # which keeps Postgres, the backend and the workspaces to one bootstrap secret each. See
+  # docs/deployment.md, "Secrets".
+  ciphergate:
+    image: ${TCTCL_CIPHERGATE_IMAGE:?set TCTCL_CIPHERGATE_IMAGE}
+    restart: unless-stopped
+    # A bind mount keeps the host's ownership instead of inheriting the image's, so this runs as
+    # the uid install.sh chowns the data directory to. Change both or neither.
+    user: "1000:1000"
+    environment:
+      GATEWAY_DB_PATH: /data/gateway.db
+      GATEWAY_KEYFILE: /data/gateway.key
+      # The REST API on 8400 is the only surface this stack uses. The browser UI is a second
+      # listener on 8405 with its own password and TLS; leave it off until something routes it.
+      GATEWAY_UI_ENABLED: "false"
+      GATEWAY_LOG_LEVEL: info
+    volumes:
+      # The keyfile is the root of trust for every secret, so it stays a file a human can back up
+      # rather than something inside a named volume. Losing it loses every stored value.
+      - ${STATE_DIR:?set STATE_DIR}/ciphergate:/data
+    networks:
+      - secrets
+
   # The product image: Fastify serving the built SPA on one origin, so the router
   # needs one rule, not a path split between a web server and an API.
   app:
@@ -112,6 +135,8 @@ services:
     restart: unless-stopped
     depends_on:
       postgres:
+        condition: service_healthy
+      ciphergate:
         condition: service_healthy
       socket-proxy-rw:
         condition: service_started
@@ -129,10 +154,25 @@ services:
       TCTCL_CHANNEL: ${TCTCL_CHANNEL:?set TCTCL_CHANNEL}
       TCTCL_VERSION: ${TCTCL_VERSION:?set TCTCL_VERSION}
       UPDATE_CHECK_INTERVAL_MS: ${UPDATE_CHECK_INTERVAL_MS:-900000}
+      # Where credentials come from, and the reader key that says which install is asking.
+      # install.sh creates the consumer and writes the key once; the admin key is never stored.
+      CIPHERGATE_URL: http://ciphergate:8400
+      CIPHERGATE_TOKEN: ${CIPHERGATE_TOKEN:?set CIPHERGATE_TOKEN}
+      # Seals the second-factor secrets. install.sh generates it once and keeps it: a restart with a different key
+      # cannot open what it sealed, and an .env that leaks it hands out the second factor with the database.
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      # Traefik terminates TLS, so this is what makes the session cookie `Secure` and the client's protocol https.
+      TRUST_PROXY: "true"
+      # How a workspace container reaches this backend for its documents. Both or neither:
+      # without them an environment boots on the image's floor and is never told anything.
+      WORKSPACE_BACKEND_URL: http://app:8080
+      WORKSPACE_NETWORK: tctcl-workspaces
     networks:
       - edge
       - db
       - api-rw
+      - secrets
+      - workspaces
     labels:
       traefik.enable: "true"
       traefik.http.routers.app.rule: Host(`${DOMAIN:?set DOMAIN}`)
@@ -150,6 +190,16 @@ networks:
   api-ro: {}
   # The backend to its read-write proxy. No other service joins this.
   api-rw: {}
+  # The backend and the environments it provisions. Named explicitly because the backend passes the
+  # name to Docker when it creates a container, so it has to be the same string from one run to the next.
+  # A workspace reaches `app` here and nothing else: no database, no Docker API, no store.
+  workspaces:
+    name: tctcl-workspaces
+  # The backend and the secrets store. Internal: nothing behind it has any business on the
+  # internet, and no workspace is on it, so a container cannot reach the store even if it
+  # learns the address.
+  secrets:
+    internal: true
 
 volumes:
   postgres-data: {}
