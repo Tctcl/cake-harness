@@ -7,12 +7,26 @@ Status: **chat and container tools over Postgres.** `apps/backend` runs a durabl
 `Harness` over the Postgres adapter
 ([`docs/postgres-adapter.md`](./postgres-adapter.md)) and keeps one conversation
 per row of `chat_threads`. The agent profile chooses the model, thinking level,
-instructions and granted tools. Reads are paged (`GET /threads/:threadId/messages`,
+system prompt append, instructions and granted tools. Application settings supply
+the shared base system prompt. Reads are paged (`GET /threads/:threadId/messages`,
 an opaque cursor). A run streams as server-sent events
 (`GET /threads/:threadId/stream`): each frame is the newest window of the
 transcript plus the live run (reasoning, partial text, tool slots) and the usage
 totals. `apps/agent` runs the workspace bootstrap, not the harness. MCP servers and
 skills are stored but are not wired into runs.
+
+## Prompt context in the transcript
+
+The app's System prompt setting is rendered by the process-wide `cake` extension
+as the `cake-system` section before each request. Durable records changes as
+`pi.system` entries, including the agent's separately labelled `instructions`
+section and tool additions or removals. The transcript projects those entries
+into collapsed context rows; expanding a section shows the recorded text, while
+later changes appear as **Context updated**.
+
+Tool call arguments and results are clipped to 4,000 characters in stream frames.
+When a reader expands a clipped call, `GET /threads/:threadId/tool-calls/:callId`
+loads the complete recorded arguments and result from the conversation entries.
 
 Sources (read 2026-11-22):
 

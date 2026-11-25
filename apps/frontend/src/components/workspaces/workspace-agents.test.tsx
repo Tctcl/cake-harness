@@ -19,7 +19,7 @@ const agent = {
   description: 'Default profile',
   isDefault: true,
   allowAll: false,
-  systemPrompt: 'Help.',
+  systemPromptAppend: 'Help.',
   instructions: '',
   credentialId: null,
   modelId: null,

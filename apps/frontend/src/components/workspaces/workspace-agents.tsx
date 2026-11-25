@@ -21,7 +21,7 @@ const emptyDraft: AgentDraft = {
   name: '',
   description: '',
   allowAll: true,
-  systemPrompt: '',
+  systemPromptAppend: '',
   instructions: '',
   credentialId: null,
   modelId: null,
@@ -32,7 +32,7 @@ const draftOf = (agent: ChatAgent): AgentDraft => ({
   name: agent.name,
   description: agent.description,
   allowAll: agent.allowAll,
-  systemPrompt: agent.systemPrompt,
+  systemPromptAppend: agent.systemPromptAppend,
   instructions: agent.instructions,
   credentialId: agent.credentialId,
   modelId: agent.modelId,
@@ -185,7 +185,6 @@ export function WorkspaceAgents({
             key={`${editing}-${nonce}`}
             workspace={workspace}
             agent={current}
-            starterPrompt={agents.find((agent) => agent.isDefault)?.systemPrompt ?? ''}
             choices={choices}
             onOpenProviders={onOpenProviders}
             onDone={() => {
@@ -203,21 +202,18 @@ export function WorkspaceAgents({
 function AgentEditor({
   workspace,
   agent,
-  starterPrompt,
   choices,
   onOpenProviders,
   onDone,
 }: {
   workspace: WorkspaceSummary
   agent: ChatAgent | undefined
-  /** The default agent's system prompt: a new agent starts from a working prompt rather than from a blank box. */
-  starterPrompt: string
   choices: Choices
   onOpenProviders: () => void
   onDone: () => void
 }) {
   const [draft, setDraft] = useState<AgentDraft>(
-    agent === undefined ? { ...emptyDraft, systemPrompt: starterPrompt } : draftOf(agent),
+    agent === undefined ? emptyDraft : draftOf(agent),
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -420,14 +416,15 @@ function AgentEditor({
       </section>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="agent-system">System prompt</Label>
+        <Label htmlFor="agent-system">System prompt append</Label>
         <Textarea
           id="agent-system"
           rows={5}
-          placeholder="Who the agent is and how it should behave."
-          value={draft.systemPrompt}
-          onChange={(event) => set('systemPrompt', event.target.value)}
+          placeholder="Extra context or personality for this agent."
+          value={draft.systemPromptAppend}
+          onChange={(event) => set('systemPromptAppend', event.target.value)}
         />
+        <span className="text-xs text-muted-foreground">Added after Cake&rsquo;s base system prompt.</span>
       </div>
 
       <div className="flex flex-col gap-2">

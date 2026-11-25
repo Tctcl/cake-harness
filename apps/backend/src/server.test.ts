@@ -51,7 +51,7 @@ const agentOf = (overrides: Partial<AgentProfile> = {}): AgentProfile => ({
   description: '',
   isDefault: true,
   allowAll: true,
-  systemPrompt: '',
+  systemPromptAppend: '',
   instructions: '',
   credentialId: null,
   modelId: null,
@@ -223,6 +223,7 @@ function stubAgent(overrides: Partial<Agent> = {}): Agent {
       updatedAt: new Date(0),
     }),
     messages: async () => ({ messages: [], nextCursor: null }),
+    toolCallDetails: async () => undefined,
     contextUsage: async () => ({
       provider: null,
       modelId: null,

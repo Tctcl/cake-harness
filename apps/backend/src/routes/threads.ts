@@ -16,6 +16,13 @@ const threadIdParams = {
   additionalProperties: false,
 } as const
 
+const toolCallParams = {
+  type: 'object',
+  properties: { threadId: { type: 'string', pattern: uuid }, callId: { type: 'string', minLength: 1 } },
+  required: ['threadId', 'callId'],
+  additionalProperties: false,
+} as const
+
 const threadListQuery = {
   type: 'object',
   properties: {
@@ -114,11 +121,18 @@ const toolCallBlockSchema = {
   additionalProperties: false,
 } as const
 
+const contextSectionSchema = {
+  type: 'object',
+  properties: { key: { type: 'string' }, text: { type: ['string', 'null'] } },
+  required: ['key', 'text'],
+  additionalProperties: false,
+} as const
+
 const messageSchema = {
   type: 'object',
   properties: {
     id: { type: 'number' },
-    role: { type: 'string', enum: ['user', 'assistant', 'compaction', 'reset'] },
+    role: { type: 'string', enum: ['user', 'assistant', 'compaction', 'reset', 'context'] },
     text: { type: 'string' },
     blocks: {
       type: 'array',
@@ -127,6 +141,9 @@ const messageSchema = {
     stopReason: { type: ['string', 'null'] },
     errorMessage: { type: ['string', 'null'] },
     reason: { type: ['string', 'null'] },
+    sections: { type: 'array', items: contextSectionSchema },
+    toolsAdded: { type: 'array', items: { type: 'string' } },
+    toolsRemoved: { type: 'array', items: { type: 'string' } },
   },
   required: ['id', 'role', 'text', 'blocks', 'stopReason', 'errorMessage', 'reason'],
 } as const
@@ -138,6 +155,15 @@ const messageListSchema = {
     nextCursor: { type: ['string', 'null'] },
   },
   required: ['messages', 'nextCursor'],
+} as const
+
+const toolCallDetailsSchema = {
+  type: 'object',
+  properties: {
+    arguments: { type: ['string', 'null'] },
+    result: { type: ['string', 'null'] },
+  },
+  required: ['arguments', 'result'],
 } as const
 
 const contextCategorySchema = {
@@ -192,6 +218,10 @@ const sendMessageBody = {
 
 interface ThreadIdParams {
   threadId: string
+}
+
+interface ToolCallParams extends ThreadIdParams {
+  callId: string
 }
 
 interface ThreadListQuery {
@@ -336,6 +366,17 @@ export const threadRoutes: FastifyPluginAsync<{ agent: Agent }> = async (server,
         limit: request.query.limit ?? DEFAULT_MESSAGE_LIMIT,
         cursor: request.query.cursor,
       }),
+  )
+
+  server.get<{ Params: ToolCallParams }>(
+    '/threads/:threadId/tool-calls/:callId',
+    { schema: { params: toolCallParams, response: { 200: toolCallDetailsSchema } } },
+    async (request) => {
+      const details = await options.agent.toolCallDetails(request.params.threadId, request.params.callId)
+      if (details === undefined) throw notFound()
+
+      return details
+    },
   )
 
   // Estimated, not measured: the panel draws a share of the window, and a thread has to have one before the provider

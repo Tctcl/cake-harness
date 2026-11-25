@@ -52,7 +52,7 @@ describe('CredentialsPage', () => {
     expect(screen.getAllByText('work')).not.toHaveLength(0)
     expect(screen.getByText('me@example.com')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: /github-pat/ }))
-    expect(screen.getByText('github')).toBeDefined()
+    expect(await screen.findByText('github')).toBeDefined()
     expect(screen.getAllByText(/Never expires/).length).toBeGreaterThanOrEqual(2)
   })
 

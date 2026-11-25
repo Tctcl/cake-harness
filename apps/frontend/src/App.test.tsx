@@ -39,7 +39,7 @@ const agents = [
     description: 'The default profile',
     isDefault: true,
     allowAll: true,
-    systemPrompt: '',
+    systemPromptAppend: '',
     instructions: '',
   },
 ]

@@ -10,7 +10,6 @@ import {
   DEFAULT_WORKSPACE_ID,
   DEFAULT_WORKSPACE_NAME,
 } from '../../workspaces/defaults.js'
-import { DEFAULT_SYSTEM_PROMPT } from '../../agents/default-prompt.js'
 import { MEMBER_PERMISSIONS } from '../../auth/permissions.js'
 import {
   ADMIN_ROLE_DESCRIPTION,
@@ -377,6 +376,24 @@ const platformMigration = (schema: PostgresSchema): readonly string[] => {
 
 /** `ALTER`/`CREATE` never carry a value, but seeding does: escape it rather than relying on the constants. */
 const literal = (value: string): string => `'${value.replaceAll("'", "''")}'`
+
+/** Frozen value from the original profile starter; migration history must not depend on today's default prompt. */
+export const LEGACY_DEFAULT_SYSTEM_PROMPT = `You are a capable, direct assistant working with one person inside their workspace.
+
+How you work:
+- Understand the request before acting. If something is ambiguous and a wrong guess would be costly, ask one short question; otherwise make a sensible assumption, say what it was, and continue.
+- Use the tools you are given when they help, and only those. Never claim to have run a command, read a file, or checked a fact you did not. If a task needs a tool you do not have, say so plainly instead of pretending.
+- Read before you change anything: look at the existing files, code or data first and follow the conventions you find there.
+- Prefer the smallest change that solves the problem. Do not refactor, rename or "improve" things you were not asked to touch.
+- Before anything destructive or hard to undo (deleting files, overwriting work, force operations, anything touching production or other people), stop and confirm.
+- When something fails, read the error, find the cause, and fix that. Do not retry blindly or hide the failure.
+- Verify your work where you can (run the tests, re-read the result) and report what you verified and what you did not.
+
+How you answer:
+- Lead with the answer or the result, then the detail that supports it. Keep it as short as the question allows.
+- Use Markdown: code blocks with a language tag, lists for steps, tables only for real comparisons.
+- Be honest about uncertainty. "I don't know" or "I couldn't check" is better than a confident guess.
+- Write in the language the person writes to you in.`
 
 /**
  * Workspaces and the agents inside them. A workspace declares the ceiling — which tools, MCP servers and skills its
@@ -1002,7 +1019,7 @@ const agentRunSettingsMigration = (schema: PostgresSchema): readonly string[] =>
  * the General agent's description stops claiming it has no instructions only while it still says so.
  */
 const defaultPromptMigration = (schema: PostgresSchema): readonly string[] => [
-  `UPDATE ${schema.tables.agents} SET system_prompt = ${literal(DEFAULT_SYSTEM_PROMPT)}, updated_at = now()
+  `UPDATE ${schema.tables.agents} SET system_prompt = ${literal(LEGACY_DEFAULT_SYSTEM_PROMPT)}, updated_at = now()
     WHERE is_default AND system_prompt = ''`,
   `UPDATE ${schema.tables.agents} SET description = ${literal(DEFAULT_AGENT_PROMPTED_DESCRIPTION)}
     WHERE id = ${literal(DEFAULT_AGENT_ID)} AND description = ${literal(DEFAULT_AGENT_DESCRIPTION)}`,
@@ -1024,6 +1041,13 @@ const removePromptsMigration = (schema: PostgresSchema): readonly string[] => [
   `DROP TABLE ${schema.tables.workspacePrompts}`,
   `DROP TABLE ${schema.tables.agentPrompts}`,
   `DROP TABLE ${schema.tables.prompts}`,
+]
+
+/** Move the profile prompt to an append-only field and remove only the unchanged legacy starter copy. */
+const agentPromptAppendMigration = (schema: PostgresSchema): readonly string[] => [
+  `ALTER TABLE ${schema.tables.agents} RENAME COLUMN system_prompt TO system_prompt_append`,
+  `UPDATE ${schema.tables.agents} SET system_prompt_append = ''
+    WHERE system_prompt_append = ${literal(LEGACY_DEFAULT_SYSTEM_PROMPT)}`,
 ]
 
 /** Ordered schema history: a released version is never edited, a change appends one. */
@@ -1048,6 +1072,7 @@ export const MIGRATIONS: readonly { version: number; statements: (schema: Postgr
   { version: 18, statements: defaultPromptMigration },
   { version: 19, statements: threadRunSettingsMigration },
   { version: 20, statements: removePromptsMigration },
+  { version: 21, statements: agentPromptAppendMigration },
 ]
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0

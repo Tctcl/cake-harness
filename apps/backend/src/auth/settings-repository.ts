@@ -2,6 +2,7 @@ import type { Pool } from 'pg'
 
 import { withClient } from '../storage/postgres/db.js'
 import type { PostgresSchema } from '../storage/postgres/schema.js'
+import { DEFAULT_SYSTEM_PROMPT } from '../agents/base-prompt.js'
 
 /**
  * The two switches that decide how the install treats people. Both live in the database rather than in the environment:
@@ -12,12 +13,19 @@ export interface Settings {
   readonly singleUser: boolean
   /** A second factor is enrolled before a password is enough. Applying it to existing accounts forces enrolment. */
   readonly requireTwoFactor: boolean
+  /** The app-wide system context; a missing or invalid row uses the built-in prompt. */
+  readonly systemPrompt: string
 }
 
-export const DEFAULT_SETTINGS: Settings = { singleUser: true, requireTwoFactor: false }
+export const DEFAULT_SETTINGS: Settings = {
+  singleUser: true,
+  requireTwoFactor: false,
+  systemPrompt: DEFAULT_SYSTEM_PROMPT,
+}
 
 const SINGLE_USER = 'single_user'
 const REQUIRE_TWO_FACTOR = 'require_two_factor'
+const SYSTEM_PROMPT = 'system_prompt'
 
 interface SettingRow {
   readonly key: string
@@ -45,13 +53,15 @@ export class SettingsRepository {
     return {
       singleUser: booleanOr(values.get(SINGLE_USER), DEFAULT_SETTINGS.singleUser),
       requireTwoFactor: booleanOr(values.get(REQUIRE_TWO_FACTOR), DEFAULT_SETTINGS.requireTwoFactor),
+      systemPrompt: stringOr(values.get(SYSTEM_PROMPT), DEFAULT_SETTINGS.systemPrompt),
     }
   }
 
   async write(patch: Partial<Settings>): Promise<Settings> {
-    const entries: [string, boolean][] = []
+    const entries: [string, boolean | string][] = []
     if (patch.singleUser !== undefined) entries.push([SINGLE_USER, patch.singleUser])
     if (patch.requireTwoFactor !== undefined) entries.push([REQUIRE_TWO_FACTOR, patch.requireTwoFactor])
+    if (patch.systemPrompt !== undefined) entries.push([SYSTEM_PROMPT, patch.systemPrompt])
 
     for (const [key, value] of entries) {
       await withClient(this.#pool, (client) => client.query(this.#upsert, [key, JSON.stringify(value)]))
@@ -62,3 +72,4 @@ export class SettingsRepository {
 }
 
 const booleanOr = (value: unknown, fallback: boolean): boolean => (typeof value === 'boolean' ? value : fallback)
+const stringOr = (value: unknown, fallback: string): string => (typeof value === 'string' ? value : fallback)

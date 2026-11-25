@@ -88,6 +88,10 @@ if (url === undefined) {
       auth,
       capabilities: { skills: {} },
       thread: (id: string) => threads.find(id),
+      toolCallDetails: async (id: string, callId: string) =>
+        id === thread.id && callId === 'call-full'
+          ? { arguments: '{"path":"README.md"}', result: 'the complete result' }
+          : undefined,
       updateThreadRunSettings: (id: string, patch: Parameters<typeof updateThreadRunSettings>[2]) =>
         updateThreadRunSettings(stores, id, patch),
     } as unknown as Agent
@@ -116,6 +120,7 @@ if (url === undefined) {
           url: `/threads/${thread.id}/run-settings`,
           payload: { credentialId: key.id, modelId: DEFAULT_MODEL_ID, thinkingLevel: 'high' },
         })
+
         expect(changed.statusCode).toBe(200)
         expect(changed.json()).toMatchObject({
           overrides: { credentialId: key.id, modelId: DEFAULT_MODEL_ID, thinkingLevel: 'high' },
@@ -134,6 +139,24 @@ if (url === undefined) {
           expect(cleared.statusCode).toBe(200)
           expect(cleared.json()).toMatchObject({ overrides: expected })
         }
+      } finally {
+        await server.close()
+      }
+    })
+
+    it('returns the full arguments and result for an expanded tool call', async () => {
+      const { server, thread } = await serve()
+      try {
+        const response = await server.inject({
+          method: 'GET',
+          url: `/threads/${thread.id}/tool-calls/call-full`,
+        })
+
+        expect(response.statusCode).toBe(200)
+        expect(response.json()).toEqual({
+          arguments: '{"path":"README.md"}',
+          result: 'the complete result',
+        })
       } finally {
         await server.close()
       }

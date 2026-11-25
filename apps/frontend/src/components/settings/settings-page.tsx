@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { ThemePicker } from '../layout/theme-picker.tsx'
 import { AccountSection } from './account-section.tsx'
 import { CredentialsPage } from './credentials-page.tsx'
+import { ApplicationSettings } from './application-settings.tsx'
 
 export type SectionId = 'application' | 'credentials' | 'user'
 
@@ -22,7 +23,7 @@ const SECTIONS: readonly Section[] = [
     label: 'Application settings',
     icon: SettingsIcon,
     title: 'Application settings',
-    description: 'How the app itself looks and behaves, for this browser.',
+    description: 'How Cake looks in this browser, and the system prompt every agent starts from.',
   },
   {
     id: 'credentials',
@@ -55,6 +56,7 @@ function SectionBody({ section }: { section: Section }) {
             </div>
             <ThemePicker />
           </div>
+          <ApplicationSettings />
         </div>
       )
     case 'credentials':
