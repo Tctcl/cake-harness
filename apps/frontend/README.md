@@ -151,10 +151,17 @@ screens are built and the calls fail loudly until those routes exist. Today's
 backend keeps MCP servers and provider credentials in global tables
 (`docs/capabilities.md`, `docs/providers.md`) with no workspace column.
 
+Nothing renders until `AuthGate` (`src/components/auth/auth-gate.tsx`) has read
+`GET /auth/session`. A single-user install answers with the owner and passes
+straight through. An install with accounts shows the sign-in form, then any step
+the session still owes: a password an admin set, or a second factor. Any call that
+later answers `401 auth.unauthenticated` fires `tctcl:signed-out` from
+`src/lib/http.ts`, and the gate shows the form again, so no screen handles a lost
+session on its own. Enrolling a second factor has no screen yet (`docs/auth.md`).
+
 The account menu (`src/components/layout/user-menu.tsx`) shows the name from
-`GET /me` behind an initials mark, because there is no avatar upload and no
-second account. Log out is present but disabled, with the reason: until sign-in
-exists nothing can end a session (see `docs/deferred.md` §7).
+`GET /me` behind an initials mark, because there is no avatar upload. Sign out
+ends the session. In single-user mode it is shown disabled, with the reason.
 
 ## Topbar and right panel
 
@@ -208,7 +215,8 @@ vite.config.ts                    React, Tailwind, `@` alias, `/threads` + `/wor
 vitest.config.ts                  shared React preset plus the `@` alias
 components.json                   shadcn/ui preset (style, base colour, aliases)
 docs/ai-elements.md               the AI Elements components, where each is used, what is unused
-src/main.tsx                      React root (StrictMode)
+src/main.tsx                      React root (StrictMode): the sign-in gate around the shell
+src/components/auth/              auth-gate.tsx: session check, sign-in, second factor, initial password
 src/App.tsx                       the shell: conversations left, topbar + chat + right panel; settings and the
                                   workspace manager replace it
 src/components/layout/            sidebar.tsx (shell + resize + SidebarWidths), session-list.tsx
@@ -222,6 +230,8 @@ src/components/workspaces/        workspaces-page.tsx (list + detail screen), wo
                                   workspace-capabilities.tsx, workspace-mcp.tsx, workspace-providers.tsx
 src/components/chat/              chat-pane.tsx, prompt-input.tsx, markdown.tsx, tool-trace.tsx
 src/components/ui/                shadcn/ui + AI Elements primitives (see docs/ai-elements.md)
+src/lib/http.ts                   one fetch helper: status before body, HttpError, the signed-out event
+src/lib/auth-api.ts               session, sign-in, sign-out, second factor, initial password
 src/lib/chat-api.ts               typed fetches: threads, messages, stream path, workspaces, agents
 src/lib/capability-api.ts         tools, skill and prompt catalogs, workspace MCP servers, grants
 src/lib/environment-api.ts        environments, the workspace's container and an agent's environment
