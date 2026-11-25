@@ -1,3 +1,4 @@
+import type { ContainerLogLine, StopFollowing } from './container-logs.js'
 import { bootstrapTokenMatches } from './bootstrap-token.js'
 import type { ContainerMetrics, ContainerRuntime, ContainerStatus } from './container-runtime.js'
 import type { SshAccessView } from './ssh-access.js'
@@ -67,6 +68,14 @@ export interface EnvironmentApi {
   detach(workspaceId: string, environmentId: string): Promise<boolean>
   connectAgent(agentId: string, environmentId: string): Promise<void>
   disconnectAgent(agentId: string): Promise<boolean>
+  /**
+   * Follow the container's log. `undefined` when the id is unknown, `null` when no container was ever created; otherwise
+   * the function that stops following.
+   */
+  followLogs(
+    id: string,
+    options: { readonly tail: number; readonly onLine: (line: ContainerLogLine) => void; readonly onEnd: () => void },
+  ): Promise<StopFollowing | null | undefined>
   /** Whether `presented` is the bootstrap token this environment's container was started with. */
   acceptsBootstrapToken(id: string, presented: string | undefined): boolean
   /** The documents an environment bootstraps from, or `undefined` when the id is unknown. */
@@ -180,6 +189,14 @@ export const createEnvironmentApi = (options: EnvironmentApiOptions): Environmen
     state: (id) => environments.reportedState(id),
 
     // The id is checked first: a manifest for an environment that does not exist is a 404, not an empty document.
+    followLogs: async (id, follow) => {
+      const environment = await environments.find(id)
+      if (environment === undefined) return undefined
+      if (environment.containerId === null) return null
+
+      return containers.followLogs(environment.containerId, follow)
+    },
+
     acceptsBootstrapToken: (id, presented) => bootstrapTokenMatches(options.bootstrapToken(id), presented),
 
     manifest: async (id) => (await environments.find(id)) === undefined ? undefined : buildManifest(options.secrets),

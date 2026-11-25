@@ -1,3 +1,5 @@
+import { followContainerLogs } from './container-logs.js'
+import type { ContainerLogLine, StopFollowing } from './container-logs.js'
 import Docker from 'dockerode'
 
 import { AppError } from '../errors.js'
@@ -43,10 +45,17 @@ export interface ContainerRuntime {
    * Nothing here opens a port: it reports the mapping Docker was asked for.
    */
   sshEndpoint(containerId: string): Promise<SshEndpoint | null>
+  /** Follow the container's output from its last `tail` lines on; the answer stops following. */
+  followLogs(
+    containerId: string,
+    options: { readonly tail: number; readonly onLine: (line: ContainerLogLine) => void; readonly onEnd: () => void },
+  ): Promise<StopFollowing>
 }
 
 /** Docker's own view of a container. `missing` also answers for an environment that never started, which is true. */
-export const containerStatuses = ['running', 'stopped', 'missing'] as const
+// `restarting` is its own state: Docker reports a crash-looping container as not running between attempts, and calling it
+// `running` made the panel show zeros and exec into it fail with a 409.
+export const containerStatuses = ['running', 'restarting', 'stopped', 'missing'] as const
 export type ContainerStatus = (typeof containerStatuses)[number]
 
 /** One reading of a running container, in base units: nothing here agrees with a human about megabytes. */
@@ -177,6 +186,8 @@ export class DockerContainers implements ContainerRuntime {
     try {
       const inspected = await this.#docker.getContainer(containerId).inspect()
 
+      if (inspected.State.Restarting) return 'restarting'
+
       return inspected.State.Running ? 'running' : 'stopped'
     } catch (error) {
       // A container Docker does not have is the state a prune or a host reinstall leaves behind, not a failure.
@@ -205,6 +216,17 @@ export class DockerContainers implements ContainerRuntime {
     const result = await execInContainer(this.#docker, containerId, ['sh', '-c', command], input)
     if (result.exitCode !== 0) {
       throw unavailable('given its SSH keys', new Error(result.stderr.trim() || `exec exited ${result.exitCode}`))
+    }
+  }
+
+  async followLogs(
+    containerId: string,
+    options: { readonly tail: number; readonly onLine: (line: ContainerLogLine) => void; readonly onEnd: () => void },
+  ): Promise<StopFollowing> {
+    try {
+      return await followContainerLogs(this.#docker, containerId, options)
+    } catch (error) {
+      throw unavailable('read', error)
     }
   }
 
