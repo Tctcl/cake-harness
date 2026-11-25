@@ -263,4 +263,45 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand Conversations' }))
     expect(screen.getByRole('complementary', { name: 'Conversations' })).toBeInTheDocument()
   })
+
+  it('opens settings as a window over the chat rather than in place of it', async () => {
+    vi.stubGlobal('fetch', stubBackend())
+
+    render(<App />)
+    await screen.findByText('General chat')
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Account' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Settings' }))
+
+    const settings = await screen.findByRole('dialog', { name: 'Settings' })
+    // The columns are still underneath: the window is over the chat, not instead of it.
+    expect(screen.getByRole('complementary', { name: 'Conversations' })).toBeInTheDocument()
+    expect(within(settings).getByRole('heading', { name: 'Application settings' })).toBeInTheDocument()
+
+    fireEvent.click(within(settings).getByRole('button', { name: 'Close Settings' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(screen.getByText('General chat')).toBeInTheDocument()
+  })
+
+  it('opens workspaces as a window and re-reads the lists when it closes', async () => {
+    const backend = stubBackend()
+    vi.stubGlobal('fetch', backend)
+
+    render(<App />)
+    await screen.findByText('General chat')
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Account' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Workspaces' }))
+
+    const workspacesWindow = await screen.findByRole('dialog', { name: 'Workspaces' })
+    await within(workspacesWindow).findByRole('button', { name: /platform/i })
+
+    const before = backend.mock.calls.length
+    fireEvent.click(within(workspacesWindow).getByRole('button', { name: 'Close Workspaces' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    // Workspaces, agents and keys change there, so closing re-reads both lists.
+    await waitFor(() => expect(backend.mock.calls.length).toBeGreaterThan(before))
+  })
 })

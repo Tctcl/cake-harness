@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { AgentPicker } from './components/chat/agent-picker.tsx'
 import { ChatPane } from './components/chat/chat-pane.tsx'
 import { RightPanel } from './components/layout/right-panel.tsx'
+import { OverlayWindow } from './components/layout/overlay-window.tsx'
 import { SessionList } from './components/layout/session-list.tsx'
 import { ResizeHandle, Sidebar, SidebarRail, type SidebarWidths } from './components/layout/sidebar.tsx'
 import { ThemePicker } from './components/layout/theme-picker.tsx'
@@ -62,9 +63,9 @@ interface WorkspacesTarget {
  * On a narrow screen there is no room for columns: the conversation list is a drawer the topbar opens, and the right
  * panel covers the chat until it is closed.
  *
- * Settings and the workspace manager are screens, not panes: each replaces the columns wholesale and comes back to them
- * unchanged. What belongs to a workspace is edited inside the workspace manager, so settings holds only the app and the
- * user.
+ * Settings and the workspace manager are windows over the columns, not screens that replace them: the chat stays where it
+ * was, dimmed behind them, and closing one comes back to it unchanged. What belongs to a workspace is edited inside the
+ * workspace manager, so settings holds only the app and the user.
  */
 function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
   const narrow = useNarrowScreen()
@@ -251,41 +252,34 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
     }
   }
 
-  if (view === 'workspaces') {
-    return (
-      <TooltipProvider>
-        <div className="h-full min-h-0">
+  // The window sits over the chat rather than in its place: the columns underneath keep their state while it is open.
+  const overlay =
+    view === 'chat' ? null : (
+      <OverlayWindow
+        // Keyed on the view so opening the other window starts it fresh instead of growing out of this one.
+        key={view}
+        title={view === 'settings' ? 'Settings' : 'Workspaces'}
+        onClose={() => {
+          if (view === 'workspaces') {
+            // Workspaces, agents and keys change there, so the lists are re-read before the chat comes back.
+            loadWorkspaces()
+            loadThreads()
+          }
+          setError(null)
+          setView('chat')
+        }}
+      >
+        {view === 'settings' ? (
+          <SettingsPage initialSection={settingsSection} />
+        ) : (
           <WorkspacesPage
             initialWorkspaceId={workspacesTarget.workspaceId}
             initialTab={workspacesTarget.tab}
             onOpenCredentials={() => openSettings('credentials')}
-            onClose={() => {
-              // Workspaces, agents and keys change there, so the lists are re-read before the chat comes back.
-              loadWorkspaces()
-              loadThreads()
-              setError(null)
-              setView('chat')
-            }}
           />
-        </div>
-      </TooltipProvider>
+        )}
+      </OverlayWindow>
     )
-  }
-
-  if (view === 'settings') {
-    return (
-      <TooltipProvider>
-        <div className="h-full min-h-0">
-          <SettingsPage
-            initialSection={settingsSection}
-            onClose={() => {
-              setView('chat')
-            }}
-          />
-        </div>
-      </TooltipProvider>
-    )
-  }
 
   const sidebarFooter = (
     <div className="flex flex-col gap-2">
@@ -412,6 +406,8 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
               </div>
             </div>
           )}
+
+          {overlay}
         </div>
       </TooltipProvider>
     )
@@ -481,6 +477,8 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
             )}
           </div>
         </div>
+
+        {overlay}
       </div>
     </TooltipProvider>
   )
