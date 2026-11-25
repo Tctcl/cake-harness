@@ -145,9 +145,10 @@ export class WorkspaceRepository {
       insertPlanAgent: `INSERT INTO ${tables.agents}
           (id, workspace_id, name, description, is_default, allow_all, instructions)
         VALUES ($1, $2, '${PLAN_AGENT_NAME}', '${PLAN_AGENT_DESCRIPTION}', false, false, $3)`,
-      // Creation also works without a prior startup sync, so Plan's two catalog rows are resolved in this transaction.
+      // Creation also works without a prior startup sync, so Plan's catalog rows are resolved in this transaction.
       ensurePlanTools: `INSERT INTO ${tables.tools} (id, owner_id, name)
-        VALUES ($1, $2, 'read'), ($3, $2, 'web_fetch')
+        VALUES ($1, $2, 'read'), ($3, $2, 'grep'), ($4, $2, 'find'), ($5, $2, 'ls'),
+          ($6, $2, 'git'), ($7, $2, 'web_fetch')
         ON CONFLICT (owner_id, name) DO UPDATE SET archived_at = NULL, updated_at = now()`,
       grantPlanTools: `INSERT INTO ${tables.agentTools} (agent_id, tool_id)
         SELECT $1, id FROM ${tables.tools} WHERE owner_id = $2 AND name = ANY($3)
@@ -202,8 +203,20 @@ export class WorkspaceRepository {
       await client.query(this.#sql.insertDefaultAgent, [randomUUID(), id])
       const planId = randomUUID()
       await client.query(this.#sql.insertPlanAgent, [planId, id, PLAN_AGENT_INSTRUCTIONS])
-      await client.query(this.#sql.ensurePlanTools, [randomUUID(), ownerId, randomUUID()])
-      await client.query(this.#sql.grantPlanTools, [planId, ownerId, ['read', 'web_fetch']])
+      await client.query(this.#sql.ensurePlanTools, [
+        randomUUID(),
+        ownerId,
+        randomUUID(),
+        randomUUID(),
+        randomUUID(),
+        randomUUID(),
+        randomUUID(),
+      ])
+      await client.query(this.#sql.grantPlanTools, [
+        planId,
+        ownerId,
+        ['read', 'grep', 'find', 'ls', 'git', 'web_fetch'],
+      ])
 
       return inserted
     })

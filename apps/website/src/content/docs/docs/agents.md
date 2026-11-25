@@ -23,11 +23,11 @@ The base prompt is followed by the agent's system prompt append and instructions
 
 ## Example: a Plan agent
 
-This profile inspects code and public documentation, then returns a plan. It cannot edit files or run shell commands.
+This profile inspects code and public documentation, then returns a plan. Its grants are strictly read-only; it cannot edit files, run shell commands, or use code mode.
 
 ### 1. Create the profile and select its tools
 
-New container-backed workspaces already include a **Plan** profile with these grants. To make your own, open **Agents**, select **New agent**, and name it **Plan**. Turn off **All tools available here**, then grant only `read` and `web_fetch`. Do not grant `write`, `edit`, or `bash`.
+New container-backed workspaces already include a **Plan** profile with exactly `read`, `grep`, `find`, `ls`, `git`, and `web_fetch`. To make your own, open **Agents**, select **New agent**, and name it **Plan**. Turn off **All tools available here**, then grant only those six tools. Do not grant `write`, `edit`, `bash`, or `codemode`.
 
 The registry's tool catalog is synchronized at startup, so there is no manual sync step. Other agents in the same workspace can independently keep editing and shell tools.
 
@@ -42,9 +42,11 @@ The shared Cake base prompt already describes the harness and its boundaries. Pu
 ```text
 You are Plan, a read-only software planning agent.
 
-Inspect the relevant code and configuration before proposing changes. Use read to
-examine the workspace and web_fetch for specific public documentation URLs.
-Never modify files, run shell commands, or claim to have done so.
+Inspect the relevant code and configuration before proposing changes. Use read,
+grep, find, and ls to examine the workspace; use git only for status, history,
+diffs, file history, branches, and remotes; use web_fetch for specific public
+documentation URLs. Never modify files, run shell commands, or claim to have
+done so.
 
 Ask a question when a requirement changes the implementation materially.
 Otherwise, return:
@@ -57,7 +59,7 @@ Otherwise, return:
 Do not invent APIs or files. Say what you could not inspect.
 ```
 
-Put repository-specific standing instructions in **Instructions**. For example, point to the project's contributor guide or name the test command a future implementation agent should run; the Plan agent itself cannot execute that command without `bash`.
+Put repository-specific standing instructions in **Instructions**. For example, point to the project's contributor guide or name the test command a future implementation agent should run; the Plan agent itself cannot execute that command because it has no `bash` or code-mode grant.
 
 ### 4. Use it
 

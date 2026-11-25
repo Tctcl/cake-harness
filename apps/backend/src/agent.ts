@@ -2,7 +2,8 @@ import { Buffer } from 'node:buffer'
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { opencodeGoProvider } from '@earendil-works/pi-ai/providers/opencode-go'
-import { createCodingTools } from '@earendil-works/pi-durable/tools'
+import { createCodemodeExtension } from '@earendil-works/pi-durable/codemode'
+import { CodemodeSandbox } from '@earendil-works/pi-codemode'
 import {
   CompactionEntry,
   Harness,
@@ -13,6 +14,7 @@ import {
   UsageDoc,
   createRegistry,
 } from '@earendil-works/pi-durable'
+import { createCodingTools } from '@earendil-works/pi-durable/tools'
 import type {
   Conversation,
   ConversationId,
@@ -65,6 +67,7 @@ import { composeAgentInstructions } from './agents/base-prompt.js'
 import { createCakeExtension } from './agents/cake-extension.js'
 import { AuthService } from './auth/service.js'
 import { ToolRepository } from './capabilities/tool-repository.js'
+import { createReadonlyToolsExtension } from './capabilities/readonly-tools.js'
 import { createWebExtension } from './capabilities/web.js'
 import { TOOL_TEXT_LIMIT } from './live-activity.js'
 import { idFromNumber } from './storage/postgres/ids.js'
@@ -780,10 +783,13 @@ export async function createAgent(config: Config): Promise<Agent> {
   })
   const auth = new AuthService({ pool: postgres.pool, schema: postgres.schema, secrets: config.secrets })
   // One registry for the process, so startup and every session agree about which tools exist.
+  const codemodeSandbox = new CodemodeSandbox({ memoryLimitBytes: 256 * 1024 * 1024 })
   const registry = createRegistry()
   registry.install(createCakeExtension(async () => (await auth.currentSettings()).systemPrompt))
   registry.install(createCodingTools())
+  registry.install(createReadonlyToolsExtension())
   registry.install(createWebExtension())
+  registry.install(createCodemodeExtension({ sandbox: codemodeSandbox, models: false }))
 
   // The catalog is maintained automatically: agent grants and Plan's seeded grants must never need a manual sync.
   await syncToolCatalog(tools, ownerId, registry.snapshot())
@@ -1147,9 +1153,16 @@ export async function createAgent(config: Config): Promise<Agent> {
       try {
         await supervisor.close()
       } finally {
-        // No daemon or bridge may outlive the backend, even if harness shutdown reports a failed task.
-        await executionEnvironment.close()
-        await postgres.close(CONTEXT)
+        try {
+          // No daemon or bridge may outlive the backend, even if harness shutdown reports a failed task.
+          await executionEnvironment.close()
+        } finally {
+          try {
+            await codemodeSandbox.close()
+          } finally {
+            await postgres.close(CONTEXT)
+          }
+        }
       }
     },
   }

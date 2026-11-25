@@ -107,6 +107,10 @@ if (url === undefined) {
         const granted = await links.readAgent(plan.id)
         const catalog = await tools.list(ownerId)
         expect(granted.tools.map((id) => catalog.find((tool) => tool.id === id)?.name).sort()).toEqual([
+          'find',
+          'git',
+          'grep',
+          'ls',
           'read',
           'web_fetch',
         ])
