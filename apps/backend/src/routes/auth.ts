@@ -2,17 +2,25 @@ import type { FastifyPluginAsync } from 'fastify'
 
 import type { Actor } from '../auth/actor.js'
 import { clearedSessionCookie, sessionCookie } from '../auth/cookie.js'
-import { AuthService } from '../auth/service.js'
+import { LoginThrottle } from '../auth/login-throttle.js'
+import { AuthService, SESSION_TTL_MS } from '../auth/service.js'
+import type { LoginResult } from '../auth/service.js'
 import { AppError } from '../errors.js'
 import type { Agent } from '../agent.js'
 
-const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
+const SESSION_MAX_AGE_SECONDS = SESSION_TTL_MS / 1000
 
 const credentialsSchema = {
   type: 'object',
   properties: { username: { type: 'string' }, password: { type: 'string' } },
   required: ['username', 'password'],
+  additionalProperties: false,
 } as const
+
+interface Credentials {
+  readonly username: string
+  readonly password: string
+}
 
 const codeSchema = {
   type: 'object',
@@ -50,13 +58,31 @@ const secure = (request: { readonly protocol: string }): boolean => request.prot
  */
 export const authRoutes: FastifyPluginAsync<{ agent: Agent }> = async (server, options) => {
   const auth = (): AuthService => options.agent.auth
+  // Per server instance, so each test gets its own count; production has one instance.
+  const throttle = new LoginThrottle()
 
-  server.post(
+  server.post<{ Body: Credentials }>(
     '/auth/login',
     { config: { public: true }, schema: { body: credentialsSchema } },
     async (request, reply) => {
-      const body = request.body as { username: string; password: string }
-      const result = await auth().login(body.username, body.password)
+      // The address Fastify resolved: the proxy's X-Forwarded-For when TRUST_PROXY is on, the socket otherwise.
+      const retryAfterMs = throttle.retryAfterMs(request.ip)
+      if (retryAfterMs > 0) {
+        reply.header('retry-after', String(Math.ceil(retryAfterMs / 1000)))
+        throw new AppError('Too many failed sign-ins. Try again later.', {
+          statusCode: 429,
+          code: 'auth.too_many_attempts',
+        })
+      }
+
+      let result: LoginResult
+      try {
+        result = await auth().login(request.body.username, request.body.password)
+      } catch (error) {
+        if (error instanceof AppError && error.code === 'auth.invalid_credentials') throttle.recordFailure(request.ip)
+        throw error
+      }
+      throttle.recordSuccess(request.ip)
 
       reply.header(
         'set-cookie',
@@ -79,12 +105,12 @@ export const authRoutes: FastifyPluginAsync<{ agent: Agent }> = async (server, o
     toActorPayload(request.actor),
   )
 
-  server.post('/auth/2fa/verify', { schema: { body: codeSchema } }, async (request, reply) => {
+  server.post<{ Body: { readonly code: string } }>('/auth/2fa/verify', { schema: { body: codeSchema } }, async (request, reply) => {
     if (request.actor.pending !== 'totp') {
       throw new AppError('No second factor is waiting.', { statusCode: 409, code: 'auth.no_step' })
     }
 
-    await auth().completeSecondFactor(request.actor, (request.body as { code: string }).code)
+    await auth().completeSecondFactor(request.actor, request.body.code)
     reply.status(204)
 
     return reply.send()

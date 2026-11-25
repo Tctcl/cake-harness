@@ -20,11 +20,21 @@ default rather than a hardcoded assumption. `GET /settings/public` is the only
 unauthenticated read: the client cannot decide whether to draw a login screen
 before it knows whether the install has accounts.
 
-**Turning it off is not open yet.** The routes still resolve the seeded owner for
-workspaces, agents, threads and environments, so a second account would see the
-first one's material. `PUT /settings` refuses `{"singleUser": false}` with
-`409 auth.accounts_pending` until ownership is per request. The rest of the
-model is in place so that is a change to the handlers, not a redesign.
+**An install turns it off once, for the owner alone.** The routes still resolve
+the seeded owner for workspaces, agents, threads and environments, so a second
+account would see the first one's material. Until ownership is per request:
+
+- `node dist/bootstrap-admin.js <username>` (password on stdin) is the only way
+  out of single-user mode. It gives the seeded owner a username, the `admin` role
+  and a password, then sets `single_user` to `false`. `deploy/install.sh` runs it
+  once inside the app container and writes the generated password to a root-only
+  file. An owner that already has a password is left alone (`exists`), so
+  re-running the installer never resets it.
+- `PUT /settings` still refuses `{"singleUser": false}` and `POST /users` refuses
+  every new account, both with `409 auth.accounts_pending`.
+
+The rest of the model is in place, so per-user ownership is a change to the
+handlers, not a redesign.
 
 ## Sessions
 
@@ -38,7 +48,18 @@ model is in place so that is a change to the handlers, not a redesign.
 Sign-in is `POST /auth/login { username, password }`. Passwords are hashed with
 `scrypt` from `node:crypto` (per-password salt, `timingSafeEqual` comparison), so
 there is no native dependency to keep current. A wrong username and a wrong
-password answer identically, on purpose.
+password answer identically, on purpose, and take as long: an unknown username is
+still checked against a throwaway hash.
+
+Ten failed sign-ins from one address within fifteen minutes answer
+`429 auth.too_many_attempts` with `Retry-After` until the window passes
+(`auth/login-throttle.ts`, in memory: one process serves an install). The address
+is the one Fastify resolves, which is the client's own address only when
+`TRUST_PROXY=true` makes it believe `X-Forwarded-For`. The production compose
+file sets it, because Traefik is in front.
+
+Passwords are 12 to 200 characters. Anything else answers
+`400 auth.invalid_password`.
 
 The client calls `GET /auth/session` on boot; it answers the same shape as
 `GET /me`, so a reload does not guess.

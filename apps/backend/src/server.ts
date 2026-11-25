@@ -36,7 +36,9 @@ function loggerOptions(config: Config): NonNullable<FastifyServerOptions['logger
 }
 
 export function buildServer(config: Config, options: ServerOptions): FastifyInstance {
-  const server = fastify({ logger: loggerOptions(config) })
+  // Behind Traefik the client's address and protocol arrive in X-Forwarded-*. Believing them is what makes the session
+  // cookie `Secure` and gives the login throttle the client's address rather than the proxy's.
+  const server = fastify({ logger: loggerOptions(config), trustProxy: config.trustProxy })
 
   // Registration is async (it awaits the websocket plugin before the routes that upgrade), but callers need the instance
   // synchronously. A failure must still stop the server: it is held here and rethrown from `ready()`, which `listen()`
