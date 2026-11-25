@@ -2,6 +2,7 @@ import type { Extension, RegistrySnapshot, ToolRegistration } from '@earendil-wo
 
 export const CODING_TOOLS_EXTENSION = 'coding-tools'
 export const CAKE_EXTENSION = 'cake'
+export const ENV_EXTENSIONS: ReadonlySet<string> = new Set([CODING_TOOLS_EXTENSION, 'readonly-tools'])
 
 export interface ToolSelectionInput {
   readonly workspace: { readonly isDefault: boolean }
@@ -33,16 +34,16 @@ const grantedNames = (ids: readonly string[], catalog: ReadonlyMap<string, strin
 
 /**
  * Resolve durable's object-valued AgentChange from the registry and the agent's grants. The workspace no longer limits
- * tools; it only determines whether coding-tools can run. Web remains available in General and when an environment is
- * absent, while read/write/edit/bash require a workspace container.
+ * tools; it only determines whether environment-backed extensions can run. Environment-free extensions remain
+ * available in General and when an environment is absent.
  */
 export const selectTools = (input: ToolSelectionInput): ToolSelection => {
   const cake = input.registry.extension(CAKE_EXTENSION)
   if (cake === undefined) throw new Error('the Cake system prompt extension is not installed')
 
-  const environmentTools = !input.workspace.isDefault && input.hasEnvironment
+  const hasEnvironment = !input.workspace.isDefault && input.hasEnvironment
   const available = input.registry.tools().filter(
-    ({ extension }) => environmentTools || extension.name !== CODING_TOOLS_EXTENSION,
+    ({ extension }) => hasEnvironment || !ENV_EXTENSIONS.has(extension.name),
   )
   const granted = input.agent.allowAll
     ? undefined

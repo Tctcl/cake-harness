@@ -49,7 +49,7 @@ protocol of our own.
 ```text
 backend (pi-durable)                          agent host / container (pi-env daemon)
   Harness: loop, tasks, storage, model keys     read / write / edit / bash execute here
-  tools: builtin + mcp_*  ───────────────────►   MCP stdio servers run here
+  tools: built-in + read-only + codemode ─────►   MCP stdio servers run here
   HTTP/WS API for our own frontend
 ```
 
@@ -66,14 +66,32 @@ so the workspace image does not contain a pi-env artifact.
 ## Tools, grants and the container transport
 
 The process-wide registry installs pi-durable's `coding-tools` extension (`read`,
-`write`, `edit`, `bash`) and the backend's env-free `web` extension (`web_fetch`).
-At startup the registry syncs into the tool catalog automatically. Before
-conversation creation and every submission, `agents/tool-selection.ts` removes
-coding tools when the workspace is General or has no environment, then gives an
-allow-all agent every remaining tool or a restricted agent exactly its available
-grants. `web_fetch` remains available in every workspace when the grants select
-it. New non-default workspaces seed an allow-all **Build** agent and a **Plan**
-agent granted exactly `read` and `web_fetch`.
+`write`, `edit`, `bash`), the backend's `readonly-tools` extension (`grep`,
+`find`, `ls`, `git`), the env-free `web` extension (`web_fetch`), and pi-durable's
+`codemode` extension. At startup the registry syncs into the tool catalog
+automatically. Before conversation creation and every submission,
+`agents/tool-selection.ts` removes every extension in `ENV_EXTENSIONS` when the
+workspace is General or has no environment, then gives an allow-all agent every
+remaining tool or a restricted agent exactly its available grants. The read-only
+tools resolve canonical paths inside `/home/dev/workspace`, use argv-based
+execution, cap output and time out after 30 seconds. `git` exposes only
+`status`, `log`, `diff`, `show`, `blame`, `branch`, and `remote`, and rejects
+write/command-execution options; branch and remote arguments are restricted to
+read-only operations, and git pathspecs are canonicalized. `web_fetch` and
+`codemode` remain available in General when grants select them. New non-default
+workspaces seed an allow-all **Build** agent and a **Plan** agent granted exactly
+`read`, `grep`, `find`, `ls`, `git`, and `web_fetch`; Plan is not granted `codemode`.
+
+Code mode runs model-written JavaScript in pi-codemode's QuickJS worker sandbox.
+The script has no direct filesystem, shell, or network capability: its only
+capability is calling tools already offered to that conversation as
+`tools.<name>(args)`. Those calls run through the same container environment as
+the corresponding tool, so code mode can read or execute shell only when the
+agent is separately granted tools that allow it. It cannot call tools filtered
+out for General, and Cake disables code mode's optional model-call tools.
+`@earendil-works/pi-codemode@1.6.0` is a direct, exact backend dependency because
+the backend constructs `CodemodeSandbox` directly; pi-durable also depends on it
+transitively, but that does not make it an explicit dependency of Cake's code.
 
 For a container workspace, `HarnessOptions.env` resolves durable conversation id →
 chat thread → workspace → environment. `EnvironmentApi.start()` starts a stopped
@@ -122,7 +140,7 @@ JSON and other text are returned unchanged.
   conversations, submissions, tasks, checkpoints, compaction, tool calls,
   per-conversation agent config, usage accounting.
 - It **runs the agent loop itself** — its own `pi.generation` / `pi.tool` tasks,
-  models through `pi-ai`, built-in `read` / `write` / `edit` / `bash` plus optional
+  models through `pi-ai`,   built-in `read` / `write` / `edit` / `bash` plus optional
   codemode and MCP. It is a **sibling** of `pi-coding-agent`, not a client of it.
 - **No TUI and no second process required.** `pi-coding-agent` is not part of this
   architecture at all.

@@ -1,9 +1,12 @@
 import { createRegistry } from '@earendil-works/pi-durable'
+import { createCodemodeExtension } from '@earendil-works/pi-durable/codemode'
 import { createCodingTools } from '@earendil-works/pi-durable/tools'
+import { CodemodeSandbox } from '@earendil-works/pi-codemode'
 import { Client } from 'pg'
 import { afterAll, describe, expect, it } from 'vitest'
 
 import { createWebExtension } from '../capabilities/web.js'
+import { createReadonlyToolsExtension } from '../capabilities/readonly-tools.js'
 import { ToolRepository } from '../capabilities/tool-repository.js'
 import { createSchema, openPostgresStorage } from '../storage/postgres/index.js'
 import { ensureLocalUser } from '../threads/local-user.js'
@@ -26,19 +29,32 @@ if (url === undefined) {
       try {
         const ownerId = await ensureLocalUser(storage.pool, storage.schema)
         const registry = createRegistry()
+        const sandbox = new CodemodeSandbox({ memoryLimitBytes: 256 * 1024 * 1024 })
         registry.install(createCodingTools())
+        registry.install(createReadonlyToolsExtension())
         registry.install(createWebExtension())
+        registry.install(createCodemodeExtension({ sandbox, models: false }))
         const tools = new ToolRepository(storage.pool, storage.schema)
 
-        await syncToolCatalog(tools, ownerId, registry.snapshot())
+        try {
+          expect(registry.snapshot().tools().map(({ tool }) => tool.name)).toContain('codemode')
+          await syncToolCatalog(tools, ownerId, registry.snapshot())
 
-        expect((await tools.list(ownerId)).map((tool) => tool.name)).toEqual([
-          'bash',
-          'edit',
-          'read',
-          'web_fetch',
-          'write',
-        ])
+          expect((await tools.list(ownerId)).map((tool) => tool.name)).toEqual([
+            'bash',
+            'codemode',
+            'edit',
+            'find',
+            'git',
+            'grep',
+            'ls',
+            'read',
+            'web_fetch',
+            'write',
+          ])
+        } finally {
+          await sandbox.close()
+        }
       } finally {
         await storage.close({} as never)
       }
