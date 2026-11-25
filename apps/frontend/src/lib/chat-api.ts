@@ -151,13 +151,6 @@ export const createWorkspace = async (
   description: string,
 ): Promise<WorkspaceSummary> => await request<WorkspaceSummary>('/workspaces', send({ name, description }))
 
-export const renameWorkspace = async (id: string, name: string): Promise<WorkspaceSummary> =>
-  await request<WorkspaceSummary>(`/workspaces/${id}`, {
-    method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ name }),
-  })
-
 /** Archived, not destroyed: a workspace that sessions still point at cannot be removed outright. */
 export const archiveWorkspace = async (id: string): Promise<WorkspaceSummary> =>
   await request<WorkspaceSummary>(`/workspaces/${id}/archive`, send({}))
@@ -220,60 +213,3 @@ export const sendMessage = async (threadId: string, message: string): Promise<vo
 }
 
 export const streamPath = (threadId: string): string => `/threads/${threadId}/stream`
-
-/** A prompt or a skill: a named block of text an agent can be pointed at. The two share one shape until skills grow. */
-export interface CapabilityEntry {
-  readonly id: string
-  readonly name: string
-  readonly description: string
-  readonly body: string
-}
-
-/** One tool the harness registry offers, as the catalog records it. */
-export interface ToolSummary {
-  readonly id: string
-  readonly name: string
-  readonly description: string
-  readonly source: string
-}
-
-export type TextCatalog = 'prompts' | 'skills'
-
-const textPath = (catalog: TextCatalog, id?: string): string => {
-  const base = catalog === 'prompts' ? '/prompts' : '/skills'
-
-  return id === undefined ? base : `${base}/${id}`
-}
-
-export const listTextEntries = async (catalog: TextCatalog): Promise<CapabilityEntry[]> => {
-  return (await request<{ entries: CapabilityEntry[] }>(textPath(catalog))).entries
-}
-
-export const createTextEntry = async (
-  catalog: TextCatalog,
-  input: { name: string; description: string; body: string },
-): Promise<CapabilityEntry> =>
-  await request<CapabilityEntry>(textPath(catalog), send(input))
-
-export const updateTextEntry = async (
-  catalog: TextCatalog,
-  id: string,
-  patch: { name?: string; description?: string; body?: string },
-): Promise<CapabilityEntry> =>
-  await request<CapabilityEntry>(textPath(catalog, id), {
-    method: 'PATCH',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(patch),
-  })
-
-export const archiveTextEntry = async (catalog: TextCatalog, id: string): Promise<void> => {
-  await request(`${textPath(catalog, id)}/archive`, send({}))
-}
-
-export const listTools = async (): Promise<ToolSummary[]> =>
-  (await request<{ tools: ToolSummary[] }>('/tools')).tools
-
-/** Re-read the harness registry, so the catalog matches the tools a session can actually call. */
-export const syncTools = async (): Promise<ToolSummary[]> =>
-  (await request<{ tools: ToolSummary[] }>('/tools/sync', send({}))).tools
-

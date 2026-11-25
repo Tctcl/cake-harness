@@ -211,7 +211,7 @@ is shown, because a hidden element measures 0×0 and the backend clamps that to
 
 ```text
 index.html                        Vite entry document
-vite.config.ts                    React, Tailwind, `@` alias, `/threads` + `/workspaces` dev proxy (ws on)
+vite.config.ts                    React, Tailwind, `@` alias, a dev proxy entry for every backend route prefix
 vitest.config.ts                  shared React preset plus the `@` alias
 components.json                   shadcn/ui preset (style, base colour, aliases)
 docs/ai-elements.md               the AI Elements components, where each is used, what is unused

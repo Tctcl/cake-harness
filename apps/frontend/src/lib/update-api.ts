@@ -19,7 +19,3 @@ export interface UpdateStatus {
 
 /** The last answer, without asking GitHub. */
 export const getUpdateStatus = (): Promise<UpdateStatus> => request<UpdateStatus>('/updates')
-
-/** Ask now, for the moment after an install looks stale. */
-export const checkForUpdates = (): Promise<UpdateStatus> =>
-  request<UpdateStatus>('/updates', { method: 'POST' })

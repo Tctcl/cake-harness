@@ -23,31 +23,25 @@ they are not mistaken for features.
 | `Empty` (`Empty`, `EmptyHeader`, `EmptyTitle`, `EmptyDescription`, `EmptyContent`, `EmptyMedia`) | `src/components/chat/chat-pane.tsx`, `session-list.tsx` | Placeholder states: no conversation selected, no workspaces yet. |
 | `Tooltip` (`TooltipProvider`, `Tooltip`, `TooltipTrigger`, `TooltipContent`) | `src/App.tsx` (provider), `sidebar.tsx`, `session-list.tsx`, `theme-picker.tsx` | Collapse and expand hints on the sidebar buttons, the new-conversation button, the theme control, and the full title of a truncated workspace name or thread. |
 | `ScrollArea` | `src/components/layout/sidebar.tsx` | Scrolls each sidebar's content inside its fixed width, so the list never grows the shell. |
-| `Separator` | `src/components/layout/thread-info.tsx` | Divider between the sections of the conversation info. |
-| `Badge` | `src/components/layout/thread-info.tsx`, `src/components/settings/workspaces-section.tsx` | Capability chips (tools, MCP servers, skills) and the "Default" marker on the workspace that cannot be edited. |
+| `Separator` | `src/components/workspaces/workspace-capabilities.tsx`, `workspace-providers.tsx` | Dividers between the groups of a workspace tab. |
+| `Badge` | `src/components/workspaces/` (detail, environment, MCP, providers), `src/components/settings/credentials-page.tsx` | Status and kind chips: the "Default" workspace, an environment's state, a server's transport, a key's provider. |
 | `Trace` (`Trace`, `TraceCollapsible`, `TraceCollapsibleTrigger`, `TraceCollapsibleContent`, `TraceLine`, `TraceIcon`, `TraceTitle`, `TraceDescription`) | `src/components/chat/tool-trace.tsx` | The run's tool calls under the reply: one collapsed line per call with its status and duration, arguments and result opening underneath. |
-| `Button`, `Textarea`, `Input` | throughout | shadcn/ui primitives the AI Elements and the composer build on. |
+| `Button`, `Textarea`, `Input`, `Label` | throughout | shadcn/ui primitives the AI Elements and the composer build on. |
 
 The composer (`src/components/chat/prompt-input.tsx`) is **not** an AI Element:
 it is a small local component over `Textarea` + `Button`, because the registry's
 `PromptInput` brings attachments and a model selector this slice has no backend
 for. Replacing it is the natural next step once uploads exist.
 
-## Installed, not yet used
+## Not vendored
 
-Vendored and available, but nothing renders it yet — it needs a backend
-capability this slice does not have:
-
-- `Attachment` (`src/components/ui/attachment.tsx`) — file uploads in a
-  conversation; needs an upload route and somewhere to put the bytes.
-- `Marker` (`src/components/ui/marker.tsx`) — the inline "Thinking…" row it
-  drew was replaced by `Reasoning` in `live-run.tsx`, which carries the
-  reasoning, the partial answer and the tool slots in one view.
+`Attachment`, `Dialog`, `Marker`, `Popover` and `Select` were installed and never rendered, so they
+were removed. File uploads (`Attachment`) need an upload route and somewhere to put the bytes; when one exists,
+add the component again with the shadcn CLI rather than keeping unused source in the tree.
 
 One component is vendored with deliberate reductions: `reasoning.tsx` keeps the
 registry's API but draws the shimmer with the stylesheet's `.shimmer` class
 instead of `motion`, and renders through plain `streamdown` rather than pulling
 in the cjk, math and mermaid plugins for text the model reasons in.
 
-Keep this file in step with the code: wiring a component into the UI means a row
-in the first table, not a mention in the second.
+Keep this file in step with the code: a component is vendored when the UI renders it, and it gets a row in the table.

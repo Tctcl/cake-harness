@@ -32,9 +32,8 @@ export type ServerFrame =
 /** The one frame a client sends as text; keystrokes go as binary frames. */
 export type ClientFrame = { readonly type: 'resize'; readonly cols: number; readonly rows: number }
 
-/** `4404` means the session is gone (closed, or the backend restarted); `4409` means it could not be handed over. */
+/** `4404` means the session is gone (closed, or the backend restarted). */
 export const CLOSE_UNKNOWN_TERMINAL = 4404
-export const CLOSE_UNAVAILABLE = 4409
 
 const json = (method: string, body: unknown): RequestInit => ({
   method,
