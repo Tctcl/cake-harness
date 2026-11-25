@@ -2,14 +2,11 @@ import { AppError } from '../errors.js'
 import { assertWithinCeiling } from '../agents/capabilities.js'
 import type { AgentGrants, CapabilityLinks, WorkspaceGrants } from './capability-links.js'
 import type {
-  McpCredential,
-  McpCredentialInput,
-  McpCredentialPatch,
-  McpServer,
-  McpServerInput,
-  McpServerPatch,
+  WorkspaceMcpServer,
+  WorkspaceMcpServerInput,
+  WorkspaceMcpServerPatch,
+  WorkspaceMcpServerRepository,
 } from './mcp-repository.js'
-import type { McpCredentialRepository, McpServerRepository } from './mcp-repository.js'
 import type { PromptRepository, SkillRepository, TextEntry, TextInput, TextPatch } from './text-repository.js'
 import type { Tool, ToolOffer, ToolRepository } from './tool-repository.js'
 
@@ -45,21 +42,13 @@ export interface CapabilityApi {
   readonly prompts: TextCatalog
   readonly skills: TextCatalog
   readonly servers: {
-    list(query?: { archived?: boolean | undefined }): Promise<McpServer[]>
-    find(id: string): Promise<McpServer | undefined>
-    create(input: McpServerInput): Promise<McpServer>
-    update(id: string, patch: McpServerPatch): Promise<McpServer>
-    archive(id: string): Promise<McpServer>
-    restore(id: string): Promise<McpServer>
-    remove(id: string): Promise<void>
-  }
-  readonly credentials: {
-    list(serverId: string, query?: { archived?: boolean | undefined }): Promise<McpCredential[]>
-    create(serverId: string, input: McpCredentialInput): Promise<McpCredential>
-    update(id: string, patch: McpCredentialPatch): Promise<McpCredential>
-    archive(id: string): Promise<McpCredential>
-    restore(id: string): Promise<McpCredential>
-    remove(id: string): Promise<void>
+    list(workspaceId: string, query?: { archived?: boolean | undefined }): Promise<WorkspaceMcpServer[]>
+    find(workspaceId: string, id: string): Promise<WorkspaceMcpServer | undefined>
+    create(workspaceId: string, input: WorkspaceMcpServerInput): Promise<WorkspaceMcpServer>
+    update(workspaceId: string, id: string, patch: WorkspaceMcpServerPatch): Promise<WorkspaceMcpServer>
+    archive(workspaceId: string, id: string): Promise<WorkspaceMcpServer>
+    restore(workspaceId: string, id: string): Promise<WorkspaceMcpServer>
+    remove(workspaceId: string, id: string): Promise<void>
   }
   workspaceGrants(workspaceId: string): Promise<WorkspaceGrantSet>
   setWorkspaceGrants(workspaceId: string, grants: WorkspaceGrants): Promise<WorkspaceGrantSet>
@@ -72,8 +61,7 @@ export interface CapabilityApiOptions {
   readonly tools: ToolRepository
   readonly prompts: PromptRepository
   readonly skills: SkillRepository
-  readonly servers: McpServerRepository
-  readonly credentials: McpCredentialRepository
+  readonly servers: WorkspaceMcpServerRepository
   readonly links: CapabilityLinks
   readonly readWorkspace: (id: string) => Promise<{ readonly allowAll: boolean; readonly archivedAt: Date | null } | undefined>
   readonly readAgent: (id: string) => Promise<{ readonly workspaceId: string; readonly archivedAt: Date | null } | undefined>
@@ -133,21 +121,13 @@ export const createCapabilityApi = (options: CapabilityApiOptions): CapabilityAp
     prompts: textCatalog(options.prompts, ownerId),
     skills: textCatalog(options.skills, ownerId),
     servers: {
-      list: (query) => options.servers.list(ownerId, archivedScope(query)),
-      find: (id) => options.servers.find(id),
-      create: (input) => options.servers.create(ownerId, input),
-      update: (id, patch) => options.servers.update(id, patch),
-      archive: (id) => options.servers.archive(id),
-      restore: (id) => options.servers.restore(id),
-      remove: (id) => options.servers.delete(id),
-    },
-    credentials: {
-      list: (serverId, query) => options.credentials.list(serverId, archivedScope(query)),
-      create: (serverId, input) => options.credentials.create(ownerId, serverId, input),
-      update: (id, patch) => options.credentials.update(id, patch),
-      archive: (id) => options.credentials.archive(id),
-      restore: (id) => options.credentials.restore(id),
-      remove: (id) => options.credentials.delete(id),
+      list: (workspaceId, query) => options.servers.list(workspaceId, archivedScope(query)),
+      find: (workspaceId, id) => options.servers.find(workspaceId, id),
+      create: (workspaceId, input) => options.servers.create(workspaceId, input),
+      update: (workspaceId, id, patch) => options.servers.update(workspaceId, id, patch),
+      archive: (workspaceId, id) => options.servers.archive(workspaceId, id),
+      restore: (workspaceId, id) => options.servers.restore(workspaceId, id),
+      remove: (workspaceId, id) => options.servers.delete(workspaceId, id),
     },
     workspaceGrants,
 
@@ -169,9 +149,13 @@ export const createCapabilityApi = (options: CapabilityApiOptions): CapabilityAp
       if (workspace === undefined) throw unknown('workspace')
 
       // An agent may only reach what its workspace reaches, so the ceiling is checked against the merged result rather
-      // than against whatever the caller happened to send.
+      // than against whatever the caller happened to send. The servers are the workspace's own rows, not a grant.
       assertWithinCeiling(
-        { allowAll: workspace.allowAll, ...(await links.readWorkspace(agent.workspaceId)) },
+        {
+          allowAll: workspace.allowAll,
+          ...(await links.readWorkspace(agent.workspaceId)),
+          mcpServers: (await options.servers.list(agent.workspaceId)).map((server) => server.id),
+        },
         grants,
       )
 

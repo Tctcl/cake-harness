@@ -1,20 +1,15 @@
 import type { AgentGrants, WorkspaceGrants } from '../capabilities/capability-links.js'
 import { AppError } from '../errors.js'
 
-/** What a workspace permits, plus the flag that lets it permit everything without naming it. */
-export type CapabilityCeiling = WorkspaceGrants & { readonly allowAll: boolean }
+/** What a workspace permits, the servers it owns, plus the flag that lets it permit everything without naming it. */
+export type CapabilityCeiling = WorkspaceGrants & {
+  readonly allowAll: boolean
+  /** The ids of the workspace's own servers: the only ones its agents can be given. */
+  readonly mcpServers: readonly string[]
+}
 
 const notAllowed = (requested: readonly string[], allowed: readonly string[]): readonly string[] =>
   requested.filter((id) => !allowed.includes(id))
-
-const deniedGrants = (
-  requested: readonly { readonly serverId: string }[],
-  allowed: readonly { readonly serverId: string }[],
-): readonly string[] => {
-  const permitted = new Set(allowed.map((grant) => grant.serverId))
-
-  return requested.filter((grant) => !permitted.has(grant.serverId)).map((grant) => grant.serverId)
-}
 
 /**
  * A workspace is the ceiling: an agent may only reach what its workspace reaches. Both sides are catalog ids rather
@@ -30,12 +25,8 @@ export const assertWithinCeiling = (ceiling: CapabilityCeiling, requested: Agent
     ...notAllowed(requested.tools, ceiling.tools),
     ...notAllowed(requested.prompts, ceiling.prompts),
     ...notAllowed(requested.skills, ceiling.skills),
-    ...deniedGrants(requested.mcpServers, ceiling.mcpServers),
-    // A credential the workspace never added is not available to its agents, even on a server it does allow.
-    ...notAllowed(
-      requested.mcpServers.flatMap((grant) => (grant.credentialId === null ? [] : [grant.credentialId])),
-      ceiling.credentials,
-    ),
+    // A server the workspace never created is not reachable, even by an agent that names it.
+    ...notAllowed(requested.mcpServers, ceiling.mcpServers),
   ]
   const unique = [...new Set(denied)]
   if (unique.length === 0) return

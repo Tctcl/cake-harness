@@ -3,10 +3,8 @@ import type { FastifyPluginAsync } from 'fastify'
 import type { Agent } from '../agent.js'
 import type { WorkspaceGrants, AgentGrants } from '../capabilities/capability-links.js'
 import type {
-  McpCredentialInput,
-  McpCredentialPatch,
-  McpServerInput,
-  McpServerPatch,
+  WorkspaceMcpServerInput,
+  WorkspaceMcpServerPatch,
 } from '../capabilities/mcp-repository.js'
 import type { TextInput, TextPatch } from '../capabilities/text-repository.js'
 import { AppError } from '../errors.js'
@@ -22,15 +20,17 @@ const idParams = (name: string) =>
   }) as const
 
 const textIdParams = idParams('id')
-const serverIdParams = idParams('serverId')
-const credentialIdParams = idParams('credentialId')
 const workspaceIdParams = idParams('workspaceId')
 const agentIdParams = idParams('agentId')
 
-const itemIdParams = {
+/** A server is named by its workspace and its own id: the workspace is part of the identity, not a filter. */
+const workspaceServerParams = {
   type: 'object',
-  properties: { id: { type: 'string', pattern: uuid } },
-  required: ['id'],
+  properties: {
+    workspaceId: { type: 'string', pattern: uuid },
+    id: { type: 'string', pattern: uuid },
+  },
+  required: ['workspaceId', 'id'],
   additionalProperties: false,
 } as const
 
@@ -98,31 +98,39 @@ const serverSchema = {
   type: 'object',
   properties: {
     id: { type: 'string' },
+    workspaceId: { type: 'string' },
     name: { type: 'string' },
     description: { type: 'string' },
     transport: { type: 'string', enum: ['stdio', 'http'] },
     command: { type: ['string', 'null'] },
     args: { type: 'array', items: { type: 'string' } },
+    cwd: { type: ['string', 'null'] },
     url: { type: ['string', 'null'] },
-    envSchema: { type: 'object', additionalProperties: { type: 'string' } },
+    env: { type: 'object', additionalProperties: { type: 'string' } },
+    mcpId: { type: ['string', 'null'] },
+    credentialId: { type: ['string', 'null'] },
     ...timestamps,
   },
   required: [
     'id',
+    'workspaceId',
     'name',
     'description',
     'transport',
     'command',
     'args',
+    'cwd',
     'url',
-    'envSchema',
+    'env',
+    'mcpId',
+    'credentialId',
     'archivedAt',
     'createdAt',
     'updatedAt',
   ],
 } as const
 
-// The transport decides which of `command`/`url` is meaningful, so the schema allows either and the repository refuses
+// The transport decides which of `command`/`url` is meaningful, so the schema allows either and the database refuses
 // the pair that contradicts it — duplicating that check here would be a second place to keep in step.
 const serverInputBody = {
   type: 'object',
@@ -132,8 +140,11 @@ const serverInputBody = {
     transport: { type: 'string', enum: ['stdio', 'http'] },
     command: { type: 'string', minLength: 1 },
     args: { type: 'array', items: { type: 'string' } },
+    cwd: { type: 'string', minLength: 1 },
     url: { type: 'string', minLength: 1 },
-    envSchema: { type: 'object', additionalProperties: { type: 'string' } },
+    env: { type: 'object', additionalProperties: { type: 'string' } },
+    mcpId: { type: 'string', minLength: 1 },
+    credentialId: { type: ['string', 'null'] },
   },
   required: ['name', 'transport'],
   additionalProperties: false,
@@ -144,52 +155,15 @@ const serverPatchBody = {
   properties: {
     name: { type: 'string', minLength: 1 },
     description: { type: 'string' },
+    transport: { type: 'string', enum: ['stdio', 'http'] },
     command: { type: ['string', 'null'] },
     args: { type: 'array', items: { type: 'string' } },
+    cwd: { type: ['string', 'null'] },
     url: { type: ['string', 'null'] },
-    envSchema: { type: 'object', additionalProperties: { type: 'string' } },
+    env: { type: 'object', additionalProperties: { type: 'string' } },
+    mcpId: { type: ['string', 'null'] },
+    credentialId: { type: ['string', 'null'] },
   },
-  additionalProperties: false,
-} as const
-
-const credentialSchema = {
-  type: 'object',
-  properties: {
-    id: { type: 'string' },
-    serverId: { type: 'string' },
-    label: { type: 'string' },
-    consumer: { type: 'string' },
-    secretMap: { type: 'object', additionalProperties: { type: 'string' } },
-    ...timestamps,
-  },
-  required: ['id', 'serverId', 'label', 'consumer', 'secretMap', 'archivedAt', 'createdAt', 'updatedAt'],
-} as const
-
-const credentialInputBody = {
-  type: 'object',
-  properties: {
-    label: { type: 'string', minLength: 1 },
-    consumer: { type: 'string', minLength: 1 },
-    secretMap: { type: 'object', additionalProperties: { type: 'string' } },
-  },
-  required: ['label', 'consumer'],
-  additionalProperties: false,
-} as const
-
-const credentialPatchBody = {
-  type: 'object',
-  properties: {
-    label: { type: 'string', minLength: 1 },
-    consumer: { type: 'string', minLength: 1 },
-    secretMap: { type: 'object', additionalProperties: { type: 'string' } },
-  },
-  additionalProperties: false,
-} as const
-
-const grantSchema = {
-  type: 'object',
-  properties: { serverId: { type: 'string' }, credentialId: { type: ['string', 'null'] } },
-  required: ['serverId', 'credentialId'],
   additionalProperties: false,
 } as const
 
@@ -199,21 +173,14 @@ const agentGrantsBody = {
     tools: stringList,
     prompts: stringList,
     skills: stringList,
-    mcpServers: { type: 'array', items: grantSchema },
+    // Ids of the workspace's own servers: an agent selects from what the workspace created, it does not define one.
+    mcpServers: stringList,
   },
   required: ['tools', 'prompts', 'skills', 'mcpServers'],
   additionalProperties: false,
 } as const
 
-const workspaceGrantsBody = {
-  type: 'object',
-  properties: {
-    ...agentGrantsBody.properties,
-    credentials: stringList,
-  },
-  required: [...agentGrantsBody.required, 'credentials'],
-  additionalProperties: false,
-} as const
+const workspaceGrantsBody = agentGrantsBody
 
 const agentGrantsSchema = {
   type: 'object',
@@ -336,108 +303,61 @@ export const capabilityRoutes: FastifyPluginAsync<{ agent: Agent }> = async (ser
   textRoutes(server, 'prompts', capabilities)
   textRoutes(server, 'skills', capabilities)
 
-  server.get<{ Querystring: { archived?: 'true' | 'false' } }>(
-    '/mcp/servers',
+  server.get<{ Params: { workspaceId: string }; Querystring: { archived?: 'true' | 'false' } }>(
+    '/workspaces/:workspaceId/mcp/servers',
     {
       schema: {
+        params: workspaceIdParams,
         querystring: archivedQuery,
         response: { 200: { type: 'object', properties: { servers: { type: 'array', items: serverSchema } } } },
       },
     },
     async (request) => ({
-      servers: (await capabilities.servers.list({ archived: request.query.archived === 'true' })).map(
-        toTextEntry,
-      ),
-    }),
-  )
-
-  server.post<{ Body: McpServerInput }>(
-    '/mcp/servers',
-    { schema: { body: serverInputBody, response: { 201: serverSchema } } },
-    async (request, reply) => reply.code(201).send(toTextEntry(await capabilities.servers.create(request.body))),
-  )
-
-  server.patch<{ Params: { id: string }; Body: McpServerPatch }>(
-    '/mcp/servers/:id',
-    { schema: { params: itemIdParams, body: serverPatchBody, response: { 200: serverSchema } } },
-    async (request) => toTextEntry(await capabilities.servers.update(request.params.id, request.body)),
-  )
-
-  server.post<{ Params: { id: string } }>(
-    '/mcp/servers/:id/archive',
-    { schema: { params: itemIdParams, response: { 200: serverSchema } } },
-    async (request) => toTextEntry(await capabilities.servers.archive(request.params.id)),
-  )
-
-  server.post<{ Params: { id: string } }>(
-    '/mcp/servers/:id/restore',
-    { schema: { params: itemIdParams, response: { 200: serverSchema } } },
-    async (request) => toTextEntry(await capabilities.servers.restore(request.params.id)),
-  )
-
-  server.delete<{ Params: { id: string } }>(
-    '/mcp/servers/:id',
-    { schema: { params: itemIdParams } },
-    async (request, reply) => {
-      await capabilities.servers.remove(request.params.id)
-
-      return reply.code(204).send()
-    },
-  )
-
-  server.get<{ Params: { serverId: string }; Querystring: { archived?: 'true' | 'false' } }>(
-    '/mcp/servers/:serverId/credentials',
-    {
-      schema: {
-        params: serverIdParams,
-        querystring: archivedQuery,
-        response: {
-          200: {
-            type: 'object',
-            properties: { credentials: { type: 'array', items: credentialSchema } },
-          },
-        },
-      },
-    },
-    async (request) => ({
-      credentials: (
-        await capabilities.credentials.list(request.params.serverId, {
+      servers: (
+        await capabilities.servers.list(request.params.workspaceId, {
           archived: request.query.archived === 'true',
         })
       ).map(toTextEntry),
     }),
   )
 
-  server.post<{ Params: { serverId: string }; Body: McpCredentialInput }>(
-    '/mcp/servers/:serverId/credentials',
-    { schema: { params: serverIdParams, body: credentialInputBody, response: { 201: credentialSchema } } },
+  server.post<{ Params: { workspaceId: string }; Body: WorkspaceMcpServerInput }>(
+    '/workspaces/:workspaceId/mcp/servers',
+    { schema: { params: workspaceIdParams, body: serverInputBody, response: { 201: serverSchema } } },
     async (request, reply) =>
-      reply.code(201).send(toTextEntry(await capabilities.credentials.create(request.params.serverId, request.body))),
+      reply
+        .code(201)
+        .send(toTextEntry(await capabilities.servers.create(request.params.workspaceId, request.body))),
   )
 
-  server.patch<{ Params: { credentialId: string }; Body: McpCredentialPatch }>(
-    '/mcp/credentials/:credentialId',
-    { schema: { params: credentialIdParams, body: credentialPatchBody, response: { 200: credentialSchema } } },
-    async (request) => toTextEntry(await capabilities.credentials.update(request.params.credentialId, request.body)),
+  server.patch<{ Params: { workspaceId: string; id: string }; Body: WorkspaceMcpServerPatch }>(
+    '/workspaces/:workspaceId/mcp/servers/:id',
+    { schema: { params: workspaceServerParams, body: serverPatchBody, response: { 200: serverSchema } } },
+    async (request) =>
+      toTextEntry(
+        await capabilities.servers.update(request.params.workspaceId, request.params.id, request.body),
+      ),
   )
 
-  server.post<{ Params: { credentialId: string } }>(
-    '/mcp/credentials/:credentialId/archive',
-    { schema: { params: credentialIdParams, response: { 200: credentialSchema } } },
-    async (request) => toTextEntry(await capabilities.credentials.archive(request.params.credentialId)),
+  server.post<{ Params: { workspaceId: string; id: string } }>(
+    '/workspaces/:workspaceId/mcp/servers/:id/archive',
+    { schema: { params: workspaceServerParams, response: { 200: serverSchema } } },
+    async (request) =>
+      toTextEntry(await capabilities.servers.archive(request.params.workspaceId, request.params.id)),
   )
 
-  server.post<{ Params: { credentialId: string } }>(
-    '/mcp/credentials/:credentialId/restore',
-    { schema: { params: credentialIdParams, response: { 200: credentialSchema } } },
-    async (request) => toTextEntry(await capabilities.credentials.restore(request.params.credentialId)),
+  server.post<{ Params: { workspaceId: string; id: string } }>(
+    '/workspaces/:workspaceId/mcp/servers/:id/restore',
+    { schema: { params: workspaceServerParams, response: { 200: serverSchema } } },
+    async (request) =>
+      toTextEntry(await capabilities.servers.restore(request.params.workspaceId, request.params.id)),
   )
 
-  server.delete<{ Params: { credentialId: string } }>(
-    '/mcp/credentials/:credentialId',
-    { schema: { params: credentialIdParams } },
+  server.delete<{ Params: { workspaceId: string; id: string } }>(
+    '/workspaces/:workspaceId/mcp/servers/:id',
+    { schema: { params: workspaceServerParams } },
     async (request, reply) => {
-      await capabilities.credentials.remove(request.params.credentialId)
+      await capabilities.servers.remove(request.params.workspaceId, request.params.id)
 
       return reply.code(204).send()
     },
