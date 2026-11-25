@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import type { AgentProfile } from './agent-repository.js'
-import { credentialIdOf, providerIdFor, resolveRunSettings, validateRunSettings } from './run-settings.js'
+import {
+  credentialIdOf,
+  mergeRunSettings,
+  providerIdFor,
+  resolveRunSettings,
+  validateRunSettings,
+} from './run-settings.js'
 import type { KeyCatalog, WorkspaceReach } from './run-settings.js'
 
 const agent = (overrides: Partial<AgentProfile> = {}): AgentProfile => ({
@@ -39,6 +45,25 @@ describe('provider ids', () => {
     expect(credentialIdOf('opencode-go~abc')).toBe('abc')
     expect(credentialIdOf('opencode-go')).toBeUndefined()
     expect(credentialIdOf('anthropic~abc')).toBeUndefined()
+  })
+})
+
+describe('mergeRunSettings', () => {
+  it('overlays only the fields a conversation overrides and leaves the agent unchanged', () => {
+    const profile = agent({ credentialId: 'old', modelId: 'kimi-k3', thinkingLevel: 'low' })
+    const merged = mergeRunSettings(profile, { credentialId: 'new', thinkingLevel: 'high' })
+
+    expect(merged).toMatchObject({ credentialId: 'new', modelId: 'kimi-k3', thinkingLevel: 'high' })
+    expect(profile).toMatchObject({ credentialId: 'old', modelId: 'kimi-k3', thinkingLevel: 'low' })
+  })
+
+  it('uses the agent setting wherever a conversation override is null or omitted', () => {
+    const profile = agent({ credentialId: 'old', modelId: 'kimi-k3', thinkingLevel: 'medium' })
+
+    expect(mergeRunSettings(profile)).toEqual(profile)
+    expect(
+      mergeRunSettings(profile, { credentialId: null, modelId: null, thinkingLevel: null }),
+    ).toEqual(profile)
   })
 })
 

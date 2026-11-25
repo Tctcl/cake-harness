@@ -45,8 +45,14 @@ import type { ProviderApi } from './providers/api.js'
 import { checkKey, fetchModels } from './providers/provider-client.js'
 import { ProviderRepository } from './providers/provider-repository.js'
 import { registerKeyProvider, storedCredentials } from './providers/stored-credentials.js'
-import { PROVIDER, resolveRunSettings, validateRunSettings } from './agents/run-settings.js'
-import type { KeyCatalog, RunSettings, WorkspaceReach } from './agents/run-settings.js'
+import { PROVIDER, mergeRunSettings, resolveRunSettings, validateRunSettings } from './agents/run-settings.js'
+import type {
+  KeyCatalog,
+  RunSettings,
+  RunSettingsOverrides,
+  RunSettingsPatch,
+  WorkspaceReach,
+} from './agents/run-settings.js'
 import { AuthService } from './auth/service.js'
 import { ToolRepository } from './capabilities/tool-repository.js'
 import { idFromNumber } from './storage/postgres/ids.js'
@@ -60,6 +66,7 @@ import type { UpdateStatus } from './updates/checker.js'
 import { createGithubReleases } from './updates/releases.js'
 import type { ChatThread, ThreadTarget } from './threads/thread-repository.js'
 import { ThreadRepository } from './threads/thread-repository.js'
+import { updateThreadRunSettings as saveThreadRunSettings } from './threads/thread-run-settings.js'
 import { WorkspaceRepository } from './workspaces/workspace-repository.js'
 import type { Workspace, WorkspaceInput, WorkspacePatch } from './workspaces/workspace-repository.js'
 
@@ -212,6 +219,8 @@ export interface Agent {
   checkForUpdates(): Promise<UpdateStatus>
   /** Threads of the local user, most recently changed first, narrowed to one workspace when one is named. */
   threads(query?: ThreadQuery): Promise<ChatThread[]>
+  /** One thread, or `undefined` when the id is unknown. */
+  thread(id: string): Promise<ChatThread | undefined>
   /** Create a thread together with the durable conversation that carries it. */
   createThread(input: CreateThreadInput): Promise<ChatThread>
   archiveThread(id: string): Promise<ChatThread | undefined>
@@ -222,6 +231,8 @@ export interface Agent {
   contextUsage(threadId: string): Promise<ContextUsage>
   /** Set a thread's title, or answer `undefined` when the id is unknown. */
   renameThread(id: string, title: string | null): Promise<ChatThread | undefined>
+  /** Override this conversation alone, from its next message on. */
+  updateThreadRunSettings(id: string, patch: RunSettingsPatch): Promise<ChatThread | undefined>
   /** Admit one input and return at once: the answer arrives through `watch`. */
   submit(threadId: string, input: string): Promise<string>
   /** Follow the thread until the returned function is called; `onChange` gets the whole current window. */
@@ -668,9 +679,12 @@ export async function createAgent(config: Config): Promise<Agent> {
   })
 
   /** The settings a run of `profile` uses right now, registering its key's provider on the way. */
-  const runSettingsOf = async (profile: AgentProfile): Promise<RunSettings> => {
+  const runSettingsOf = async (
+    profile: AgentProfile,
+    overrides?: RunSettingsOverrides,
+  ): Promise<RunSettings> => {
     const [reach, keys] = await Promise.all([reachOf(profile.workspaceId), keyCatalog()])
-    const settings = resolveRunSettings(profile, reach, keys)
+    const settings = resolveRunSettings(mergeRunSettings(profile, overrides), reach, keys)
     registerKeyProvider(models, settings.credentialId)
 
     return settings
@@ -839,6 +853,10 @@ export async function createAgent(config: Config): Promise<Agent> {
       return threads.list(ownerId, { workspaceId: query?.workspaceId, archived: query?.archived })
     },
 
+    thread(id) {
+      return threads.find(id)
+    },
+
     archiveThread(id) {
       return threads.archive(id)
     },
@@ -849,6 +867,10 @@ export async function createAgent(config: Config): Promise<Agent> {
 
     renameThread(id, title) {
       return threads.rename(id, title)
+    },
+
+    updateThreadRunSettings(id, patch) {
+      return saveThreadRunSettings({ threads, agents, reachOf, keyCatalog }, id, patch)
     },
 
     async createThread(input) {
@@ -928,15 +950,15 @@ export async function createAgent(config: Config): Promise<Agent> {
       const profile = await agents.find(thread.agentId)
       if (profile === undefined) throw new AppError('the agent does not exist', { statusCode: 404, code: 'AGENT_NOT_FOUND' })
       // Outside the try: a missing key is the user's to fix, so it answers 409 with the fix rather than 503.
-      const settings = await runSettingsOf(profile)
+      const settings = await runSettingsOf(profile, thread.overrides)
 
       try {
         const conversation = await conversationOf(
           supervisor,
           idFromNumber(thread.durableConversationId),
         )
-        // The agent's current settings, every turn: editing the agent (its key, model, thinking or prompts) applies to
-        // the conversations it already has, from their next message on.
+        // Reapply the agent and this thread's overrides every turn: durable configuration does not retain them for us.
+        // Editing either one therefore applies from the next message, without interrupting a run already in flight.
         await conversation.configure(
           {
             model: settings.model,

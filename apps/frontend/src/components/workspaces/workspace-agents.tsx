@@ -4,33 +4,15 @@ import type { AgentDraft } from '../../lib/agent-api.ts'
 import { createAgent, deleteAgent, listWorkspaceAgents, setAgentArchived, updateAgent } from '../../lib/agent-api.ts'
 import type { ChatAgent, WorkspaceSummary } from '../../lib/chat-api.ts'
 import { DEFAULT_MODEL_ID, THINKING_LEVELS } from '../../lib/chat-api.ts'
-import type { ProviderLogin, ProviderModel, WorkspaceProviders } from '../../lib/provider-api.ts'
 import { getWorkspaceProviders, listProviderLogins, listProviderModels } from '../../lib/provider-api.ts'
+import { choicesOf } from '../../lib/workspace-choices.ts'
+import type { Choices } from '../../lib/workspace-choices.ts'
 import { Badge } from '../ui/badge.tsx'
 import { Button } from '../ui/button.tsx'
 import { Input } from '../ui/input.tsx'
 import { Label } from '../ui/label.tsx'
 import { Spinner } from '../ui/spinner.tsx'
 import { Textarea } from '../ui/textarea.tsx'
-
-/** The keys and models this workspace offers its agents, read once per visit to the tab. */
-interface Choices {
-  readonly keys: readonly ProviderLogin[]
-  readonly models: readonly ProviderModel[]
-}
-
-const choicesOf = (
-  workspace: WorkspaceSummary,
-  logins: readonly ProviderLogin[],
-  models: readonly ProviderModel[],
-  providers: WorkspaceProviders,
-): Choices => ({
-  keys: workspace.allowAll ? logins : logins.filter((login) => providers.loginIds.includes(login.id)),
-  models:
-    workspace.allowAll || providers.allowAllModels
-      ? models
-      : models.filter((model) => providers.allowedModels.includes(model.id)),
-})
 
 const emptyDraft: AgentDraft = {
   name: '',

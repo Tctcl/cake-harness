@@ -1,7 +1,11 @@
 import { ArrowDownIcon } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useSyncExternalStore, useState } from 'react'
 
-import type { ChatLive, ChatMessage, ChatToolCall } from '../../lib/chat-api.ts'
+import type { ChatAgent, ChatLive, ChatMessage, ChatThread, ChatToolCall } from '../../lib/chat-api.ts'
+import { getWorkspace, listAgents, readThread } from '../../lib/chat-api.ts'
+import { getWorkspaceProviders, listProviderLogins, listProviderModels } from '../../lib/provider-api.ts'
+import { choicesOf } from '../../lib/workspace-choices.ts'
+import type { Choices } from '../../lib/workspace-choices.ts'
 import type { PendingInput, ThreadSnapshot } from '../../lib/chat-store.ts'
 import {
   KEY_PROBLEMS,
@@ -28,8 +32,15 @@ import { Spinner } from '../ui/spinner.tsx'
 import { Markdown } from './markdown.tsx'
 import { PromptInput } from './prompt-input.tsx'
 import { LiveRun } from './live-run.tsx'
+import { RunControls } from './run-controls.tsx'
 import { ThinkingBlock } from './thinking-block.tsx'
 import { ToolCallRow, ToolTrace } from './tool-trace.tsx'
+
+interface RunControlState {
+  readonly thread: ChatThread
+  readonly agent: ChatAgent
+  readonly choices: Choices
+}
 
 /** How close to the top the viewport has to be before older lines are asked for. */
 const LOAD_OLDER_THRESHOLD = 160
@@ -53,15 +64,58 @@ export function ChatPane({
   )
   const read = useCallback(() => snapshotOf(threadId), [threadId])
   const state = useSyncExternalStore(subscribe, read)
+  const [runControls, setRunControls] = useState<RunControlState | null>(null)
+  const [runSettingsFailure, setRunSettingsFailure] = useState<{
+    readonly threadId: string
+    readonly message: string
+  } | null>(null)
 
   useEffect(() => {
     if (threadId !== null) openThread(threadId)
+  }, [threadId])
+
+  useEffect(() => {
+    if (threadId === null) return
+
+    let cancelled = false
+    const load = async (): Promise<void> => {
+      const thread = await readThread(threadId)
+      const [workspace, agents, logins, models, providers] = await Promise.all([
+        getWorkspace(thread.workspaceId),
+        listAgents(thread.workspaceId),
+        listProviderLogins(),
+        listProviderModels(),
+        getWorkspaceProviders(thread.workspaceId),
+      ])
+      const agent = agents.find((candidate) => candidate.id === thread.agentId)
+      if (agent === undefined) throw new Error('the conversation’s agent could not be loaded')
+      if (cancelled) return
+
+      setRunControls({ thread, agent, choices: choicesOf(workspace, logins, models, providers) })
+    }
+    void load().catch((failure: unknown) => {
+      if (!cancelled) {
+        setRunSettingsFailure({
+          threadId,
+          message: failure instanceof Error ? failure.message : 'the run settings failed to load',
+        })
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
   }, [threadId])
 
   if (threadId === null) return <NoConversation />
 
   // A live frame is proof of a run in flight even before its first entry commits, so the view keeps saying so.
   const streaming = runIsActive(state.live)
+  const visibleRunControls = runControls?.thread.id === threadId ? runControls : null
+  const runSettingsError = runSettingsFailure?.threadId === threadId ? runSettingsFailure.message : null
+  const chatError = runSettingsError ?? state.error
+  const reportRunSettingsError = (message: string | null): void =>
+    setRunSettingsFailure(message === null ? null : { threadId, message })
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 py-4">
@@ -72,9 +126,9 @@ export function ChatPane({
         </MessageScroller>
       </MessageScrollerProvider>
 
-      {state.error === null ? null : (
+      {chatError === null ? null : (
         <p role="alert" className="mx-auto w-full max-w-3xl px-4 text-sm text-destructive">
-          {state.error}
+          {chatError}
           {onSetUpKeys !== undefined && state.errorCode !== null && KEY_PROBLEMS.has(state.errorCode) ? (
             <>
               {' '}
@@ -87,7 +141,23 @@ export function ChatPane({
       )}
 
       <div className="px-4">
-        <PromptInput label="Message" onSend={(text) => send(threadId, text)} />
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
+          <PromptInput label="Message" onSend={(text) => send(threadId, text)} />
+          {visibleRunControls === null ? null : (
+            <RunControls
+              key={threadId}
+              thread={visibleRunControls.thread}
+              agent={visibleRunControls.agent}
+              choices={visibleRunControls.choices}
+              onError={reportRunSettingsError}
+              onChange={(updated) =>
+                setRunControls((current) =>
+                  current?.thread.id === updated.id ? { ...current, thread: updated } : current,
+                )
+              }
+            />
+          )}
+        </div>
       </div>
     </div>
   )
