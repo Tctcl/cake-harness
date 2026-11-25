@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { existsSync, readdirSync } from 'node:fs'
+import { join, relative, resolve, sep } from 'node:path'
 
 import fastifyStatic from '@fastify/static'
 import type { FastifyInstance, FastifyReply } from 'fastify'
@@ -28,9 +28,28 @@ export function registerStatic(server: FastifyInstance, directory: string | unde
     throw new Error(`FRONTEND_DIR ${root} has no index.html`)
   }
 
+  // `wildcard: false` makes one GET route per built file, and every route passes the sign-in check unless it is marked
+  // public. The bundle is what draws the sign-in form, so its files are public. Only these exact paths are marked, so no
+  // API route is affected. Without this, a signed-out browser got 401 JSON for `/` and never saw the form.
+  const files = builtFiles(root)
+  server.addHook('onRoute', (route) => {
+    if (files.has(route.url)) route.config = { ...route.config, public: true }
+  })
+
   server.register(fastifyStatic, { root, wildcard: false })
 
   return (reply) => {
     void reply.sendFile('index.html')
   }
+}
+
+/** The URL of every file under `root`, plus `/` for the index: the routes `@fastify/static` registers for them. */
+const builtFiles = (root: string): ReadonlySet<string> => {
+  const urls = new Set<string>(['/'])
+  for (const entry of readdirSync(root, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) continue
+    urls.add(`/${relative(root, join(entry.parentPath, entry.name)).split(sep).join('/')}`)
+  }
+
+  return urls
 }

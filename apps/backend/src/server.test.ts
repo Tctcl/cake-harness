@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -999,6 +999,26 @@ describe('static frontend', () => {
 
       expect(response.statusCode).toBe(200)
       expect(response.body).toContain('<title>app</title>')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('serves the app and the health check to a browser that is not signed in, and nothing else', async () => {
+    mkdirSync(join(root, 'assets'), { recursive: true })
+    writeFileSync(join(root, 'assets', 'app.js'), 'console.log("app")')
+    const server = buildServer(frontendConfig, {
+      agent: stubAgent({ auth: authOf({ resolve: async () => undefined }) }),
+    })
+
+    try {
+      const html = { accept: 'text/html' }
+      expect((await server.inject({ method: 'GET', url: '/', headers: html })).statusCode).toBe(200)
+      expect((await server.inject({ method: 'GET', url: '/assets/app.js' })).statusCode).toBe(200)
+      expect((await server.inject({ method: 'GET', url: '/health' })).statusCode).toBe(200)
+      // A reload on a deep path still gets the document; the API behind it still wants a session.
+      expect((await server.inject({ method: 'GET', url: '/some/view', headers: html })).statusCode).toBe(200)
+      expect((await server.inject({ method: 'GET', url: '/workspaces' })).statusCode).toBe(401)
     } finally {
       await server.close()
     }

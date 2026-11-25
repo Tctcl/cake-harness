@@ -11,7 +11,8 @@ const healthResponseSchema = {
 } as const
 
 export const healthRoutes: FastifyPluginAsync = async (server) => {
-  server.get('/health', { schema: { response: { 200: healthResponseSchema } } }, async () => ({
+  // Public: Docker, the installer and a monitor ask without a session, and the answer says nothing beyond "up".
+  server.get('/health', { config: { public: true }, schema: { response: { 200: healthResponseSchema } } }, async () => ({
     status: 'ok',
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
