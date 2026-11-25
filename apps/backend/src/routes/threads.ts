@@ -1,6 +1,8 @@
 import type { FastifyPluginAsync } from 'fastify'
 
 import type { Agent, StopWatch, ThreadUpdate } from '../agent.js'
+import { THINKING_LEVELS } from '../agents/agent-repository.js'
+import type { RunSettingsPatch } from '../agents/run-settings.js'
 import { AppError } from '../errors.js'
 import type { ChatThread } from '../threads/thread-repository.js'
 
@@ -23,11 +25,25 @@ const threadListQuery = {
   additionalProperties: false,
 } as const
 
+const overrideProperties = {
+  credentialId: { anyOf: [{ type: 'string', pattern: uuid }, { type: 'null' }] },
+  modelId: { anyOf: [{ type: 'string', minLength: 1, maxLength: 200 }, { type: 'null' }] },
+  thinkingLevel: { anyOf: [{ type: 'string', enum: [...THINKING_LEVELS] }, { type: 'null' }] },
+} as const
+
+const overridesSchema = {
+  type: 'object',
+  properties: overrideProperties,
+  required: ['credentialId', 'modelId', 'thinkingLevel'],
+  additionalProperties: false,
+} as const
+
 const threadProperties = {
   id: { type: 'string' },
   title: { type: ['string', 'null'] },
   workspaceId: { type: 'string' },
   agentId: { type: 'string' },
+  overrides: overridesSchema,
   archivedAt: { type: ['string', 'null'] },
   createdAt: { type: 'string' },
   updatedAt: { type: 'string' },
@@ -36,7 +52,7 @@ const threadProperties = {
 const threadSchema = {
   type: 'object',
   properties: threadProperties,
-  required: ['id', 'title', 'workspaceId', 'agentId', 'archivedAt', 'createdAt', 'updatedAt'],
+  required: ['id', 'title', 'workspaceId', 'agentId', 'overrides', 'archivedAt', 'createdAt', 'updatedAt'],
 } as const
 
 const threadListSchema = {
@@ -59,6 +75,12 @@ const renameThreadBody = {
   type: 'object',
   properties: { title: { type: ['string', 'null'], minLength: 1 } },
   required: ['title'],
+  additionalProperties: false,
+} as const
+
+const runSettingsBody = {
+  type: 'object',
+  properties: overrideProperties,
   additionalProperties: false,
 } as const
 
@@ -196,6 +218,8 @@ interface RenameThreadBody {
   title: string | null
 }
 
+type RunSettingsBody = RunSettingsPatch
+
 const STREAM_HEADERS = {
   'content-type': 'text/event-stream; charset=utf-8',
   'cache-control': 'no-cache, no-transform',
@@ -212,6 +236,7 @@ const toThread = (thread: ChatThread) => ({
   title: thread.title,
   workspaceId: thread.workspaceId,
   agentId: thread.agentId,
+  overrides: thread.overrides,
   archivedAt: thread.archivedAt === null ? null : thread.archivedAt.toISOString(),
   createdAt: thread.createdAt.toISOString(),
   updatedAt: thread.updatedAt.toISOString(),
@@ -232,6 +257,17 @@ export const threadRoutes: FastifyPluginAsync<{ agent: Agent }> = async (server,
         })
       ).map(toThread),
     }),
+  )
+
+  server.get<{ Params: ThreadIdParams }>(
+    '/threads/:threadId',
+    { schema: { params: threadIdParams, response: { 200: threadSchema } } },
+    async (request) => {
+      const thread = await options.agent.thread(request.params.threadId)
+      if (thread === undefined) throw notFound()
+
+      return toThread(thread)
+    },
   )
 
   server.post<{ Body: CreateThreadBody }>(
@@ -275,6 +311,17 @@ export const threadRoutes: FastifyPluginAsync<{ agent: Agent }> = async (server,
     { schema: { params: threadIdParams, body: renameThreadBody, response: { 200: threadSchema } } },
     async (request) => {
       const thread = await options.agent.renameThread(request.params.threadId, request.body.title)
+      if (thread === undefined) throw notFound()
+
+      return toThread(thread)
+    },
+  )
+
+  server.patch<{ Params: ThreadIdParams; Body: RunSettingsBody }>(
+    '/threads/:threadId/run-settings',
+    { schema: { params: threadIdParams, body: runSettingsBody, response: { 200: threadSchema } } },
+    async (request) => {
+      const thread = await options.agent.updateThreadRunSettings(request.params.threadId, request.body)
       if (thread === undefined) throw notFound()
 
       return toThread(thread)

@@ -5,6 +5,79 @@ import type { ChatMessage } from '../../lib/chat-api.ts'
 import { ChatPane } from './chat-pane.tsx'
 import { STREAM_EVENT, resetThreads } from '../../lib/chat-store.ts'
 
+vi.mock('../../lib/chat-api.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/chat-api.ts')>()
+
+  return {
+    ...actual,
+    readThread: async () => ({
+      id: '2f1c1f9e-3f6d-4b0a-9d1e-1a2b3c4d5e6f',
+      title: 'First',
+      workspaceId: '3b2c1d4e-5f6a-4b8c-9d0e-1f2a3b4c5d6e',
+      agentId: '4c3d2e5f-6a7b-4c9d-8e1f-2a3b4c5d6e7f',
+      overrides: { credentialId: null, modelId: null, thinkingLevel: null },
+    }),
+    getWorkspace: async () => ({
+      id: '3b2c1d4e-5f6a-4b8c-9d0e-1f2a3b4c5d6e',
+      name: 'General',
+      description: '',
+      isDefault: false,
+      allowAll: false,
+      position: 0,
+    }),
+    listAgents: async () => [
+      {
+        id: '4c3d2e5f-6a7b-4c9d-8e1f-2a3b4c5d6e7f',
+        workspaceId: '3b2c1d4e-5f6a-4b8c-9d0e-1f2a3b4c5d6e',
+        name: 'General',
+        description: '',
+        isDefault: true,
+        allowAll: true,
+        systemPrompt: '',
+        instructions: '',
+        credentialId: null,
+        modelId: null,
+        thinkingLevel: 'low',
+      },
+    ],
+  }
+})
+
+vi.mock('../../lib/provider-api.ts', () => ({
+  listProviderLogins: async () => [
+    { id: 'key-1', provider: 'opencode-go', label: 'Work key', createdAt: '2026-01-01T00:00:00.000Z' },
+  ],
+  listProviderModels: async () => [
+    {
+      id: 'deepseek-v4.1-flash',
+      provider: 'opencode-go',
+      name: 'DeepSeek Flash',
+      contextWindow: 1000,
+      maxOutput: 100,
+      inputUsdPerMillion: null,
+      outputUsdPerMillion: null,
+      supportsReasoning: true,
+      supportsTools: true,
+    },
+    {
+      id: 'kimi-k3',
+      provider: 'opencode-go',
+      name: 'Kimi K3',
+      contextWindow: 1000,
+      maxOutput: 100,
+      inputUsdPerMillion: null,
+      outputUsdPerMillion: null,
+      supportsReasoning: true,
+      supportsTools: true,
+    },
+  ],
+  getWorkspaceProviders: async () => ({
+    loginIds: ['key-1'],
+    allowedModels: ['deepseek-v4.1-flash', 'kimi-k3'],
+    allowAllModels: false,
+  }),
+}))
+
 const THREAD_ID = '2f1c1f9e-3f6d-4b0a-9d1e-1a2b3c4d5e6f'
 
 /** The stream the pane opens: the store only needs a listener table and an explicit frame emitter. */
@@ -52,6 +125,14 @@ const chatMessage = (
   errorMessage: null,
   reason: null,
   ...overrides,
+})
+
+const threadResponse = (thinkingLevel: 'high' | null) => ({
+  id: THREAD_ID,
+  title: 'First',
+  workspaceId: '3b2c1d4e-5f6a-4b8c-9d0e-1f2a3b4c5d6e',
+  agentId: '4c3d2e5f-6a7b-4c9d-8e1f-2a3b4c5d6e7f',
+  overrides: { credentialId: null, modelId: null, thinkingLevel },
 })
 
 /** A stream frame is the whole visible state, not just the lines: tools, model and spend travel with it. */
@@ -444,6 +525,74 @@ describe('ChatPane', () => {
     expect(await screen.findByText(/No OpenCode Go key reaches this agent/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Set up a key' }))
     expect(onSetUpKeys).toHaveBeenCalledOnce()
+  })
+
+  it('shows the agent defaults in the conversation run controls', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => reply({ messages: [], nextCursor: null })))
+
+    render(<ChatPane threadId={THREAD_ID} />)
+
+    expect(await screen.findByRole('combobox', { name: 'Model' })).toHaveDisplayValue(
+      'Agent default (deepseek-v4.1-flash)',
+    )
+    expect(screen.getByRole('combobox', { name: 'Thinking' })).toHaveDisplayValue('Agent default (low)')
+    expect(screen.getByRole('combobox', { name: 'Key' })).toHaveDisplayValue('Agent default (Work key)')
+  })
+
+  it('patches a thinking override as soon as it is chosen', async () => {
+    const backend = vi.fn((_path: string, init?: RequestInit) =>
+      init?.method === 'PATCH' ? reply(threadResponse('high')) : reply({ messages: [], nextCursor: null }),
+    )
+    vi.stubGlobal('fetch', backend)
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    const thinking = await screen.findByRole('combobox', { name: 'Thinking' })
+    fireEvent.change(thinking, { target: { value: 'high' } })
+
+    await waitFor(() => expect(thinking).toHaveValue('high'))
+    const patch = backend.mock.calls.find((call) => call[1]?.method === 'PATCH')
+    expect(patch?.[0]).toBe(`/threads/${THREAD_ID}/run-settings`)
+    expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ thinkingLevel: 'high' })
+  })
+
+  it('sends null when thinking returns to the agent default', async () => {
+    const backend = vi.fn((_path: string, init?: RequestInit) => {
+      if (init?.method !== 'PATCH') return reply({ messages: [], nextCursor: null })
+      const body = JSON.parse(String(init.body)) as { thinkingLevel: 'high' | null }
+
+      return reply(threadResponse(body.thinkingLevel))
+    })
+    vi.stubGlobal('fetch', backend)
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    const thinking = await screen.findByRole('combobox', { name: 'Thinking' })
+    fireEvent.change(thinking, { target: { value: 'high' } })
+    await waitFor(() => expect(thinking).toHaveValue('high'))
+    fireEvent.change(thinking, { target: { value: '' } })
+
+    await waitFor(() => expect(thinking).toHaveValue(''))
+    const patches = backend.mock.calls.filter((call) => call[1]?.method === 'PATCH')
+    expect(patches).toHaveLength(2)
+    expect(JSON.parse(String(patches[1]?.[1]?.body))).toEqual({ thinkingLevel: null })
+  })
+
+  it('shows a run settings refusal and reverts the select', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_path: string, init?: RequestInit) =>
+        init?.method === 'PATCH'
+          ? reply({ error: { code: 'AGENT_MODEL_NOT_ALLOWED', message: 'That setting is not allowed here.' } }, false)
+          : reply({ messages: [], nextCursor: null }),
+      ),
+    )
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    const thinking = await screen.findByRole('combobox', { name: 'Thinking' })
+    fireEvent.change(thinking, { target: { value: 'high' } })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('That setting is not allowed here.')
+    expect(thinking).toHaveValue('')
+    expect(thinking).toBeEnabled()
   })
 
   it('asks for no conversation when no thread is selected', () => {

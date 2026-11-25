@@ -41,6 +41,23 @@ export interface RunSettings {
   readonly credentialId: string
 }
 
+/** One conversation's departures from its agent. Null keeps the agent's setting. */
+export interface RunSettingsOverrides {
+  readonly credentialId: string | null
+  readonly modelId: string | null
+  readonly thinkingLevel: ThinkingLevel | null
+}
+
+export type RunSettingsPatch = Partial<RunSettingsOverrides>
+
+/** Overlay a conversation's settings without ever writing them back to the agent profile. */
+export const mergeRunSettings = (agent: AgentProfile, overrides: RunSettingsPatch = {}): AgentProfile => ({
+  ...agent,
+  credentialId: overrides.credentialId ?? agent.credentialId,
+  modelId: overrides.modelId ?? agent.modelId,
+  thinkingLevel: overrides.thinkingLevel ?? agent.thinkingLevel,
+})
+
 const keyUsable = (credentialId: string, reach: WorkspaceReach, keys: KeyCatalog): boolean =>
   keys.loginIds.includes(credentialId) && (reach.allowAll || reach.loginIds.includes(credentialId))
 

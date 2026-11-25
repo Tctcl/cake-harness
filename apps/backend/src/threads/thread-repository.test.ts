@@ -51,8 +51,22 @@ if (url === undefined) {
         expect(thread.title).toBe('First')
         expect(thread.workspaceId).toBe(DEFAULT_WORKSPACE_ID)
         expect(thread.agentId).toBe(DEFAULT_AGENT_ID)
+        expect(thread.overrides).toEqual({ credentialId: null, modelId: null, thinkingLevel: null })
         await expect(threads.find(thread.id)).resolves.toMatchObject({ id: thread.id })
         await expect(threads.list(ownerId)).resolves.toHaveLength(1)
+      })
+    })
+
+    it('updates and clears individual run setting overrides', async () => {
+      await withThreads(async (threads, ownerId) => {
+        const thread = await threads.create(ownerId, 8, TARGET)
+
+        const changed = await threads.updateRunSettings(thread.id, { modelId: 'kimi-k3', thinkingLevel: 'high' })
+        expect(changed?.overrides).toEqual({ credentialId: null, modelId: 'kimi-k3', thinkingLevel: 'high' })
+
+        const cleared = await threads.updateRunSettings(thread.id, { modelId: null })
+        expect(cleared?.overrides).toEqual({ credentialId: null, modelId: null, thinkingLevel: 'high' })
+        await expect(threads.updateRunSettings(thread.id, {})).resolves.toEqual(cleared)
       })
     })
 

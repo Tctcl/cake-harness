@@ -1,7 +1,11 @@
 import { ArrowDownIcon } from 'lucide-react'
-import { Fragment, useCallback, useEffect, useSyncExternalStore, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useSyncExternalStore, useState } from 'react'
 
-import type { ChatLive, ChatMessage, ChatToolCall } from '../../lib/chat-api.ts'
+import type { ChatAgent, ChatLive, ChatMessage, ChatThread, ChatToolCall } from '../../lib/chat-api.ts'
+import { getWorkspace, listAgents, readThread } from '../../lib/chat-api.ts'
+import { getWorkspaceProviders, listProviderLogins, listProviderModels } from '../../lib/provider-api.ts'
+import { choicesOf } from '../../lib/workspace-choices.ts'
+import type { Choices } from '../../lib/workspace-choices.ts'
 import type { PendingInput, ThreadSnapshot } from '../../lib/chat-store.ts'
 import {
   KEY_PROBLEMS,
@@ -28,8 +32,15 @@ import { Spinner } from '../ui/spinner.tsx'
 import { Markdown } from './markdown.tsx'
 import { PromptInput } from './prompt-input.tsx'
 import { LiveRun } from './live-run.tsx'
+import { RunControls } from './run-controls.tsx'
 import { ThinkingBlock } from './thinking-block.tsx'
 import { ToolCallRow, ToolTrace } from './tool-trace.tsx'
+
+interface RunControlState {
+  readonly thread: ChatThread
+  readonly agent: ChatAgent
+  readonly choices: Choices
+}
 
 /** How close to the top the viewport has to be before older lines are asked for. */
 const LOAD_OLDER_THRESHOLD = 160
@@ -53,15 +64,58 @@ export function ChatPane({
   )
   const read = useCallback(() => snapshotOf(threadId), [threadId])
   const state = useSyncExternalStore(subscribe, read)
+  const [runControls, setRunControls] = useState<RunControlState | null>(null)
+  const [runSettingsFailure, setRunSettingsFailure] = useState<{
+    readonly threadId: string
+    readonly message: string
+  } | null>(null)
 
   useEffect(() => {
     if (threadId !== null) openThread(threadId)
+  }, [threadId])
+
+  useEffect(() => {
+    if (threadId === null) return
+
+    let cancelled = false
+    const load = async (): Promise<void> => {
+      const thread = await readThread(threadId)
+      const [workspace, agents, logins, models, providers] = await Promise.all([
+        getWorkspace(thread.workspaceId),
+        listAgents(thread.workspaceId),
+        listProviderLogins(),
+        listProviderModels(),
+        getWorkspaceProviders(thread.workspaceId),
+      ])
+      const agent = agents.find((candidate) => candidate.id === thread.agentId)
+      if (agent === undefined) throw new Error('the conversation’s agent could not be loaded')
+      if (cancelled) return
+
+      setRunControls({ thread, agent, choices: choicesOf(workspace, logins, models, providers) })
+    }
+    void load().catch((failure: unknown) => {
+      if (!cancelled) {
+        setRunSettingsFailure({
+          threadId,
+          message: failure instanceof Error ? failure.message : 'the run settings failed to load',
+        })
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
   }, [threadId])
 
   if (threadId === null) return <NoConversation />
 
   // A live frame is proof of a run in flight even before its first entry commits, so the view keeps saying so.
   const streaming = runIsActive(state.live)
+  const visibleRunControls = runControls?.thread.id === threadId ? runControls : null
+  const runSettingsError = runSettingsFailure?.threadId === threadId ? runSettingsFailure.message : null
+  const chatError = runSettingsError ?? state.error
+  const reportRunSettingsError = (message: string | null): void =>
+    setRunSettingsFailure(message === null ? null : { threadId, message })
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 py-4">
@@ -72,9 +126,9 @@ export function ChatPane({
         </MessageScroller>
       </MessageScrollerProvider>
 
-      {state.error === null ? null : (
+      {chatError === null ? null : (
         <p role="alert" className="mx-auto w-full max-w-3xl px-4 text-sm text-destructive">
-          {state.error}
+          {chatError}
           {onSetUpKeys !== undefined && state.errorCode !== null && KEY_PROBLEMS.has(state.errorCode) ? (
             <>
               {' '}
@@ -87,7 +141,27 @@ export function ChatPane({
       )}
 
       <div className="px-4">
-        <PromptInput label="Message" onSend={(text) => send(threadId, text)} />
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
+          <PromptInput label="Message" onSend={(text) => send(threadId, text)} />
+          {/* The row is reserved before the controls load: appearing later would shrink the transcript under the
+              reader and leave it scrolled off its newest line, which stops it following the conversation. */}
+          {visibleRunControls === null ? (
+            <div className="h-7" aria-hidden />
+          ) : (
+            <RunControls
+              key={threadId}
+              thread={visibleRunControls.thread}
+              agent={visibleRunControls.agent}
+              choices={visibleRunControls.choices}
+              onError={reportRunSettingsError}
+              onChange={(updated) =>
+                setRunControls((current) =>
+                  current?.thread.id === updated.id ? { ...current, thread: updated } : current,
+                )
+              }
+            />
+          )}
+        </div>
       </div>
     </div>
   )
@@ -95,6 +169,9 @@ export function ChatPane({
 
 /** How close to the bottom the viewport has to be before the newest line counts as in view. */
 const NEAR_BOTTOM_THRESHOLD = 64
+
+/** How long after a wheel, touch, pointer or key event a scroll still counts as the reader's own. */
+const GESTURE_WINDOW_MS = 1000
 
 /**
  * The transcript, and whether it is following the newest line. Following is the default; scrolling up stops it, because a
@@ -122,9 +199,34 @@ function Transcript({
   )
   const trailingTools = state.tools.filter((call) => !positionedCallIds.has(call.id))
 
+  // Read by the resize observer, which is attached once and would otherwise see the value of its first render.
+  const following = useRef(pinned)
+  // When the reader last scrolled on purpose. Only that may stop following: off-screen lines are laid out at an
+  // estimated height until they render (`content-visibility`), and the browser's correction afterwards also arrives
+  // as a scroll event, which would otherwise read as the reader leaving the newest line.
+  const gestureAt = useRef(0)
+  const markGesture = (): void => {
+    gestureAt.current = Date.now()
+  }
+  const content = useRef<HTMLDivElement>(null)
+
   useEffect(() => {
+    following.current = pinned
     if (pinned) scrollToEnd({ behavior: 'auto' })
   }, [pinned, size, scrollToEnd])
+
+  // Lines also grow after they arrive (code highlighting, tables, a thinking block opening), which `size` cannot see.
+  useEffect(() => {
+    const element = content.current
+    if (element === null || typeof ResizeObserver !== 'function') return
+
+    const observer = new ResizeObserver(() => {
+      if (following.current) scrollToEnd({ behavior: 'auto' })
+    })
+    observer.observe(element)
+
+    return () => observer.disconnect()
+  }, [scrollToEnd])
 
   return (
     <>
@@ -132,14 +234,20 @@ function Transcript({
         preserveScrollOnPrepend
         aria-label="Transcript"
         className="px-4"
+        onWheel={markGesture}
+        onTouchMove={markGesture}
+        onPointerDown={markGesture}
+        onKeyDown={markGesture}
         onScroll={(event) => {
           const viewport = event.currentTarget
           const fromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
-          setPinned(fromBottom < NEAR_BOTTOM_THRESHOLD)
+          if (fromBottom < NEAR_BOTTOM_THRESHOLD) setPinned(true)
+          else if (Date.now() - gestureAt.current < GESTURE_WINDOW_MS) setPinned(false)
           if (viewport.scrollTop < LOAD_OLDER_THRESHOLD) loadOlder(threadId)
         }}
       >
         <MessageScrollerContent className="mx-auto w-full max-w-3xl pb-2">
+          <div ref={content} className="flex flex-col gap-6">
           {/* A pending line sits after the entry that was newest when it was sent, and before every line if there was
               none: a failure belongs where the person typed it, not under whatever arrived since. */}
           {leadingPending(state.pending).map((item) => (
@@ -174,6 +282,7 @@ function Transcript({
           <MessageScrollerItem messageId="live">
             <LiveRun live={state.live} streaming={streaming} />
           </MessageScrollerItem>
+          </div>
         </MessageScrollerContent>
       </MessageScrollerViewport>
 

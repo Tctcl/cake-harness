@@ -96,11 +96,20 @@ export interface ChatUpdate {
   readonly live?: ChatLive
 }
 
+export interface RunSettingsOverrides {
+  readonly credentialId: string | null
+  readonly modelId: string | null
+  readonly thinkingLevel: ThinkingLevel | null
+}
+
+export type RunSettingsPatch = Partial<RunSettingsOverrides>
+
 export interface ChatThread {
   readonly id: string
   readonly title: string | null
   readonly workspaceId: string
   readonly agentId: string
+  readonly overrides: RunSettingsOverrides
 }
 
 /** A whole workspace row: the ceiling its agents narrow. */
@@ -158,6 +167,9 @@ const send = (body: unknown): RequestInit => ({
 export const listWorkspaces = async (): Promise<WorkspaceSummary[]> =>
   (await request<{ workspaces: WorkspaceSummary[] }>('/workspaces')).workspaces
 
+export const getWorkspace = async (id: string): Promise<WorkspaceSummary> =>
+  await request<WorkspaceSummary>(`/workspaces/${id}`)
+
 /** The seeded local user. Until sign-in exists this is the only identity the backend can name. */
 export const getMe = async (): Promise<CurrentUser> => await request<CurrentUser>('/me')
 
@@ -206,11 +218,25 @@ export const renameThread = async (id: string, title: string | null): Promise<Ch
     body: JSON.stringify({ title }),
   })
 
+export const readThread = async (id: string): Promise<ChatThread> =>
+  await request<ChatThread>(`/threads/${id}`)
+
 export const listThreads = async (workspaceId: string | null): Promise<ChatThread[]> => {
   const query = workspaceId === null ? '' : `?workspaceId=${encodeURIComponent(workspaceId)}`
 
   return (await request<{ threads: ChatThread[] }>(`/threads${query}`)).threads
 }
+
+/** Set only this conversation's overrides; null restores the corresponding agent setting. */
+export const updateThreadRunSettings = async (
+  id: string,
+  patch: RunSettingsPatch,
+): Promise<ChatThread> =>
+  await request<ChatThread>(`/threads/${id}/run-settings`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
 
 /** Without an agent the workspace's default agent answers. */
 export const createThread = async (workspaceId: string, agentId?: string): Promise<ChatThread> =>

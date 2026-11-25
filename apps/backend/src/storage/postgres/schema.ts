@@ -1008,6 +1008,15 @@ const defaultPromptMigration = (schema: PostgresSchema): readonly string[] => [
     WHERE id = ${literal(DEFAULT_AGENT_ID)} AND description = ${literal(DEFAULT_AGENT_DESCRIPTION)}`,
 ]
 
+/** One conversation may run differently from its agent without changing the profile other conversations use. */
+const threadRunSettingsMigration = (schema: PostgresSchema): readonly string[] => [
+  `ALTER TABLE ${schema.tables.chatThreads}
+    ADD COLUMN credential_id uuid REFERENCES ${schema.tables.userCredentials} (id) ON DELETE SET NULL,
+    ADD COLUMN model_id text,
+    ADD COLUMN thinking_level text
+      CHECK (thinking_level IN ('off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'))`,
+]
+
 /** Ordered schema history: a released version is never edited, a change appends one. */
 export const MIGRATIONS: readonly { version: number; statements: (schema: PostgresSchema) => readonly string[] }[] = [
   { version: 1, statements: migration },
@@ -1028,6 +1037,7 @@ export const MIGRATIONS: readonly { version: number; statements: (schema: Postgr
   { version: 16, statements: providerMigration },
   { version: 17, statements: agentRunSettingsMigration },
   { version: 18, statements: defaultPromptMigration },
+  { version: 19, statements: threadRunSettingsMigration },
 ]
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0
