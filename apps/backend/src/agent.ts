@@ -36,6 +36,7 @@ import { createProviderApi } from './providers/api.js'
 import type { ProviderApi } from './providers/api.js'
 import { checkKey, fetchModels } from './providers/provider-client.js'
 import { ProviderRepository } from './providers/provider-repository.js'
+import { storedCredentials } from './providers/stored-credentials.js'
 import { AuthService } from './auth/service.js'
 import { ToolRepository } from './capabilities/tool-repository.js'
 import { idFromNumber } from './storage/postgres/ids.js'
@@ -513,9 +514,6 @@ const instructionsOf = (agent: AgentProfile): string | undefined => {
  * missing or unreachable database is a startup failure, not a degraded mode.
  */
 export async function createAgent(config: Config): Promise<Agent> {
-  const models = createModels()
-  models.setProvider(opencodeGoProvider())
-
   // Waiting at boot too: a database that is restarting deserves the same window as one that went away later.
   const postgres = await withRetryUntil(REOPEN_WINDOW_MS, REOPEN_RETRY, isConnectFailure, () =>
     openPostgresStorage(config.databaseUrl, { max: config.databasePoolSize }),
@@ -537,11 +535,15 @@ export async function createAgent(config: Config): Promise<Agent> {
     credentials: new CredentialRepository(postgres.pool, postgres.schema),
   })
   // Provider keys are credentials of one kind, so they live in the same table and are read through their own api.
+  const providerRepository = new ProviderRepository(postgres.pool, postgres.schema, config.secrets)
   const providers = createProviderApi({
     ownerId,
-    providers: new ProviderRepository(postgres.pool, postgres.schema, config.secrets),
+    providers: providerRepository,
     client: { checkKey, fetchModels },
   })
+  // Chats authenticate with the key stored on the credentials page; OPENCODE_API_KEY only answers when none is stored.
+  const models = createModels({ credentials: storedCredentials(providerRepository, ownerId) })
+  models.setProvider(opencodeGoProvider())
   // Every workspace except the default one runs in a container. The image is configuration, so the row is written here
   // rather than by a migration; on an install that already satisfies the rule this writes nothing.
   await workspaces.ensureEnvironments(ownerId, config.workspaceImage)
@@ -557,7 +559,8 @@ export async function createAgent(config: Config): Promise<Agent> {
     Harness.open(storage, { models, registry }, CONTEXT),
   )
 
-  const environments = createEnvironmentApi({    ownerId,
+  const environments = createEnvironmentApi({
+    ownerId,
     environments: new EnvironmentRepository(postgres.pool, postgres.schema),
     // The runtime is the only thing that talks to Docker; the routes decide nothing about it.
     containers: new DockerContainers(config.docker),

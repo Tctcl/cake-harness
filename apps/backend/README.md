@@ -187,8 +187,9 @@ thread:
 
 - provider `opencode-go` (from `@earendil-works/pi-ai`), model
   `deepseek-v4.1-flash`, thinking level `low`
-- `OPENCODE_API_KEY` supplies the provider key; it is read by pi-ai, not by
-  `src/config.ts`
+- the provider key is the newest OpenCode Go key stored on the credentials page
+  (`src/providers/stored-credentials.ts`); `OPENCODE_API_KEY` is read by pi-ai, not
+  by `src/config.ts`, and only answers when no key is stored
 - one harness serves every thread: a harness is a Session over the whole log, not
   one conversation, so a thread's conversation is looked up by id
 - a `SessionFailed` discards the harness and the next request reopens it, which is
