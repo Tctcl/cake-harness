@@ -94,6 +94,17 @@ It must support:
 SSH access works for both AI agents and human developers, with appropriate
 authentication and authorization.
 
+**Where this stands.** The image implements its half: `apps/agent/Dockerfile`
+installs `openssh-server`, runs it as the `dev` user, and `docker/sshd_config`
+allows public keys and TCP forwarding while refusing passwords. The platform does
+not publish the port yet: containers are created with no port bindings
+(`apps/backend/src/environments/container-runtime.ts`), so
+`GET /environments/:id/ssh` inspects the container, reports the mapping when one
+exists and answers `null` when it does not. Tunnels are the agent process's, and
+none exists, so `GET /environments/:id/ssh/tunnels` answers an empty list. Both
+routes are honest about the gap rather than returning a command nobody can run;
+`compose.dev.yml` is the only place port 22 is published today, on loopback.
+
 ### 5. Development server access
 
 Developers must be able to reach HTTP services running inside their development
@@ -167,9 +178,11 @@ not usable.
 
 Decisions taken:
 
-- **Two documents, not one.** Desired tooling and credentials are fetched
-  separately. Credentials rotate on a different clock than tooling, and coupling
-  them would make every token rotation trigger a full reconcile.
+- **Two documents, one request.** Desired tooling and credentials are separate
+  documents because credentials rotate on a different clock than tooling and
+  coupling them would make every token rotation trigger a full reconcile, but
+  they arrive together in one manifest: two round trips at boot would only add
+  a half-configured window.
 - **The backend fetches and hands over.** CipherGate access never leaves the
   backend, so a development container never holds credentials for the secret
   store itself. The container receives resolved values for the workspace it
@@ -194,22 +207,33 @@ One gap this leaves open: `~/.profile` is read by login shells, so
 `ssh dev@host gh pr list` would run without the variables. Wiring the environment
 for non-login shells is part of the next slice.
 
-Status: materialisation implemented (`apps/agent/src/credentials/apply.ts`), fed by
-the dummy document in `apps/agent/dev/credentials.json`. Nothing fetches from
-CipherGate yet, and installing the tools those credentials belong to is still
-pending. Nothing here is a real secret.
+Status: both halves are implemented. `apps/backend/src/environments/manifest.ts`
+builds the manifest from CipherGate through `apps/backend/src/secrets/ciphergate.ts`
+and is served at `GET /environments/:id/manifest`; the container fetches it from
+`DEV_ENV_MANIFEST_URL` and materialises it. A credential whose secret the store
+will not hand over is left out of the manifest rather than failing the boot: a
+workspace without `GH_TOKEN` is usable, a workspace that refuses to start is not.
+Installing the tools those credentials belong to is still pending.
 
 ## Where this stands
 
-A walking slice runs end to end in `apps/agent`: the image boots, a non-root user
-logs in over public-key SSH, the bootstrap validates both documents, reports what
-is actually installed, plans the reconcile work and materialises credentials as
-`0600` files. `docker compose -f apps/agent/compose.dev.yml up --build` brings it
-up locally with the dummy documents in `apps/agent/dev/`.
+Two halves meet here. The backend serves an environment's manifest at
+`GET /environments/:id/manifest` — the tooling floor plus whatever credentials the
+secrets store will hand over — and records what a container reports at
+`PUT /environments/:id/state`, straight onto `dev_environments.reported_state`.
+The container boots from that manifest (`DEV_ENV_MANIFEST_URL`), reads
+`/var/lib/dev-env/installed.json` to tell an installed tool from an image one,
+plans the reconcile work, materialises credentials as `0600` files and reports
+what it found back.
 
-The next slice is the part that changes the machine: apply the plan, record what
-was installed so the next boot reports it as `installed` rather than `image`, and
-hand the actual state to the backend instead of a log line.
+`apps/agent/compose.dev.yml` runs the container without a backend, so no manifest
+URL is set and the bootstrap is skipped: what remains is the image's floor over
+SSH. The deployed stack passes `WORKSPACE_BACKEND_URL` and `WORKSPACE_NETWORK`, the
+backend adds both to the container it creates, and the container joins
+`tctcl-workspaces`, from where `app` is the only thing it can reach.
+
+The next slice is the part that changes the machine: apply the plan instead of
+logging it, and write what it installed into the record the next boot reads.
 
 The outcome this is aiming at: a reusable remote development environment that
 feels like a full Linux development machine per workspace, reachable by both AI

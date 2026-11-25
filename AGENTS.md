@@ -3,9 +3,9 @@
 Instructions for anyone — human or AI agent — working in this repository.
 
 This file describes how the codebase is expected to be built, not what has been
-built. Most of it is currently aspirational for a scaffold that has no product
-features yet; treat it as the constraint set that new code must satisfy from day
-one, so conventions do not have to be retrofitted later.
+built. Most of it is currently aspirational for a project whose shape is still
+moving; treat it as the constraint set that new code must satisfy from day one, so
+conventions do not have to be retrofitted later.
 
 ## The project
 
@@ -13,10 +13,15 @@ one, so conventions do not have to be retrofitted later.
 React frontend and a long-running agent process, plus shared TypeScript and lint
 configuration. It is MIT licensed and intended to be developed in public.
 
-**Current state:** early scaffold. `apps/agent` holds the workspace development
-image and its bootstrap (`docs/remote-development.md`), `apps/backend` runs the
-durable chat slice (`docs/durable.md`), `apps/frontend` renders a layout shell over
-it, `deploy/` holds the production stack and the installer
+**Current state:** early, and every API here is expected to change. `apps/agent`
+holds the workspace development image and its bootstrap
+(`docs/remote-development.md`). `apps/backend` serves the slice: sign-in and roles
+(`docs/auth.md`), workspaces, agents and their capability grants
+(`docs/workspaces.md`), the containers those agents run in, terminals attached to
+one (`docs/terminals.md`), the LLM providers a workspace may spend
+(`docs/providers.md`), and the durable chat itself (`docs/durable.md`).
+`apps/frontend` renders the chat, the workspace settings and the terminal over
+those routes. `deploy/` holds the production stack and the installer
 (`docs/deployment.md`), and `infrastructure/` holds the host-side systemd units
 for the update socket. The root `Dockerfile` builds the product image — Fastify
 serving the compiled SPA — and `.github/workflows/images.yml` publishes it on two
@@ -76,7 +81,7 @@ the other.
 
 ```bash
 pnpm install                       # after any package.json change
-pnpm dev                           # all apps (turbo, persistent)
+pnpm dev                           # backend + frontend (turbo, persistent); not the agent
 pnpm dev:backend                   # one app
 pnpm build
 pnpm typecheck

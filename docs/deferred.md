@@ -60,8 +60,11 @@ opens with the registry's default tool set and never asks for a grant.
 
 Credentials are never stored here: an `mcp_credentials` row names a CipherGate
 consumer and the secrets that fill a server's `env_schema`, and the value is
-fetched when a run starts. No CipherGate client exists in this repository yet — no
-dependency, no config key, no request — so nothing resolves them.
+fetched when a run starts. The client that fetches them exists now, but only one
+caller uses it: `apps/backend/src/secrets/ciphergate.ts` reads a secret by name on
+behalf of `apps/backend/src/environments/manifest.ts`, which serves workspace
+credentials. Resolving a run's MCP credentials is still unimplemented — the
+`mcp_credentials` rows are read by the capability routes and by nothing else.
 
 ## 3. Workspaces do not get a container or a filesystem
 
@@ -98,8 +101,8 @@ Elements model selector in the composer. This is the natural companion to item 9
 nothing generates a title.
 
 **Where it stands:** `PATCH /threads/:threadId` now exists
-(`apps/backend/src/routes/threads.ts`) and the right sidebar edits the title in
-place (`apps/frontend/src/components/layout/thread-info.tsx`), over
+(`apps/backend/src/routes/threads.ts`) and the topbar edits the title in
+place (`apps/frontend/src/components/layout/topbar.tsx`), over
 `ThreadRepository.rename` (`apps/backend/src/threads/thread-repository.ts:131`).
 `remove` (line 153) is still unrouted: the repository keeps the "archive first,
 or it is not settled" guard, so a live thread can never be removed by one
@@ -127,7 +130,7 @@ create), `/workspaces/:id` (read, patch, delete),
 `listWorkspaces`, `createWorkspace`, `renameWorkspace`, `archiveWorkspace`,
 `listAgents`, `listThreads`, `createThread` and `renameThread`
 (`apps/frontend/src/lib/chat-api.ts`) — the picker and its manage dialog cover
-workspace create/rename/archive, and the right sidebar reads an agent's
+workspace create/rename/archive, and the info panel reads an agent's
 capabilities without editing them. The default workspace and its default agent
 stay immutable; the backend already refuses those edits.
 
@@ -135,24 +138,30 @@ stay immutable; the backend already refuses those edits.
 capability editor (multi-select over the workspace's allowed tools, MCP servers
 and skills) for the workspace, plus a thread delete action.
 
-## 7. No authentication, one local user
+## 7. Accounts exist, but the routes still answer as one owner
 
-**Missing:** anyone who reaches the port is the same user.
+**Missing:** per-request ownership, so a second account can be created and
+actually used.
 
-**Where it stands:** `ensureLocalUser` (`apps/backend/src/threads/local-user.ts`)
-seeds a single row and every query filters on that owner id. There is no session,
-token, login route or per-request identity, and the dev proxy is the only thing
-standing between the browser and the port.
+**Where it stands:** sessions, roles, permissions, TOTP and the settings that
+switch between single-user mode and accounts are in place
+(`docs/auth.md`). What is not: `apps/backend/src/agent.ts` closes over one
+`ownerId` from `ensureLocalUser`, so workspaces, agents, threads and
+environments all resolve to the seeded row whoever asks. `PUT /settings`
+refuses `{"singleUser": false}` with `409 auth.accounts_pending` rather than
+letting two people share one owner.
 
-**Where the UI stands:** the account menu at the foot of the left sidebar shows
-the name `GET /me` returns and offers Log out as a disabled item saying there is
-no sign-in yet, and Settings → User admin shows the same identity and says the
-same. Nothing pretends to end a session.
+**Where the UI stands:** there is no login screen yet, so the account menu still
+shows the name `GET /me` returns and offers Log out as a disabled item, and
+Settings → User admin shows the same identity. Both read the actor the backend
+resolves, so they are correct in single-user mode and become wrong the moment
+accounts are switched on.
 
-**What it would take:** an auth decision (session cookie versus bearer token),
-a plugin that resolves the caller before routes run, and replacing the seeded
-owner id with the authenticated one. Do not expose the port beyond loopback until
-this exists.
+**What it would take:** threading the actor's id through the `Agent` API in
+place of the captured `ownerId` (workspaces, agents, threads, environments and
+the capability links that hang off workspaces), the login and settings screens,
+an `install.sh` step that creates the first admin, and then deleting the
+`MULTI_USER_WIRED` guard in `apps/backend/src/auth/service.ts`.
 
 ## 8. A run's steps are a flat list, not a timeline
 

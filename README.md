@@ -3,16 +3,18 @@
 Monorepo for the tctcl platform: a Node/TypeScript backend, a React frontend
 and a long-running agent process, sharing TypeScript and lint configuration.
 
-> **Status: early scaffold.** The repository contains build tooling, shared
-> configuration and runnable app skeletons, plus one deliberate spike: a prompt
-> typed in the frontend, posted to the backend, answered by a pi-durable session
-> and stored in Postgres (or in memory when no database is configured). That
-> spike is a test of durable, not a product — every route, schema and screen in
-> it is expected to change, and the agent process is a workspace bootstrap, not
-> a long-running agent yet. See
-> [docs/durable.md](docs/durable.md) and
-> [docs/postgres-adapter.md](docs/postgres-adapter.md). What each slice knowingly
-> left out is tracked in [docs/deferred.md](docs/deferred.md).
+> **Status: early, and expected to change.** The repository contains build
+> tooling, shared configuration and a working vertical slice: a person signs in,
+> creates a workspace, an agent and the container it builds in, edits in a
+> terminal attached to that container, grants the agent tools, prompts, skills
+> and MCP servers, points it at an LLM provider, and chats with it through a
+> pi-durable session in Postgres. Every route, schema and screen in it is
+> expected to change, and the agent process is a workspace bootstrap, not a
+> long-running agent yet. Which slices are which is in
+> [docs/durable.md](docs/durable.md), [docs/auth.md](docs/auth.md),
+> [docs/workspaces.md](docs/workspaces.md), [docs/terminals.md](docs/terminals.md)
+> and [docs/providers.md](docs/providers.md). What each slice knowingly left out is
+> tracked in [docs/deferred.md](docs/deferred.md).
 
 ## Requirements
 
@@ -23,14 +25,14 @@ and a long-running agent process, sharing TypeScript and lint configuration.
 
 ```bash
 pnpm install      # installs all workspaces and the git hooks
-pnpm dev          # runs every app's dev task through turbo
+pnpm dev          # runs the backend and frontend dev tasks through turbo
 pnpm build        # builds every workspace
 pnpm typecheck    # type-checks every workspace
 pnpm lint         # lints every workspace
 pnpm test         # runs the Vitest suites
 ```
 
-Run a single app instead of everything:
+Run a single app instead of what `pnpm dev` starts:
 
 ```bash
 pnpm dev:agent
@@ -38,13 +40,17 @@ pnpm dev:backend
 pnpm dev:frontend
 ```
 
+The agent is not part of `pnpm dev`: it is a container entrypoint, not a host
+process, and the container it starts is one the backend neither created nor knows
+about. Start it with `pnpm dev:agent` when you want that box.
+
 ## Workspaces
 
 | Path | Package name | Purpose |
 | --- | --- | --- |
 | `apps/agent` | `@tctcl/agent` | Workspace development image and its bootstrap |
-| `apps/backend` | `backend` | Fastify HTTP service (`GET /health`, `/threads` and `/workspaces` over a durable session in Postgres) |
-| `apps/frontend` | `frontend` | React + Vite web client (layout shell with a chat pane wired to `/threads`) |
+| `apps/backend` | `backend` | Fastify HTTP service: identity, workspaces, agents, environments, terminals, capabilities and providers over Postgres |
+| `apps/frontend` | `frontend` | React + Vite web client: conversations, workspace settings, credentials and a container terminal |
 | `packages/typescript-config` | `@tctcl/typescript-config` | Shared `tsconfig` presets |
 | `packages/oxlint-config` | `@tctcl/oxlint-config` | Shared oxlint presets |
 | `packages/vitest-config` | `@tctcl/vitest-config` | Shared Vitest presets |
@@ -56,7 +62,7 @@ pnpm dev:frontend
 
 | Script | Command |
 | --- | --- |
-| `dev` | `turbo run dev` |
+| `dev` | `turbo run dev --filter=backend --filter=frontend` |
 | `dev:agent` | `turbo run dev --filter=@tctcl/agent` |
 | `dev:backend` | `turbo run dev --filter=backend` |
 | `dev:frontend` | `turbo run dev --filter=frontend` |
@@ -73,7 +79,7 @@ pnpm dev:frontend
 apps/            runnable applications (see each app's README)
 packages/        shared configuration consumed by the apps
 docs/            cross-cutting notes (architecture, data flow, decisions)
-infrastructure/  deployment and infrastructure assets (empty for now)
+infrastructure/  host-side systemd units for the updater socket
 ```
 
 ## Shared configuration
