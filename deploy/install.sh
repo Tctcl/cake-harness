@@ -129,21 +129,28 @@ parse_args() {
   done
 }
 
+# Reads KEY's value from the install's .env, or nothing on a fresh host. A missing file has to be an empty answer: under
+# `set -euo pipefail` a failing sed inside $( ) would otherwise end the whole script silently with its exit status.
+env_value() {
+  [ -f "$STATE_DIR/.env" ] || return 0
+  sed -n "s/^$1=//p" "$STATE_DIR/.env" | tail -n1
+}
+
 validate() {
   if [ -z "$DOMAIN" ]; then
-    DOMAIN="$(sed -n 's/^DOMAIN=//p' "$STATE_DIR/.env" 2>/dev/null | tail -n1)"
+    DOMAIN="$(env_value DOMAIN)"
   fi
   if [ -z "$SSH_HOST" ]; then
-    SSH_HOST="$(sed -n 's/^CAKE_SSH_HOST=//p' "$STATE_DIR/.env" 2>/dev/null | tail -n1)"
+    SSH_HOST="$(env_value CAKE_SSH_HOST)"
   fi
   if [ -z "$SSH_PORT_RANGE" ]; then
-    SSH_PORT_RANGE="$(sed -n 's/^CAKE_SSH_PORT_RANGE=//p' "$STATE_DIR/.env" 2>/dev/null | tail -n1)"
+    SSH_PORT_RANGE="$(env_value CAKE_SSH_PORT_RANGE)"
   fi
   SSH_PORT_RANGE="${SSH_PORT_RANGE:-22000-22999}"
   SSH_HOST="${SSH_HOST:-$DOMAIN}"
 
   if [ -z "$CHANNEL" ]; then
-    CHANNEL="$(sed -n 's/^CAKE_CHANNEL=//p' "$STATE_DIR/.env" 2>/dev/null || true)"
+    CHANNEL="$(env_value CAKE_CHANNEL)"
     CHANNEL="${CHANNEL:-production}"
   fi
 
@@ -534,12 +541,12 @@ summary() {
     log "url:       https://$DOMAIN (once DNS points here and 443 is open)"
   fi
   log "ssh:       $SSH_HOST, TCP ports $SSH_PORT_RANGE"
-  cat <<'EOF'
+  cat <<EOF
 
 Next, if this is a fresh host:
   - point the domain's A/AAAA record at this server
   - allow 80/tcp and 443/tcp, and 22/tcp if you use a firewall
-  - allow TCP ports $SSH_PORT_RANGE for workspace SSH access
+  - allow TCP ports ${SSH_PORT_RANGE} for workspace SSH access
   - copy the secrets keyfile somewhere safe, away from the database: without it the
     store's contents cannot be decrypted, and a copy beside the database is one leak
     away from handing over every credential
