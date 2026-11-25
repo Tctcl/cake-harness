@@ -22,7 +22,9 @@ services:
       # Routing comes from labels on the containers Traefik is allowed to see.
       - --providers.docker.endpoint=tcp://socket-proxy-ro:2375
       - --providers.docker.exposedByDefault=false
-      - --providers.docker.network=edge
+      # The Docker network name, not the compose key: compose would call it <project>_edge, and Traefik matches the
+      # real name. Without a match it picks the first network the container is on, which it cannot reach (a 504).
+      - --providers.docker.network=tctcl-edge
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
@@ -96,7 +98,9 @@ services:
       # The one named volume. Nobody reads inside it, `pg_dump` is the copy of
       # record, and Docker owns the uid and fsync details that a bind mount
       # would push onto the installer.
-      - postgres-data:/var/lib/postgresql/data
+      # postgres:18 and later keep a major-version directory under /var/lib/postgresql (so pg_upgrade --link can work)
+      # and refuse to start with a volume at the old /var/lib/postgresql/data path.
+      - postgres-data:/var/lib/postgresql
     networks:
       - db
     healthcheck:
@@ -152,7 +156,8 @@ services:
       # What the update check compares: the channel decides whether a comparison is meaningful at
       # all, and the version is the half of it the image cannot know on its own.
       TCTCL_CHANNEL: ${TCTCL_CHANNEL:?set TCTCL_CHANNEL}
-      TCTCL_VERSION: ${TCTCL_VERSION:?set TCTCL_VERSION}
+      # Empty on a staging install: it follows a moving tag, and the backend reads empty as "no version".
+      TCTCL_VERSION: ${TCTCL_VERSION:-}
       UPDATE_CHECK_INTERVAL_MS: ${UPDATE_CHECK_INTERVAL_MS:-900000}
       # Where credentials come from, and the reader key that says which install is asking.
       # install.sh creates the consumer and writes the key once; the admin key is never stored.
@@ -181,8 +186,9 @@ services:
       traefik.http.services.app.loadbalancer.server.port: "8080"
 
 networks:
-  # Traefik and whatever it proxies.
-  edge: {}
+  # Traefik and whatever it proxies. Named explicitly because Traefik looks the network up by its Docker name.
+  edge:
+    name: tctcl-edge
   # Postgres only; internal means it cannot reach the internet.
   db:
     internal: true

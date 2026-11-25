@@ -29,12 +29,15 @@ DRY_RUN=false
 VERSION="latest"
 # Which release channel this install follows. `production` pins a released version; `staging` tracks the moving
 # `staging` tag, which every merge to main overwrites. A `dev` install is a checkout and `pnpm dev`, not this script.
-CHANNEL="production"
+# Empty means "what this install already follows" (TCTCL_CHANNEL in .env), and production for a first install: re-running
+# the script without --channel must not quietly move a staging install onto releases.
+CHANNEL=""
 IMAGE=""
 WORKSPACE_IMAGE=""
 CIPHERGATE_IMAGE=""
 DOMAIN="${TCTCL_DOMAIN:-}"
 ACME_EMAIL=""
+ADMIN_USER="admin"
 
 log() { printf '%s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
@@ -69,7 +72,8 @@ usage() {
 Installs or updates one self-hosted tctcl-platform instance.
 
   --version X.Y.Z     release to install (default: latest)
-  --channel NAME      production or staging (default: production)
+  --channel NAME      production or staging (default: what the install already follows, else production)
+  --admin-user NAME   username of the first admin, created once (default: admin)
   --domain HOST       hostname to serve; required for a first install
   --acme-email ADDR   Let's Encrypt contact (default: admin@HOST)
   --dry-run           print the changes instead of making them
@@ -96,6 +100,10 @@ parse_args() {
       ACME_EMAIL="${2:-}"
       shift 2
       ;;
+    --admin-user)
+      ADMIN_USER="${2:-}"
+      shift 2
+      ;;
     --dry-run)
       DRY_RUN=true
       shift
@@ -110,6 +118,11 @@ parse_args() {
 }
 
 validate() {
+  if [ -z "$CHANNEL" ]; then
+    CHANNEL="$(sed -n 's/^TCTCL_CHANNEL=//p' "$STATE_DIR/.env" 2>/dev/null || true)"
+    CHANNEL="${CHANNEL:-production}"
+  fi
+
   case "$CHANNEL" in
   production | staging) ;;
   dev)
@@ -223,8 +236,21 @@ fetch_bundle() {
 
   run mkdir -p "$INSTALL_DIR"
 
-  # Running from an unpacked bundle (a git checkout, or the tarball already
-  # downloaded) means the files are right here; otherwise fetch them.
+  # A checkout keeps the bundle's files in two directories (deploy/ and infrastructure/); assemble the same flat layout
+  # .github/workflows/bundle.yml builds, so a staging install and a release install have identical install directories.
+  if [ -f "$here/compose.yaml" ] && [ -d "$here/../infrastructure/systemd" ]; then
+    log "assembling the bundle from the checkout at $(cd "$here/.." && pwd)"
+    run install -m 0755 "$here/install.sh" "$INSTALL_DIR/install.sh"
+    run install -m 0644 "$here/compose.yaml" "$INSTALL_DIR/compose.yaml"
+    run install -m 0644 "$here/.env.example" "$INSTALL_DIR/.env.example"
+    run install -m 0755 "$here/../infrastructure/tctcl-updater.sh" "$INSTALL_DIR/updater.sh"
+    run install -m 0644 "$here/../infrastructure/systemd/tctcl-updater.socket" "$INSTALL_DIR/tctcl-updater.socket"
+    run install -m 0644 "$here/../infrastructure/systemd/tctcl-updater@.service" "$INSTALL_DIR/tctcl-updater@.service"
+    return
+  fi
+
+  # Running from an unpacked bundle (the install directory itself, or the tarball already downloaded) means the files
+  # are right here; otherwise fetch them.
   if [ -f "$here/compose.yaml" ]; then
     log "using the bundle beside this script ($here)"
     if [ "$here" != "$INSTALL_DIR" ]; then
@@ -267,6 +293,12 @@ prepare_host() {
   run mkdir -p "$SOCKET_DIR"
 }
 
+# What .env records as the running version: the release, or nothing for staging, which follows a moving tag and has no
+# version to compare against. The backend refuses anything that is not X.Y.Z, so "staging" must not reach it.
+env_version() {
+  if [ "$CHANNEL" = staging ]; then printf ''; else printf '%s' "$VERSION"; fi
+}
+
 write_env() {
   step "Environment"
   local env_file="$STATE_DIR/.env"
@@ -289,8 +321,8 @@ DOMAIN=$DOMAIN
 ACME_EMAIL=$ACME_EMAIL
 POSTGRES_DB=tctcl
 POSTGRES_USER=tctcl
-        POSTGRES_PASSWORD=$password
-TCTCL_VERSION=$VERSION
+POSTGRES_PASSWORD=$password
+TCTCL_VERSION=$(env_version)
 TCTCL_CHANNEL=$CHANNEL
 TCTCL_IMAGE=$IMAGE
 TCTCL_WORKSPACE_IMAGE=$WORKSPACE_IMAGE
@@ -305,12 +337,24 @@ EOF
   # Rewritten every run, so re-running with --channel switches what the stack pulls. An .env from before the
   # channels existed gains the keys here.
   if [ "$DRY_RUN" = false ]; then
-    set_env "$env_file" TCTCL_VERSION "$VERSION"
+    set_env "$env_file" TCTCL_VERSION "$(env_version)"
     set_env "$env_file" TCTCL_CHANNEL "$CHANNEL"
     set_env "$env_file" TCTCL_IMAGE "$IMAGE"
     set_env "$env_file" TCTCL_WORKSPACE_IMAGE "$WORKSPACE_IMAGE"
     set_env "$env_file" TCTCL_CIPHERGATE_IMAGE "$CIPHERGATE_IMAGE"
   fi
+}
+
+# Secrets that exist exactly once (the first admin password, the CipherGate admin key), root-only. Appended, never
+# rewritten, so a later run cannot erase what an earlier one recorded.
+CREDENTIALS_FILE="$STATE_DIR/first-run-credentials"
+
+record_credential() {
+  (
+    umask 077
+    printf '%s: %s
+' "$1" "$2" >>"$CREDENTIALS_FILE"
+  )
 }
 
 compose() {
@@ -360,7 +404,10 @@ provision_secrets() {
     if [ "$DRY_RUN" = false ]; then
       local admin_key
       admin_key="$(CIPHERGATE_TOKEN="$pending_token" compose run --rm --no-deps --entrypoint gateway ciphergate init | tail -n1)"
-      printf '\n  admin API key, shown once and not stored anywhere: %s\n\n' "$admin_key"
+      # The store keeps no copy, so this is the only one. It goes into the root-only credentials file next to the first
+      # admin password, for the operator to move into a password manager and then delete.
+      record_credential "CipherGate admin API key" "$admin_key"
+      log "admin API key written to $CREDENTIALS_FILE (move it somewhere safe, then delete the file)"
     fi
   fi
 
@@ -387,6 +434,49 @@ start_stack() {
   run compose up -d --remove-orphans
 }
 
+# Two minutes: the first boot runs every schema migration, and Postgres and the secrets store come up before the app.
+wait_for_app() {
+  local _
+  for _ in $(seq 1 60); do
+    if compose exec -T app node -e "fetch('http://127.0.0.1:8080/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  die "the app did not answer /health within two minutes; see: docker compose -f $INSTALL_DIR/compose.yaml logs app"
+}
+
+# The first sign-in. Without it the install is in single-user mode, where every request is the owner holding every
+# permission, which is no state for a public address. The password is generated here and handed to the app on stdin;
+# it is written only to the root-only credentials file. An owner that already has a password is left alone.
+bootstrap_admin() {
+  step "First admin"
+  if [ "$DRY_RUN" = true ]; then
+    printf '   would: create the admin account %s and write its password to %s
+' "$ADMIN_USER" "$CREDENTIALS_FILE"
+    return
+  fi
+
+  wait_for_app
+
+  local password outcome
+  password="$(openssl rand -base64 33 | tr -d '/+=
+' | cut -c1-28)"
+  outcome="$(printf '%s
+' "$password" | compose exec -T app node dist/bootstrap-admin.js "$ADMIN_USER")" ||
+    die "could not create the admin account: $outcome"
+
+  case "$outcome" in
+  created)
+    record_credential "Admin username" "$ADMIN_USER"
+    record_credential "Admin password" "$password"
+    log "created the admin account '$ADMIN_USER'; its password is in $CREDENTIALS_FILE"
+    ;;
+  exists) log "the admin account already has a password; nothing changed" ;;
+  *) die "unexpected answer from bootstrap-admin: $outcome" ;;
+  esac
+}
+
 install_units() {
   step "Update socket"
   run install -m 0644 "$INSTALL_DIR/tctcl-updater.socket" /etc/systemd/system/tctcl-updater.socket
@@ -402,6 +492,9 @@ summary() {
   log "install:   $INSTALL_DIR"
   log "state:     $STATE_DIR"
   log "secrets:   $STATE_DIR/ciphergate (keyfile: gateway.key, back it up)"
+  if [ -f "$CREDENTIALS_FILE" ]; then
+    log "sign-in:   $CREDENTIALS_FILE (root only; move its contents to a password manager, then delete it)"
+  fi
   if [ -n "$DOMAIN" ]; then
     log "url:       https://$DOMAIN (once DNS points here and 443 is open)"
   fi
@@ -430,6 +523,7 @@ main() {
   write_env
   provision_secrets
   start_stack
+  bootstrap_admin
   install_units
   summary
 }

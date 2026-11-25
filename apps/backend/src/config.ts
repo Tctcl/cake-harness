@@ -94,11 +94,15 @@ const environmentSchema = z.object({
   WORKSPACE_BACKEND_URL: z.url({ protocol: /^https?$/, error: 'must be an http:// or https:// URL' }).optional(),
   WORKSPACE_NETWORK: z.string().min(1).optional(),
   TCTCL_CHANNEL: z.enum(releaseChannels).default('production'),
-  // Absent in a checkout: there is nothing to compare against, so the check reports that instead of guessing.
-  TCTCL_VERSION: z
-    .string()
-    .regex(/^\d+\.\d+\.\d+$/, 'must be X.Y.Z')
-    .optional(),
+  // Absent in a checkout and empty on a staging install, which follows a moving tag: there is nothing to compare
+  // against, so the check reports that instead of guessing. Compose hands an empty variable through as ''.
+  TCTCL_VERSION: z.preprocess(
+    (value) => (value === '' ? undefined : value),
+    z
+      .string()
+      .regex(/^\d+\.\d+\.\d+$/, 'must be X.Y.Z')
+      .optional(),
+  ),
   UPDATE_CHECK_INTERVAL_MS: z.coerce
     .number({ error: 'must be a number' })
     .int('must be an integer')

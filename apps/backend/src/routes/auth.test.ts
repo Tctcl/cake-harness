@@ -29,18 +29,18 @@ if (url === undefined) {
   })
 
   /** A fresh install per case: its own tables, migrated, the owner seeded and single-user mode on. */
-  const install = async (environment: Record<string, string> = {}) => {
+  const install = async (environment: Record<string, string> = {}, now: () => number = Date.now) => {
     const config = loadConfig({ NODE_ENV: 'test', DATABASE_URL: url, SECRET_KEY: 'a-test-secret-key', ...environment })
     const pool = createPool(url, { max: 2 })
     pools.push(pool)
     const schema = createSchema(`auth${run}_${caseIndex++}_`)
     await migrate(pool, schema)
-    const auth = new AuthService({ pool, schema, secrets: config.secrets })
+    const auth = new AuthService({ pool, schema, secrets: config.secrets }, now)
     // The catalog routes look up their two text catalogs while registering; nothing here calls them.
     const agent = { auth, capabilities: { prompts: {}, skills: {} } } as unknown as Agent
     const server = buildServer(config, { agent })
 
-    return { auth, server }
+    return { auth, server, pool, schema, secrets: config.secrets }
   }
 
   const login = (server: ReturnType<typeof buildServer>, password: string, headers: Record<string, string> = {}) =>
@@ -81,6 +81,22 @@ if (url === undefined) {
       expect(settings.singleUser).toBe(false)
       const owner = await auth.users.findByUsername('admin')
       expect(owner).toMatchObject({ username: 'admin', grantsAll: true, mustChangePassword: false })
+    })
+
+    it('is noticed by a running server within seconds, though another process made it', async () => {
+      let now = 0
+      const { server, pool, schema, secrets } = await install({}, () => now)
+      try {
+        expect((await server.inject({ method: 'GET', url: '/auth/session' })).json()).toMatchObject({ singleUser: true })
+
+        // What install.sh does: a separate process with its own AuthService turns accounts on.
+        await new AuthService({ pool, schema, secrets }).bootstrapOwner('admin', PASSWORD)
+        now += 10_000
+
+        expect((await server.inject({ method: 'GET', url: '/auth/session' })).statusCode).toBe(401)
+      } finally {
+        await server.close()
+      }
     })
 
     it('refuses a bad username or a short password and leaves single-user mode on', async () => {

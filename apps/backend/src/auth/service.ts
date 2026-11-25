@@ -24,6 +24,9 @@ import { UserRepository } from './user-repository.js'
 /** Thirty days: long enough that a browser is not asked twice a week, short enough that a lost laptop ages out. */
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
+/** How long a read of the settings is trusted before the next request reads them again. */
+const SETTINGS_CACHE_MS = 5_000
+
 /**
  * Compared against when the username is unknown, so a miss costs the same scrypt run as a wrong password. Without it
  * the response time alone says which usernames exist. Made once, lazily: hashing at import would slow every test file.
@@ -86,12 +89,18 @@ export class AuthService {
   readonly permissions: PermissionRepository
   readonly settings: SettingsRepository
   readonly #secrets: SecretBox
-  /** The settings are read on every request, so they are cached until the settings screen writes them. */
-  #cached: Settings | undefined
+  /**
+   * The settings are read on every request, so they are cached, but only briefly: another process writes them too
+   * (`bootstrap-admin.js` turns accounts on while the server runs), and a cache that outlived that write kept a public
+   * install in single-user mode, with no sign-in, until a restart.
+   */
+  #cached: { readonly settings: Settings; readonly readAt: number } | undefined
+  readonly #now: () => number
 
-  constructor(dependencies: AuthDependencies) {
+  constructor(dependencies: AuthDependencies, now: () => number = Date.now) {
     const { pool, schema } = dependencies
     this.#secrets = dependencies.secrets
+    this.#now = now
     this.users = new UserRepository(pool, schema)
     this.sessions = new SessionRepository(pool, schema)
     this.permissions = new PermissionRepository(pool, schema)
@@ -99,9 +108,16 @@ export class AuthService {
   }
 
   async currentSettings(): Promise<Settings> {
-    this.#cached ??= await this.settings.read()
+    const cached = this.#cached
+    if (cached !== undefined && this.#now() - cached.readAt < SETTINGS_CACHE_MS) return cached.settings
 
-    return this.#cached
+    return this.#remember(await this.settings.read())
+  }
+
+  #remember(settings: Settings): Settings {
+    this.#cached = { settings, readAt: this.#now() }
+
+    return settings
   }
 
   /**
@@ -262,7 +278,7 @@ export class AuthService {
     await this.users.setRole(owner.id, ADMIN_ROLE_ID)
     await this.users.setPassword(owner.id, await hashPassword(password), false)
     // Last: until the password is stored, turning accounts on would lock everyone out.
-    this.#cached = await this.settings.write({ singleUser: false })
+    this.#remember(await this.settings.write({ singleUser: false }))
     await this.sessions.removeAll()
 
     return 'created'
@@ -377,7 +393,7 @@ export class AuthService {
     }
 
     const settings = await this.settings.write(patch)
-    this.#cached = settings
+    this.#remember(settings)
 
     // Both directions change what an existing cookie means, so none of them survive the change.
     if (patch.singleUser !== undefined) await this.sessions.removeAll()
