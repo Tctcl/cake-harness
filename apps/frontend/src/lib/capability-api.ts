@@ -1,6 +1,6 @@
 /** The capability catalogs the backend keeps: what a workspace and an agent can be granted. */
 
-import type { Credential, CredentialInput } from './credentials-api.ts'
+import { request } from './http.ts'
 
 /** Columns every catalog row carries; timestamps arrive as ISO strings because they crossed JSON. */
 interface Stamped {
@@ -50,12 +50,6 @@ export interface WorkspaceMcpServer extends Stamped {
   /** The credential this server authenticates with, or `null` while none is chosen. */
   readonly credentialId: string | null
 }
-
-import { request } from './http.ts'
-
-/** A server's credentials are the user's own: the dropdown offers those whose `mcpId` matches the server. */
-export type McpCredential = Credential
-export type McpCredentialInput = CredentialInput
 
 const json = (method: string, body: unknown): RequestInit => ({
   method,
