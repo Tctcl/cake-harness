@@ -176,7 +176,7 @@ because they decide how much of this is configuration and how much is a fork:
    So no price fetching at runtime, and no risk of our arithmetic drifting from
    theirs on tiered prompts.
 4. **Cost is already summed per conversation.** `UsageTotals` in
-   `apps/backend/src/agent.ts:92` carries `cost` alongside the four token counts,
+   `apps/backend/src/agent.ts` carries `cost` alongside the four token counts,
    summed from the engine's usage ledger. What is missing is the *workspace*,
    *credential* and *model* dimensions — the existing total has no axis to group by.
 
