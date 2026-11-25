@@ -4,13 +4,15 @@ Research notes and the architecture decision for running agents in this platform
 Written so an agent (human or AI) can pick this up without re-reading upstream.
 
 Status: **chat slice over Postgres.** `apps/backend` runs a durable `Harness` over
-the Postgres adapter ([`docs/postgres-adapter.md`](./postgres-adapter.md)), keeps
-one conversation per row of `chat_threads`, and serves it through
-`/threads/:threadId/messages` with `opencode-go`/`deepseek-v4.1-flash`. A thread is
-filed under a `workspaces` row and an `agents` row, but the selection is still
-bookkeeping: the harness runs with no tools and no MCP either way. There are no
-tools and no streaming, and `apps/agent` runs a workspace bootstrap, not the
-harness.
+the Postgres adapter ([`docs/postgres-adapter.md`](./postgres-adapter.md)) and keeps
+one conversation per row of `chat_threads`, on `opencode-go`/`deepseek-v4.1-flash`
+with the key stored on the credentials page. Reads are paged
+(`GET /threads/:threadId/messages`, an opaque cursor). A run streams as
+server-sent events (`GET /threads/:threadId/stream`): each frame is the newest
+window of the transcript plus the live run (reasoning, partial text, tool slots)
+and the usage totals. A thread is filed under a `workspaces` row and an `agents`
+row, but the selection only supplies the system prompt: the harness runs with no
+tools and no MCP. `apps/agent` runs a workspace bootstrap, not the harness.
 
 Sources (read 2026-11-22):
 

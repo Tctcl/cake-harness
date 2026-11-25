@@ -162,7 +162,7 @@ build and one that does not.
 
 A fourth is inherited rather than decided here: **one turn at a time per
 conversation**. The supervisor already single-flights a reopen
-(`apps/backend/src/agent.ts:389`), and appends go through the durable log, so a
+(`Supervisor` in `apps/backend/src/agent.ts`), and appends go through the durable log, so a
 second device's message queues behind the running turn instead of interleaving with
 it. Two devices therefore cost one turn each, in order — which is also what makes
 per-call usage rows unambiguous.
