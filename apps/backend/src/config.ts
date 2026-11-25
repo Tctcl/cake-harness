@@ -26,7 +26,7 @@ export interface Config {
   readonly host: string
   readonly port: number
   readonly logLevel: LogLevel
-  /** Postgres for the durable log and the platform tables; the backend has no storage without it. */
+  /** Postgres for the durable log and Cake's tables; the backend has no storage without it. */
   readonly databaseUrl: string
   /** Postgres pool ceiling. */
   readonly databasePoolSize: number
@@ -89,14 +89,14 @@ const environmentSchema = z.object({
     .default(10),
   DOCKER_HOST: z.string().min(1).default('unix:///var/run/docker.sock'),
   // The local development image the agent workspace is built as; an install sets this to the released tag.
-  WORKSPACE_IMAGE: z.string().min(1).default('tctcl/dev-env:dev'),
+  WORKSPACE_IMAGE: z.string().min(1).default('cake-harness/dev-env:dev'),
   // Both or neither: a container that cannot resolve the backend gets no documents and boots without them.
   WORKSPACE_BACKEND_URL: z.url({ protocol: /^https?$/, error: 'must be an http:// or https:// URL' }).optional(),
   WORKSPACE_NETWORK: z.string().min(1).optional(),
-  TCTCL_CHANNEL: z.enum(releaseChannels).default('production'),
+  CAKE_CHANNEL: z.enum(releaseChannels).default('production'),
   // Absent in a checkout and empty on a staging install, which follows a moving tag: there is nothing to compare
   // against, so the check reports that instead of guessing. Compose hands an empty variable through as ''.
-  TCTCL_VERSION: z.preprocess(
+  CAKE_VERSION: z.preprocess(
     (value) => (value === '' ? undefined : value),
     z
       .string()
@@ -181,8 +181,8 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     workspaceImage: parsed.data.WORKSPACE_IMAGE,
     workspaceBackendUrl: workspace.backendUrl,
     workspaceNetwork: workspace.network,
-    channel: parsed.data.TCTCL_CHANNEL,
-    version: parsed.data.TCTCL_VERSION,
+    channel: parsed.data.CAKE_CHANNEL,
+    version: parsed.data.CAKE_VERSION,
     updateCheckIntervalMs: parsed.data.UPDATE_CHECK_INTERVAL_MS,
     ciphergate,
     frontendDir: parsed.data.FRONTEND_DIR,
@@ -232,7 +232,7 @@ const secretBox = (configured: string | undefined, nodeEnv: NodeEnvironment, dat
   }
 
   process.emitWarning('SECRET_KEY is not set: deriving one from DATABASE_URL for local use only', {
-    code: 'TCTCL_DERIVED_SECRET',
+    code: 'CAKE_DERIVED_SECRET',
   })
 
   return createSecretBox(`development:${databaseUrl}`)

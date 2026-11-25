@@ -32,15 +32,15 @@ Code and state are separate so an upgrade can replace one without touching the
 other:
 
 ```text
-/opt/tctcl-platform/            replaced on every upgrade
+/opt/cake-harness/            replaced on every upgrade
   compose.yaml
   install.sh
   updater.sh
-  tctcl-updater.socket
-  tctcl-updater@.service
+  cake-updater.socket
+  cake-updater@.service
   .env.example                  the shape, not a source of values
 
-/var/lib/tctcl-platform/        never touched by an upgrade
+/var/lib/cake-harness/        never touched by an upgrade
   .env                          generated once, 0600, never regenerated
   traefik/acme.json             Traefik writes it at 0600 and refuses a wider mode
   ciphergate/gateway.db         the secrets store's SQLite database
@@ -53,7 +53,7 @@ other:
 ```
 
 Postgres is the exception to "state is a directory": its data lives in the named
-volume `tctcl_postgres-data`. Nobody reads inside it, `pg_dump` is the copy of
+volume `cake_postgres-data`. Nobody reads inside it, `pg_dump` is the copy of
 record, and Docker's own uid and fsync handling removes a class of
 "container won't start after reinstall" failures. Everything else is a bind mount
 a human can `ls` — including the secrets store, whose keyfile is useless inside a
@@ -63,7 +63,7 @@ volume nobody inspects.
 
 Every credential the stack needs at run time — the GitHub token a workspace's
 `gh` uses, an npm publish token, the Model Context Protocol API keys, the
-Pushover tokens when alerts arrive, each workspace's `TCTCL_ENV_*` values — comes
+Pushover tokens when alerts arrive, each workspace's `CAKE_ENV_*` values — comes
 out of a CipherGate instance instead of out of `.env`. `.env` keeps the bootstrap
 only: the Postgres password and the reader key that opens the store.
 
@@ -91,14 +91,14 @@ Three consequences worth knowing before operating this:
 - **Back the keyfile up separately from the database.** A copy of both in the
   same place is one leak away from handing over everything.
 - **The store keeps no copy of its admin key.** The first install writes it to
-  `/var/lib/tctcl-platform/first-run-credentials` (root only, mode 0600), next to
+  `/var/lib/cake-harness/first-run-credentials` (root only, mode 0600), next to
   the first admin password. Move both into a password manager and delete the
   file. If the key is lost, it is a key rotation problem, not a reinstall problem.
 
 ## Install
 
 ```bash
-curl -fsSL https://github.com/Tctcl/tlabs-platform/releases/download/v0.1.0/install.sh -o install.sh
+curl -fsSL https://github.com/Tctcl/cake-harness/releases/download/v0.1.0/install.sh -o install.sh
 less install.sh
 sudo bash install.sh --domain chat.example.com
 ```
@@ -107,7 +107,7 @@ Then add the DNS record and open 22/80/443. The script, in order: checks the
 architecture and (loosely) the distribution, resolves `--version latest` through
 the GitHub releases redirect, installs Docker from Docker's apt repository if
 `docker compose version` does not already work, unpacks the release bundle into
-`/opt/tctcl-platform`, creates the state directories and the `tctcl-updater`
+`/opt/cake-harness`, creates the state directories and the `cake-updater`
 group, writes `.env` with a generated Postgres password, generates the secrets
 store's keyfile, initialises the store and creates the backend's reader consumer
 (its key is written into `.env`), then runs `docker compose up -d`. Once the app
@@ -117,7 +117,7 @@ finally enables the update socket. The password goes only into
 `first-run-credentials`; a re-run never resets it.
 
 ```bash
-sudo cat /var/lib/tctcl-platform/first-run-credentials
+sudo cat /var/lib/cake-harness/first-run-credentials
 ```
 
 Every step is idempotent, and an existing `.env` is never rewritten — the secrets
@@ -127,11 +127,11 @@ making them, which is the only honest way to inspect a script that runs as root.
 ## Upgrade and rollback
 
 ```bash
-sudo /opt/tctcl-platform/install.sh --version 0.2.0
+sudo /opt/cake-harness/install.sh --version 0.2.0
 ```
 
 That is the same code path as the install: pull the new bundle, rewrite
-`TCTCL_VERSION` in `.env`, `compose pull`, `compose up -d`. Every first-party
+`CAKE_VERSION` in `.env`, `compose pull`, `compose up -d`. Every first-party
 image is referenced by exact version, so the stack always names what it runs and
 there is no `latest` to drift.
 
@@ -148,29 +148,29 @@ privileged operation on its own host. It does not do that with Docker, and it do
 not do it with SSH keys: it writes one line to a Unix socket.
 
 ```text
-/run/tctcl/updater.sock     root:tctcl-updater, 0660, systemd Accept=yes
+/run/cake/updater.sock     root:cake-updater, 0660, systemd Accept=yes
 
 in:   UPDATE 1.2.3
 out:  START 1.2.3
       <installer output>
-      OK 1.2.3        or        ERR install failed, see /var/lib/tctcl-platform/updater.log
+      OK 1.2.3        or        ERR install failed, see /var/lib/cake-harness/updater.log
 ```
 
-`tctcl-updater.socket` owns the listener, so no process idles between updates.
-Each connection is handed to one instance of `tctcl-updater@.service`, which runs
+`cake-updater.socket` owns the listener, so no process idles between updates.
+Each connection is handed to one instance of `cake-updater@.service`, which runs
 `updater.sh` with stdin and stdout bound to the connection. The handler validates
 the version as strict semver before it reaches a root command line, takes a lock
 so two requests cannot race, and runs `install.sh --version` with its output tee'd
 to `updater.log`.
 
 Why a socket instead of a privileged container spawned by the backend: the
-installer stays on the host, `journalctl -u tctcl-updater@` and `updater.log` are
+installer stays on the host, `journalctl -u cake-updater@` and `updater.log` are
 the audit trail, and a backend that crashes mid-request cannot leave a container
 pretending to be a package manager. Security-wise it changes nothing — the backend
 can already create containers. What it buys is one interface, one log, and one
 place where a half-finished update is visible.
 
-The backend must run with gid **1001** (`tctcl-updater`) to write the socket. That
+The backend must run with gid **1001** (`cake-updater`) to write the socket. That
 is a deployment contract once its image exists, not a suggestion.
 
 ## Backups
@@ -221,7 +221,7 @@ container derives its manifest and report URLs. Both variables are set together 
 not at all: a container without them boots on the image's floor and is never told
 anything, which is the intended state for a deployment that has not wired one.
 
-On `tctcl-workspaces` a workspace reaches `app` and nothing else. It is not on
+On `cake-workspaces` a workspace reaches `app` and nothing else. It is not on
 `db`, `api-rw` or `secrets`, so the database, the Docker API and the store stay out
 of reach even though the manifest the backend serves is derived from all three.
 
@@ -231,9 +231,9 @@ Three images, published to GHCR by `.github/workflows/images.yml`, `linux/amd64`
 only:
 
 ```text
-ghcr.io/tctcl/tlabs-platform               the product image: Fastify serving the built SPA
-ghcr.io/tctcl/tlabs-platform/workspace     the environment image apps/agent/Dockerfile builds
-ghcr.io/tctcl/tlabs-platform/ciphergate    the secrets store, built from a pinned upstream commit
+ghcr.io/tctcl/cake-harness               the product image: Fastify serving the built SPA
+ghcr.io/tctcl/cake-harness/workspace     the environment image apps/agent/Dockerfile builds
+ghcr.io/tctcl/cake-harness/ciphergate    the secrets store, built from a pinned upstream commit
 ```
 
 The product image serves the frontend and the API from one origin, so there is no
@@ -259,7 +259,7 @@ requires a checkout of `main`, because nothing tags a staging commit, so there i
 no staging bundle to download. It pulls `:staging` on every run:
 
 ```bash
-git clone https://github.com/Tctcl/tlabs-platform.git && cd tlabs-platform
+git clone https://github.com/Tctcl/cake-harness.git && cd cake-harness
 sudo bash deploy/install.sh --channel staging --domain staging.example.com --acme-email you@example.com
 ```
 
@@ -268,14 +268,14 @@ has: `deploy/` plus `infrastructure/`'s updater and systemd units. To update
 staging, `git pull` and run it again. Without `--channel` it keeps the channel
 `.env` records, so a staging install is never quietly moved onto releases.
 Switching channels is re-running the script with a different `--channel`: `.env`
-records the choice as `TCTCL_CHANNEL`, `TCTCL_IMAGE` and `TCTCL_WORKSPACE_IMAGE`.
-`TCTCL_VERSION` is empty on staging, because a moving tag has no version to
+records the choice as `CAKE_CHANNEL`, `CAKE_IMAGE` and `CAKE_WORKSPACE_IMAGE`.
+`CAKE_VERSION` is empty on staging, because a moving tag has no version to
 compare.
 
 `dev` is not an install. It is this repository and `pnpm dev`, and it is the only
 channel with no container on the machine.
 
-The deployment bundle (`tctcl-deploy-vX.Y.Z.tar.gz`) is built from the release tag
+The deployment bundle (`cake-deploy-vX.Y.Z.tar.gz`) is built from the release tag
 by `.github/workflows/bundle.yml` and uploaded to the release. It is fetched over
 TLS and its contents are checked into this repository, but there is no signature
 and no checksum file yet.
@@ -284,14 +284,14 @@ and no checksum file yet.
 
 The backend asks GitHub for `releases/latest` every fifteen minutes
 (`UPDATE_CHECK_INTERVAL_MS`, `0` turns it off) and records the answer: what the
-install runs from `TCTCL_VERSION`, what the newest release is, and whether the
+install runs from `CAKE_VERSION`, what the newest release is, and whether the
 first is behind the second. `GET /updates` returns the last answer without
 touching the network; `POST /updates` forces a check. Nothing in the interface
 reads it yet.
 
 Two cases report `available: null` instead of guessing. A staging install tracks
 a moving tag, so every merge would look like an update and the number would mean
-nothing. A checkout has no `TCTCL_VERSION` to compare against. Both still
+nothing. A checkout has no `CAKE_VERSION` to compare against. Both still
 record when they last checked.
 
 This is a notification, not an updater: nothing is downloaded and nothing is

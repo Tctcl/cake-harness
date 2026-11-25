@@ -21,7 +21,7 @@ export interface DevEnvironment {
 
 export interface EnvironmentInput {
   readonly name: string
-  /** The image the platform publishes for this environment; the platform's own, never an arbitrary registry tag. */
+  /** The image Cake publishes for this environment; Cake's own, never an arbitrary registry tag. */
   readonly image: string
 }
 

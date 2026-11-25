@@ -9,9 +9,14 @@ conventions do not have to be retrofitted later.
 
 ## The project
 
-`tctcl-platform` is a pnpm + turbo monorepo for a Node/TypeScript backend, a
-React frontend and a long-running agent process, plus shared TypeScript and lint
-configuration. It is MIT licensed and intended to be developed in public.
+Cake is an agent harness built on top of Pi, the coding agent by Earendil
+(`pi-durable`, `pi-ai`, `pi-env`). It adds a web interface, workspaces that each
+run in an isolated Docker container, and multiple agent profiles per workspace.
+Each profile has its own model, thinking level, key, prompt and tool grants.
+
+This pnpm + turbo monorepo contains a Node/TypeScript backend, a React frontend
+and a long-running agent process, plus shared TypeScript and lint configuration.
+It is MIT licensed and intended to be developed in public.
 
 **Current state:** early, and every API here is expected to change. `apps/agent`
 holds the workspace development image and its bootstrap
@@ -42,8 +47,8 @@ not describe these as features anywhere, and do not assume an API here is stable
    dependency already does.** Dependencies are a maintenance contract; a helper
    function is usually cheaper.
 5. **Configuration is shared, not per-app.** TypeScript comes from
-   `@tctcl/typescript-config`, lint from `@tctcl/oxlint-config`, tests from
-   `@tctcl/vitest-config`. An app's
+   `@cake-harness/typescript-config`, lint from `@cake-harness/oxlint-config`, tests from
+   `@cake-harness/vitest-config`. An app's
    `tsconfig.json` / `.oxlintrc.json` should stay a few lines of `extends`
    plus genuinely app-specific options.
 6. **`pnpm typecheck && pnpm lint && pnpm test && pnpm build` must pass before
@@ -54,7 +59,7 @@ not describe these as features anywhere, and do not assume an API here is stable
 ## Repository map
 
 ```text
-apps/agent        @tctcl/agent        Node ESM process, emits dist/ via tsc
+apps/agent        @cake-harness/agent        Node ESM process, emits dist/ via tsc
 apps/backend      backend            Fastify service, tsx in dev, tsc build
 apps/frontend     frontend           React 19 + Vite 8, vite build
 packages/typescript-config           shared tsconfig presets (JSON only)
@@ -206,7 +211,7 @@ in CI or in a verification step.
 
 ## Testing
 
-Vitest is installed in every app and runs through `@tctcl/vitest-config`.
+Vitest is installed in every app and runs through `@cake-harness/vitest-config`.
 The Postgres-backed suites in `apps/backend` skip themselves without `DATABASE_URL`;
 the `gates` workflow runs a `postgres:18-alpine` service so they always run in CI.
 Locally, point `DATABASE_URL` at a disposable database to run them.

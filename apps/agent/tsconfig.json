@@ -1,5 +1,5 @@
 {
-  "extends": "@tctcl/typescript-config/typescript.json",
+  "extends": "@cake-harness/typescript-config/typescript.json",
   "compilerOptions": {
     "rootDir": "./src",
     "outDir": "./dist"

@@ -13,7 +13,7 @@ export interface TerminalSize {
   readonly rows: number
 }
 
-/** A session as the platform knows it; the container and the pid stay on the backend's side. */
+/** A session as Cake knows it; the container and the pid stay on the backend's side. */
 export interface TerminalPayload {
   readonly id: string
   readonly environmentId: string

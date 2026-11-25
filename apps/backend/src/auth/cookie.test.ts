@@ -4,17 +4,17 @@ import { clearedSessionCookie, readCookie, sessionCookie } from './cookie.js'
 
 describe('readCookie', () => {
   it('finds a value among others', () => {
-    expect(readCookie('a=1; tctcl_session=abc; b=2', 'tctcl_session')).toBe('abc')
+    expect(readCookie('a=1; cake_session=abc; b=2', 'cake_session')).toBe('abc')
   })
 
   it('decodes what was encoded, and copes with spaces either side', () => {
-    expect(readCookie('  tctcl_session = a%3Db  ', 'tctcl_session')).toBe('a=b')
+    expect(readCookie('  cake_session = a%3Db  ', 'cake_session')).toBe('a=b')
   })
 
   it('answers undefined for no header, a missing name, or a pair with no value', () => {
-    expect(readCookie(undefined, 'tctcl_session')).toBeUndefined()
-    expect(readCookie('a=1; b=2', 'tctcl_session')).toBeUndefined()
-    expect(readCookie('tctcl_session', 'tctcl_session')).toBeUndefined()
+    expect(readCookie(undefined, 'cake_session')).toBeUndefined()
+    expect(readCookie('a=1; b=2', 'cake_session')).toBeUndefined()
+    expect(readCookie('cake_session', 'cake_session')).toBeUndefined()
   })
 })
 
@@ -22,7 +22,7 @@ describe('sessionCookie', () => {
   it('is HttpOnly and Lax, so script cannot read it and another site cannot spend it', () => {
     const value = sessionCookie('token', false, 60)
 
-    expect(value).toContain('tctcl_session=token')
+    expect(value).toContain('cake_session=token')
     expect(value).toContain('HttpOnly')
     expect(value).toContain('SameSite=Lax')
     expect(value).toContain('Max-Age=60')

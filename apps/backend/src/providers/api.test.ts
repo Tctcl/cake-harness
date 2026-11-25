@@ -12,7 +12,7 @@ import type { ProviderKeyCheck, UpstreamModel } from './provider-client.js'
 import { ProviderRepository } from './provider-repository.js'
 
 /** Live-server suite like its neighbours: `DATABASE_URL` names a disposable database, and every case gets a prefix. */
-const IMAGE = 'tctcl/dev-env:dev'
+const IMAGE = 'cake-harness/dev-env:dev'
 
 const MODEL: UpstreamModel = {
   id: 'anthropic/claude-sonnet-4',

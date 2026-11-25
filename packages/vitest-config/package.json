@@ -1,5 +1,5 @@
 {
-  "name": "@tctcl/vitest-config",
+  "name": "@cake-harness/vitest-config",
   "version": "0.0.1",
   "private": true,
   "type": "module",

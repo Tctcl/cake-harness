@@ -3,7 +3,7 @@
  * the database so it follows the account, while a collapsed group is a per-browser convenience and stays here. A
  * workspace the list no longer shows is dropped from the set on the next write, so an archived id does not accumulate.
  */
-const STORAGE_KEY = 'tlabs-collapsed-workspaces'
+const STORAGE_KEY = 'cake-collapsed-workspaces'
 
 /** The stored set, or none when nothing was chosen or storage is unavailable (a private window throws). */
 export function readCollapsed(): ReadonlySet<string> {

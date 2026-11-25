@@ -1,4 +1,4 @@
-# @tctcl/typescript-config
+# @cake-harness/typescript-config
 
 Shared `tsconfig` presets for this monorepo. Every app and package extends one
 of these instead of duplicating compiler options, so a flag change here applies
@@ -11,16 +11,16 @@ compiled on its own.
 
 | Export | Extends | Used by | Notes |
 | --- | --- | --- | --- |
-| `@tctcl/typescript-config/base.json` | — | nothing directly | `strict`, `ES2022` target, `NodeNext`-agnostic base options |
-| `@tctcl/typescript-config/typescript.json` | `base.json` | `apps/agent` | Node ESM: `NodeNext` module/resolution, declarations, source maps |
-| `@tctcl/typescript-config/fastify.json` | `typescript.json` | `apps/backend` | Node ESM plus server-oriented strictness (`noUnusedLocals`, `exactOptionalPropertyTypes`, `noImplicitReturns`) |
-| `@tctcl/typescript-config/vite.json` | `base.json` | `apps/frontend` | Browser/bundler: `ESNext` modules, `Bundler` resolution, `react-jsx`, `noEmit`, DOM libs |
+| `@cake-harness/typescript-config/base.json` | — | nothing directly | `strict`, `ES2022` target, `NodeNext`-agnostic base options |
+| `@cake-harness/typescript-config/typescript.json` | `base.json` | `apps/agent` | Node ESM: `NodeNext` module/resolution, declarations, source maps |
+| `@cake-harness/typescript-config/fastify.json` | `typescript.json` | `apps/backend` | Node ESM plus server-oriented strictness (`noUnusedLocals`, `exactOptionalPropertyTypes`, `noImplicitReturns`) |
+| `@cake-harness/typescript-config/vite.json` | `base.json` | `apps/frontend` | Browser/bundler: `ESNext` modules, `Bundler` resolution, `react-jsx`, `noEmit`, DOM libs |
 
 ## Usage
 
 ```json
 {
-  "extends": "@tctcl/typescript-config/typescript.json",
+  "extends": "@cake-harness/typescript-config/typescript.json",
   "compilerOptions": {
     "rootDir": "./src",
     "outDir": "./dist"
@@ -32,7 +32,7 @@ compiled on its own.
 Add the package as a workspace dev dependency first:
 
 ```json
-{ "devDependencies": { "@tctcl/typescript-config": "workspace:*" } }
+{ "devDependencies": { "@cake-harness/typescript-config": "workspace:*" } }
 ```
 
 ## Editing

@@ -146,7 +146,7 @@ const createEnvironmentBody = {
   additionalProperties: false,
 } as const
 
-// `image` is a tag the platform publishes; a patch either names one or leaves it alone, and `null` is refused because
+// `image` is a tag Cake publishes; a patch either names one or leaves it alone, and `null` is refused because
 // an environment without an image has nothing to start.
 const updateEnvironmentBody = {
   type: 'object',

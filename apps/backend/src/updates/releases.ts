@@ -11,7 +11,7 @@ export interface ReleaseSource {
   latest(): Promise<Release>
 }
 
-const REPOSITORY = 'Tctcl/tlabs-platform'
+const REPOSITORY = 'Tctcl/cake-harness'
 
 // The API answers a lot; only these two are promised to the caller, so an unexpected shape is a failed check rather
 // than a half-read release.

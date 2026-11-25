@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ConfigError, loadConfig } from './config.js'
 
-const DATABASE_URL = 'postgres://user:pass@localhost:5432/tlabs'
+const DATABASE_URL = 'postgres://user:pass@localhost:5432/cake'
 
 describe('loadConfig', () => {
   it('applies defaults for the optional variables', () => {
@@ -14,7 +14,7 @@ describe('loadConfig', () => {
       databaseUrl: DATABASE_URL,
       databasePoolSize: 10,
       docker: { socketPath: '/var/run/docker.sock' },
-      workspaceImage: 'tctcl/dev-env:dev',
+      workspaceImage: 'cake-harness/dev-env:dev',
       workspaceBackendUrl: null,
       workspaceNetwork: null,
       channel: 'production',
@@ -57,7 +57,7 @@ describe('loadConfig', () => {
         HOST: '0.0.0.0',
         PORT: '3000',
         LOG_LEVEL: 'debug',
-        DATABASE_URL: 'postgres://user:pass@db.internal:5432/tlabs',
+        DATABASE_URL: 'postgres://user:pass@db.internal:5432/cake',
         DATABASE_POOL_SIZE: '4',
         SECRET_KEY: 'a-production-secret-key',
       }),
@@ -66,10 +66,10 @@ describe('loadConfig', () => {
       host: '0.0.0.0',
       port: 3000,
       logLevel: 'debug',
-      databaseUrl: 'postgres://user:pass@db.internal:5432/tlabs',
+      databaseUrl: 'postgres://user:pass@db.internal:5432/cake',
       databasePoolSize: 4,
       docker: { socketPath: '/var/run/docker.sock' },
-      workspaceImage: 'tctcl/dev-env:dev',
+      workspaceImage: 'cake-harness/dev-env:dev',
       workspaceBackendUrl: null,
       workspaceNetwork: null,
       channel: 'production',
@@ -84,28 +84,28 @@ describe('loadConfig', () => {
     const wired = loadConfig({
       DATABASE_URL,
       WORKSPACE_BACKEND_URL: 'http://backend:8080/',
-      WORKSPACE_NETWORK: 'tctcl-workspaces',
+      WORKSPACE_NETWORK: 'cake-workspaces',
     })
 
     expect(wired.workspaceBackendUrl).toBe('http://backend:8080')
-    expect(wired.workspaceNetwork).toBe('tctcl-workspaces')
+    expect(wired.workspaceNetwork).toBe('cake-workspaces')
 
     expect(() => loadConfig({ DATABASE_URL, WORKSPACE_BACKEND_URL: 'http://backend:8080' })).toThrow(
       /WORKSPACE_NETWORK: required/,
     )
-    expect(() => loadConfig({ DATABASE_URL, WORKSPACE_NETWORK: 'tctcl-workspaces' })).toThrow(
+    expect(() => loadConfig({ DATABASE_URL, WORKSPACE_NETWORK: 'cake-workspaces' })).toThrow(
       /WORKSPACE_BACKEND_URL: required/,
     )
   })
 
   it('accepts both postgres URL schemes', () => {
-    expect(loadConfig({ DATABASE_URL: 'postgresql://db/tlabs' }).databaseUrl).toBe(
-      'postgresql://db/tlabs',
+    expect(loadConfig({ DATABASE_URL: 'postgresql://db/cake' }).databaseUrl).toBe(
+      'postgresql://db/cake',
     )
   })
 
   it('rejects a connection string that is not a postgres URL', () => {
-    expect(() => loadConfig({ DATABASE_URL: 'mysql://db/tlabs' })).toThrow(
+    expect(() => loadConfig({ DATABASE_URL: 'mysql://db/cake' })).toThrow(
       'must be a postgres:// or postgresql:// URL',
     )
     expect(() => loadConfig({ DATABASE_URL: 'db.internal:5432' })).toThrow(ConfigError)
@@ -117,13 +117,13 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ DATABASE_URL, DATABASE_POOL_SIZE: '2.5' })).toThrow(ConfigError)
   })
 
-  it('reads an empty TCTCL_VERSION as no version, the way a staging install passes it', () => {
-    expect(loadConfig({ DATABASE_URL, TCTCL_CHANNEL: 'staging', TCTCL_VERSION: '' })).toMatchObject({
+  it('reads an empty CAKE_VERSION as no version, the way a staging install passes it', () => {
+    expect(loadConfig({ DATABASE_URL, CAKE_CHANNEL: 'staging', CAKE_VERSION: '' })).toMatchObject({
       channel: 'staging',
       version: undefined,
     })
-    expect(loadConfig({ DATABASE_URL, TCTCL_VERSION: '1.2.3' }).version).toBe('1.2.3')
-    expect(() => loadConfig({ DATABASE_URL, TCTCL_VERSION: 'staging' })).toThrow(/TCTCL_VERSION/)
+    expect(loadConfig({ DATABASE_URL, CAKE_VERSION: '1.2.3' }).version).toBe('1.2.3')
+    expect(() => loadConfig({ DATABASE_URL, CAKE_VERSION: 'staging' })).toThrow(/CAKE_VERSION/)
   })
 
   it('rejects an invalid port', () => {

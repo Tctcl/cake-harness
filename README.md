@@ -1,6 +1,11 @@
-# tctcl-platform
+# Cake
 
-Monorepo for the tctcl platform: a Node/TypeScript backend, a React frontend
+Cake is an agent harness built on top of Pi, the coding agent by Earendil
+(`pi-durable`, `pi-ai`, `pi-env`). It adds a web interface, workspaces that each
+run in an isolated Docker container, and multiple agent profiles per workspace.
+Each profile has its own model, thinking level, key, prompt and tool grants.
+
+This pnpm + turbo monorepo contains a Node/TypeScript backend, a React frontend
 and a long-running agent process, sharing TypeScript and lint configuration.
 
 > **Status: early, and expected to change.** The repository contains build
@@ -48,12 +53,12 @@ about. Start it with `pnpm dev:agent` when you want that box.
 
 | Path | Package name | Purpose |
 | --- | --- | --- |
-| `apps/agent` | `@tctcl/agent` | Workspace development image and its bootstrap |
+| `apps/agent` | `@cake-harness/agent` | Workspace development image and its bootstrap |
 | `apps/backend` | `backend` | Fastify HTTP service: identity, workspaces, agents, environments, terminals, capabilities and providers over Postgres |
 | `apps/frontend` | `frontend` | React + Vite web client: conversations, workspace settings, credentials and a container terminal |
-| `packages/typescript-config` | `@tctcl/typescript-config` | Shared `tsconfig` presets |
-| `packages/oxlint-config` | `@tctcl/oxlint-config` | Shared oxlint presets |
-| `packages/vitest-config` | `@tctcl/vitest-config` | Shared Vitest presets |
+| `packages/typescript-config` | `@cake-harness/typescript-config` | Shared `tsconfig` presets |
+| `packages/oxlint-config` | `@cake-harness/oxlint-config` | Shared oxlint presets |
+| `packages/vitest-config` | `@cake-harness/vitest-config` | Shared Vitest presets |
 
 `pnpm-workspace.yaml` includes `apps/*` and `packages/*`; turbo orchestrates the
 `build`, `dev`, `typecheck`, `lint` and `test` tasks defined in `turbo.json`.
@@ -63,7 +68,7 @@ about. Start it with `pnpm dev:agent` when you want that box.
 | Script | Command |
 | --- | --- |
 | `dev` | `turbo run dev --filter=backend --filter=frontend` |
-| `dev:agent` | `turbo run dev --filter=@tctcl/agent` |
+| `dev:agent` | `turbo run dev --filter=@cake-harness/agent` |
 | `dev:backend` | `turbo run dev --filter=backend` |
 | `dev:frontend` | `turbo run dev --filter=frontend` |
 | `build` | `turbo run build` |
@@ -87,11 +92,11 @@ infrastructure/  host-side systemd units for the updater socket
 Apps do not define TypeScript or lint settings inline; they extend the packages
 in `packages/` so a change lands everywhere at once.
 
-- `@tctcl/typescript-config` provides `base.json`, `typescript.json`,
+- `@cake-harness/typescript-config` provides `base.json`, `typescript.json`,
   `fastify.json` and `vite.json`.
-- `@tctcl/oxlint-config` provides `base.json` (Node/TypeScript) and `react.json`
+- `@cake-harness/oxlint-config` provides `base.json` (Node/TypeScript) and `react.json`
   (adds React and browser environments).
-- `@tctcl/vitest-config` provides `base` (Node environment) and `react` (jsdom
+- `@cake-harness/vitest-config` provides `base` (Node environment) and `react` (jsdom
   plus Testing Library setup).
 
 ## Testing

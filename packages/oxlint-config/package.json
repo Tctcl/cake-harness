@@ -1,5 +1,5 @@
 {
-  "name": "@tctcl/oxlint-config",
+  "name": "@cake-harness/oxlint-config",
   "version": "0.0.1",
   "private": true,
   "exports": {

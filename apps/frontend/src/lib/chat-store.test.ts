@@ -110,7 +110,7 @@ describe('mergeTools', () => {
       result: null,
       durationMs: null,
     }
-    const settled = { ...running, status: 'ok' as const, result: '# tlabs', durationMs: 12 }
+    const settled = { ...running, status: 'ok' as const, result: '# Cake', durationMs: 12 }
     const other = { ...running, id: 'call-2', entryId: 4, name: 'grep' }
 
     expect(mergeTools([running], [settled, other])).toEqual([other, settled])
@@ -180,7 +180,7 @@ describe('chat store', () => {
       name: 'read',
       arguments: '{"path":"README.md"}',
       status: 'ok',
-      result: '# tlabs',
+      result: '# Cake',
       durationMs: 12,
     }
 

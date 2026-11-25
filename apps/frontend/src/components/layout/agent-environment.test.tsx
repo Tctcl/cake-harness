@@ -11,7 +11,7 @@ const GO_ID = '66666666-7777-4888-9999-aaaaaaaaaaaa'
 const environment = (id: string, name: string, running: boolean) => ({
   id,
   name,
-  image: 'ghcr.io/tctcl/tlabs-platform/workspace:0.1.0',
+  image: 'ghcr.io/tctcl/cake-harness/workspace:0.1.0',
   containerId: running ? 'abc123' : null,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',

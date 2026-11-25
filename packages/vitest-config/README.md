@@ -1,4 +1,4 @@
-# @tctcl/vitest-config
+# @cake-harness/vitest-config
 
 Shared [Vitest](https://vitest.dev) presets for this monorepo. The `vitest`
 binary lives in each app's `devDependencies`; this package only ships the
@@ -10,8 +10,8 @@ There are no scripts in this package and nothing to build.
 
 | Export | Environment | Setup | Used by |
 | --- | --- | --- | --- |
-| `@tctcl/vitest-config/base` | `node` | none | `apps/agent`, `apps/backend` |
-| `@tctcl/vitest-config/react` | `jsdom` | `@vitejs/plugin-react`, `./src/test/setup.ts` | `apps/frontend` |
+| `@cake-harness/vitest-config/base` | `node` | none | `apps/agent`, `apps/backend` |
+| `@cake-harness/vitest-config/react` | `jsdom` | `@vitejs/plugin-react`, `./src/test/setup.ts` | `apps/frontend` |
 
 Both presets share:
 
@@ -25,14 +25,14 @@ Both presets share:
 
 ```ts
 // apps/backend/vitest.config.ts
-import base from '@tctcl/vitest-config/base'
+import base from '@cake-harness/vitest-config/base'
 
 export default base
 ```
 
 ```ts
 // apps/frontend/vitest.config.ts
-import react from '@tctcl/vitest-config/react'
+import react from '@cake-harness/vitest-config/react'
 
 export default react
 ```

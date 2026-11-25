@@ -9,7 +9,7 @@ const status = {
   channel: 'production',
   current: '0.2.0',
   latest: '0.3.0',
-  url: 'https://github.com/Tctcl/tlabs-platform/releases/tag/v0.3.0',
+  url: 'https://github.com/Tctcl/cake-harness/releases/tag/v0.3.0',
   available: true,
   checkedAt: '2026-01-01T00:00:00.000Z',
   error: null,

@@ -3,7 +3,7 @@ import type { DockerConnection } from './docker-connection.js'
 /**
  * How to reach a container's sshd. The dev image runs one on 22 for the `dev` user with public keys only
  * (`apps/agent/Dockerfile`, `apps/agent/docker/sshd_config`), so nothing here invents a service: it reports the mapping
- * Docker was asked for, and answers `null` when no port is published, which is the truth for a container the platform
+ * Docker was asked for, and answers `null` when no port is published, which is the truth for a container Cake
  * created without one.
  */
 export const SSH_USER = 'dev'

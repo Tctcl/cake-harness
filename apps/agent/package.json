@@ -1,5 +1,5 @@
 {
-  "name": "@tctcl/agent",
+  "name": "@cake-harness/agent",
   "private": true,
   "version": "0.0.1",
   "type": "module",
@@ -14,9 +14,9 @@
   },
   "dependencies": {},
   "devDependencies": {
-    "@tctcl/oxlint-config": "workspace:*",
-    "@tctcl/typescript-config": "workspace:*",
-    "@tctcl/vitest-config": "workspace:*",
+    "@cake-harness/oxlint-config": "workspace:*",
+    "@cake-harness/typescript-config": "workspace:*",
+    "@cake-harness/vitest-config": "workspace:*",
     "@types/node": "^26.6.6",
     "oxlint": "^1.90.0",
     "typescript": "^7.0.2",

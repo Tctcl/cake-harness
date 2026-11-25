@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Installs or updates one self-hosted tctcl-platform instance.
+# Installs or updates one self-hosted Cake instance.
 #
 # The supported host is a fresh Ubuntu server that runs nothing else: Docker from
 # Docker's own apt repository, the stack in compose.yaml, and the host-side update
@@ -16,26 +16,26 @@
 #
 set -euo pipefail
 
-REPO="Tctcl/tlabs-platform"
-INSTALL_DIR="${TCTCL_INSTALL_DIR:-/opt/tctcl-platform}"
-STATE_DIR="${TCTCL_STATE_DIR:-/var/lib/tctcl-platform}"
+REPO="Tctcl/cake-harness"
+INSTALL_DIR="${CAKE_INSTALL_DIR:-/opt/cake-harness}"
+STATE_DIR="${CAKE_STATE_DIR:-/var/lib/cake-harness}"
 
 # Fixed so the container user can be given the same gid by the backend image.
-SOCKET_GROUP="tctcl-updater"
+SOCKET_GROUP="cake-updater"
 SOCKET_GID=1001
-SOCKET_DIR="/run/tctcl"
+SOCKET_DIR="/run/cake"
 
 DRY_RUN=false
 VERSION="latest"
 # Which release channel this install follows. `production` pins a released version; `staging` tracks the moving
 # `staging` tag, which every merge to main overwrites. A `dev` install is a checkout and `pnpm dev`, not this script.
-# Empty means "what this install already follows" (TCTCL_CHANNEL in .env), and production for a first install: re-running
+# Empty means "what this install already follows" (CAKE_CHANNEL in .env), and production for a first install: re-running
 # the script without --channel must not quietly move a staging install onto releases.
 CHANNEL=""
 IMAGE=""
 WORKSPACE_IMAGE=""
 CIPHERGATE_IMAGE=""
-DOMAIN="${TCTCL_DOMAIN:-}"
+DOMAIN="${CAKE_DOMAIN:-}"
 ACME_EMAIL=""
 ADMIN_USER="admin"
 
@@ -69,7 +69,7 @@ run() {
 
 usage() {
   cat <<'EOF'
-Installs or updates one self-hosted tctcl-platform instance.
+Installs or updates one self-hosted Cake instance.
 
   --version X.Y.Z     release to install (default: latest)
   --channel NAME      production or staging (default: what the install already follows, else production)
@@ -119,7 +119,7 @@ parse_args() {
 
 validate() {
   if [ -z "$CHANNEL" ]; then
-    CHANNEL="$(sed -n 's/^TCTCL_CHANNEL=//p' "$STATE_DIR/.env" 2>/dev/null || true)"
+    CHANNEL="$(sed -n 's/^CAKE_CHANNEL=//p' "$STATE_DIR/.env" 2>/dev/null || true)"
     CHANNEL="${CHANNEL:-production}"
   fi
 
@@ -243,9 +243,9 @@ fetch_bundle() {
     run install -m 0755 "$here/install.sh" "$INSTALL_DIR/install.sh"
     run install -m 0644 "$here/compose.yaml" "$INSTALL_DIR/compose.yaml"
     run install -m 0644 "$here/.env.example" "$INSTALL_DIR/.env.example"
-    run install -m 0755 "$here/../infrastructure/tctcl-updater.sh" "$INSTALL_DIR/updater.sh"
-    run install -m 0644 "$here/../infrastructure/systemd/tctcl-updater.socket" "$INSTALL_DIR/tctcl-updater.socket"
-    run install -m 0644 "$here/../infrastructure/systemd/tctcl-updater@.service" "$INSTALL_DIR/tctcl-updater@.service"
+    run install -m 0755 "$here/../infrastructure/cake-updater.sh" "$INSTALL_DIR/updater.sh"
+    run install -m 0644 "$here/../infrastructure/systemd/cake-updater.socket" "$INSTALL_DIR/cake-updater.socket"
+    run install -m 0644 "$here/../infrastructure/systemd/cake-updater@.service" "$INSTALL_DIR/cake-updater@.service"
     return
   fi
 
@@ -260,7 +260,7 @@ fetch_bundle() {
     return
   fi
 
-  local url="https://github.com/$REPO/releases/download/v$VERSION/tctcl-deploy-v$VERSION.tar.gz"
+  local url="https://github.com/$REPO/releases/download/v$VERSION/cake-deploy-v$VERSION.tar.gz"
   log "downloading $url"
   if [ "$DRY_RUN" = true ]; then
     printf '   would: download and unpack into %s\n' "$INSTALL_DIR"
@@ -319,14 +319,14 @@ INSTALL_DIR=$INSTALL_DIR
 STATE_DIR=$STATE_DIR
 DOMAIN=$DOMAIN
 ACME_EMAIL=$ACME_EMAIL
-POSTGRES_DB=tctcl
-POSTGRES_USER=tctcl
+POSTGRES_DB=cake
+POSTGRES_USER=cake
 POSTGRES_PASSWORD=$password
-TCTCL_VERSION=$(env_version)
-TCTCL_CHANNEL=$CHANNEL
-TCTCL_IMAGE=$IMAGE
-TCTCL_WORKSPACE_IMAGE=$WORKSPACE_IMAGE
-TCTCL_CIPHERGATE_IMAGE=$CIPHERGATE_IMAGE
+CAKE_VERSION=$(env_version)
+CAKE_CHANNEL=$CHANNEL
+CAKE_IMAGE=$IMAGE
+CAKE_WORKSPACE_IMAGE=$WORKSPACE_IMAGE
+CAKE_CIPHERGATE_IMAGE=$CIPHERGATE_IMAGE
 # Seals the second-factor secrets. Regenerating it makes every enrolled authenticator unreadable.
 SECRET_KEY=$secret_key
 EOF
@@ -337,11 +337,11 @@ EOF
   # Rewritten every run, so re-running with --channel switches what the stack pulls. An .env from before the
   # channels existed gains the keys here.
   if [ "$DRY_RUN" = false ]; then
-    set_env "$env_file" TCTCL_VERSION "$(env_version)"
-    set_env "$env_file" TCTCL_CHANNEL "$CHANNEL"
-    set_env "$env_file" TCTCL_IMAGE "$IMAGE"
-    set_env "$env_file" TCTCL_WORKSPACE_IMAGE "$WORKSPACE_IMAGE"
-    set_env "$env_file" TCTCL_CIPHERGATE_IMAGE "$CIPHERGATE_IMAGE"
+    set_env "$env_file" CAKE_VERSION "$(env_version)"
+    set_env "$env_file" CAKE_CHANNEL "$CHANNEL"
+    set_env "$env_file" CAKE_IMAGE "$IMAGE"
+    set_env "$env_file" CAKE_WORKSPACE_IMAGE "$WORKSPACE_IMAGE"
+    set_env "$env_file" CAKE_CIPHERGATE_IMAGE "$CIPHERGATE_IMAGE"
   fi
 }
 
@@ -373,7 +373,7 @@ provision_secrets() {
   step "Secrets store"
   local data_dir="$STATE_DIR/ciphergate"
   local env_file="$STATE_DIR/.env"
-  local consumer="tctcl-backend"
+  local consumer="cake-backend"
   # Compose interpolates the whole file before it runs a single service, and the app service requires
   # CIPHERGATE_TOKEN with `:?`. Until the consumer below exists there is no real key, so these two CLI
   # calls carry a placeholder in the environment, which takes precedence over the env file.
@@ -479,10 +479,10 @@ bootstrap_admin() {
 
 install_units() {
   step "Update socket"
-  run install -m 0644 "$INSTALL_DIR/tctcl-updater.socket" /etc/systemd/system/tctcl-updater.socket
-  run install -m 0644 "$INSTALL_DIR/tctcl-updater@.service" /etc/systemd/system/tctcl-updater@.service
+  run install -m 0644 "$INSTALL_DIR/cake-updater.socket" /etc/systemd/system/cake-updater.socket
+  run install -m 0644 "$INSTALL_DIR/cake-updater@.service" /etc/systemd/system/cake-updater@.service
   run systemctl daemon-reload
-  run systemctl enable --now tctcl-updater.socket
+  run systemctl enable --now cake-updater.socket
 }
 
 summary() {
@@ -516,7 +516,7 @@ main() {
   check_os
   resolve_version
   resolve_images
-  log "installing tctcl-platform $CHANNEL $VERSION into $INSTALL_DIR"
+  log "installing Cake $CHANNEL $VERSION into $INSTALL_DIR"
   install_docker
   fetch_bundle
   prepare_host

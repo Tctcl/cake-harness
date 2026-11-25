@@ -637,7 +637,7 @@ const instructionsOf = (agent: AgentProfile): string | undefined => {
 }
 
 /**
- * Postgres holds both the durable log and the platform tables, so there is no in-process storage to fall back to: a
+ * Postgres holds both the durable log and Cake's tables, so there is no in-process storage to fall back to: a
  * missing or unreachable database is a startup failure, not a degraded mode.
  */
 export async function createAgent(config: Config): Promise<Agent> {
@@ -842,7 +842,7 @@ export async function createAgent(config: Config): Promise<Agent> {
     },
 
     createWorkspace(input) {
-      // The environment is created with the workspace, from the platform image: the two are one state transition.
+      // The environment is created with the workspace, from the Cake image: the two are one state transition.
       return workspaces.create(ownerId, input, config.workspaceImage)
     },
 

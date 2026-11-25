@@ -112,7 +112,7 @@ const fakeDaemon = (startFailure: Error | undefined) => {
   return { calls, docker: daemon as unknown as Docker }
 }
 
-const request: StartRequest = { id: 'env-1', image: 'tctcl/dev-env:dev', env: {}, network: null }
+const request: StartRequest = { id: 'env-1', image: 'cake-harness/dev-env:dev', env: {}, network: null }
 const connection = { socketPath: '/var/run/docker.sock' } as const
 
 describe('DockerContainers.ensureRunning', () => {
@@ -134,7 +134,7 @@ describe('DockerContainers.ensureRunning', () => {
     const { calls, docker } = fakeDaemon(dockerError(404))
 
     await expect(new DockerContainers(connection, docker).ensureRunning(request, 'gone')).resolves.toBe('created-id')
-    expect(calls.created).toEqual(['tctcl-env-env-1'])
+    expect(calls.created).toEqual(['cake-env-env-1'])
   })
 
   it('reports any other refusal as unavailable rather than creating anything', async () => {

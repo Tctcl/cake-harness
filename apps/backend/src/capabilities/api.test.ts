@@ -14,7 +14,7 @@ import { ToolRepository } from './tool-repository.js'
 
 /** Live-server suite like its neighbours: `DATABASE_URL` names a disposable database, and every case gets a prefix. */
 /** The image a workspace records until its container is first started. */
-const IMAGE = 'tctcl/dev-env:dev'
+const IMAGE = 'cake-harness/dev-env:dev'
 
 const url = process.env['DATABASE_URL']
 

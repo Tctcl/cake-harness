@@ -9,7 +9,7 @@ import { dockerHostOf, readSshEndpoint } from './ssh-access.js'
 export interface StartRequest {
   readonly id: string
   readonly image: string
-  /** Variables the container boots with; empty when the platform has nothing to tell it. */
+  /** Variables the container boots with; empty when Cake has nothing to tell it. */
   readonly env: Readonly<Record<string, string>>
   /** The network the backend is reachable on, or `null` to leave the container on Docker's default one. */
   readonly network: string | null
@@ -68,11 +68,11 @@ const unavailable = (action: string, error: unknown): AppError => {
   })
 }
 
-const containerName = (id: string): string => `tctcl-env-${id}`
+const containerName = (id: string): string => `cake-env-${id}`
 
 /**
  * Provisions one environment as one container, through the read-write Docker proxy. The container carries labels, so
- * the platform can find what it created without this module remembering anything Docker already knows.
+ * Cake can find what it created without this module remembering anything Docker already knows.
  */
 export class DockerContainers implements ContainerRuntime {
   readonly #docker: Docker
@@ -163,11 +163,11 @@ export class DockerContainers implements ContainerRuntime {
     const options = {
       name: containerName(request.id),
       Image: request.image,
-      // Docker reads this as `NAME=value` pairs; nothing here is read back by the platform.
+      // Docker reads this as `NAME=value` pairs; nothing here is read back by Cake.
       Env: Object.entries(request.env).map(([name, value]) => `${name}=${value}`),
       Labels: {
-        'tctcl.managed': 'true',
-        'tctcl.environment': request.id,
+        'cake.managed': 'true',
+        'cake.environment': request.id,
       },
       Tty: false,
       HostConfig: {

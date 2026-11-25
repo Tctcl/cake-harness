@@ -1,7 +1,7 @@
 import { Secret, TOTP } from 'otpauth'
 
 /** The issuer half of the label an authenticator app shows; the account name is the other half. */
-const ISSUER = 'tctcl'
+const ISSUER = 'Cake'
 
 /**
  * 160 bits, which is what RFC 4226 recommends for a shared secret. `otpauth` handles base32 and the RFC 6238 counter, so

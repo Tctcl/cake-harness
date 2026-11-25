@@ -181,7 +181,7 @@ describe('toolCalls', () => {
             role: 'toolResult',
             toolCallId: 'call-1',
             toolName: 'read',
-            content: [{ type: 'text', text: '# tlabs' }],
+            content: [{ type: 'text', text: '# Cake' }],
             isError: false,
             timestamp: 1,
             durationMs: 12,
@@ -197,7 +197,7 @@ describe('toolCalls', () => {
         name: 'read',
         arguments: '{"path":"README.md"}',
         status: 'ok',
-        result: '# tlabs',
+        result: '# Cake',
         durationMs: 12,
       },
     ])

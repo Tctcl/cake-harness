@@ -7,7 +7,7 @@ import type { DevEnvironment } from '../../lib/environment-api.ts'
 const environment = (overrides: Partial<DevEnvironment> = {}): DevEnvironment => ({
   id: 'environment-1',
   name: 'Platform',
-  image: 'tctcl/dev-env:latest',
+  image: 'cake-harness/dev-env:latest',
   containerId: 'container-1',
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',

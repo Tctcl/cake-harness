@@ -1,6 +1,6 @@
 # Agent runtime: pi-durable in the backend
 
-Research notes and the architecture decision for running agents in this platform.
+Research notes and the architecture decision for running agents in Cake.
 Written so an agent (human or AI) can pick this up without re-reading upstream.
 
 Status: **chat and container tools over Postgres.** `apps/backend` runs a durable
@@ -45,7 +45,7 @@ backend state and agent state, and a control protocol we would have to invent.
 
 The owner approved `@earendil-works/pi-env@1.6.0` as an exact backend dependency
 for this design. It supplies `RemoteExecutionEnv`, `Connection` and the packaged
-Linux daemon binaries; the platform does not reimplement durable's filesystem and
+Linux daemon binaries; Cake does not reimplement durable's filesystem and
 shell semantics over individual Docker execs. The daemon is delivered at run time,
 so the workspace image does not contain a pi-env artifact.
 
@@ -74,7 +74,7 @@ The product image has no Docker CLI. `Connection` instead spawns the compiled
 and starts this exec as `dev`, with stdin/stdout/stderr attached and `Tty: false`:
 
 ```text
-/home/dev/.local/share/tlabs/pi-env-1.6.0 serve --token <32 hex characters>
+/home/dev/.local/share/cake/pi-env-1.6.0 serve --token <32 hex characters>
 ```
 
 `Connection` generates the random token and appends those three serve arguments

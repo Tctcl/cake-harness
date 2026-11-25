@@ -30,7 +30,7 @@ stopping condition. Ask before proceeding if any of these is unknown:
 Established facts (verified, do not re-litigate): Node `v26.13.1`,
 pnpm `12.16.1`, turbo `2.11.13`; `backend` = Fastify `^5.12.8` + `tsx`;
 `frontend` = React `19.3.1` + Vite `8.3.6` + `oxlint`; `agent` = plain `tsc`;
-`@tctcl/typescript-config` provides shared tsconfig bases.
+`@cake-harness/typescript-config` provides shared tsconfig bases.
 
 ## Phase 2 — Plan
 

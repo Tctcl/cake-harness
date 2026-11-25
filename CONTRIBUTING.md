@@ -1,4 +1,4 @@
-# Contributing to tctcl-platform
+# Contributing to Cake
 
 Thanks for taking a look. This repository is currently an early scaffold — the
 apps are placeholders — so it is a good moment to report a bug, ask a question

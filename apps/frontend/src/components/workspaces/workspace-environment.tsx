@@ -126,7 +126,7 @@ export function WorkspaceEnvironmentPanel({ workspaceId }: { workspaceId: string
         <span className="text-muted-foreground">
           {environment.containerId === null
             ? 'Nothing has started this workspace’s container yet. It is created from the image above the first time something runs in it.'
-            : `Reached through the container the platform started for this workspace, ${environment.containerId}.`}
+            : `Reached through the container Cake started for this workspace, ${environment.containerId}.`}
         </span>
       </div>
 

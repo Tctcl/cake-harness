@@ -1,4 +1,4 @@
-# @tctcl/oxlint-config
+# @cake-harness/oxlint-config
 
 Shared [oxlint](https://oxc.rs/docs/guide/usage/linter) presets for this
 monorepo. The `oxlint` binary itself lives in each app's `devDependencies`; this
@@ -10,8 +10,8 @@ There are no scripts in this package and no JavaScript to compile.
 
 | Export | Plugins / environment | Used by |
 | --- | --- | --- |
-| `@tctcl/oxlint-config/base.json` | `typescript`, `oxc`, `unicorn`; Node + ES2024; `correctness` = error | `apps/agent`, `apps/backend` |
-| `@tctcl/oxlint-config/react.json` | extends `base.json`; adds `react`, `jsx-a11y`; browser environment; React hooks and JSX rules | `apps/frontend` |
+| `@cake-harness/oxlint-config/base.json` | `typescript`, `oxc`, `unicorn`; Node + ES2024; `correctness` = error | `apps/agent`, `apps/backend` |
+| `@cake-harness/oxlint-config/react.json` | extends `base.json`; adds `react`, `jsx-a11y`; browser environment; React hooks and JSX rules | `apps/frontend` |
 
 `base.json` also ignores `dist/**`, `node_modules/**` and `coverage/**`, and
 turns off `no-console` since these apps log to stdout.
@@ -28,7 +28,7 @@ Each app keeps a small `.oxlintrc.json` that only points at the shared preset:
 ```
 
 The path is relative, not a package specifier: oxlint resolves every `extends`
-entry as a file path, so `@tctcl/oxlint-config/base.json` would be treated as a
+entry as a file path, so `@cake-harness/oxlint-config/base.json` would be treated as a
 directory name and fail. The package is still declared as a workspace
 dependency so turbo knows the app depends on it.
 

@@ -25,7 +25,7 @@ export class HttpError extends Error {
  * Fired when the backend says the session is gone (expired, signed out elsewhere, or the account disabled), so the
  * sign-in gate can take over from whichever screen made the call instead of each screen showing its own 401.
  */
-export const SIGNED_OUT_EVENT = 'tctcl:signed-out'
+export const SIGNED_OUT_EVENT = 'cake:signed-out'
 
 /** The shape the error handler answers; every field is optional because the body may be anything at all. */
 const errorOf = (body: unknown): { readonly message?: string; readonly code?: string } => {

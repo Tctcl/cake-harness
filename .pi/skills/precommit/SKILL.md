@@ -37,8 +37,8 @@ the run.
 | Gate | Command | Notes |
 | --- | --- | --- |
 | Types | `pnpm typecheck` | `tsc -p tsconfig.test.json` for `agent`/`backend` (source + tests), `tsc -p tsconfig.json --noEmit` for `frontend` |
-| Lint | `pnpm lint` | oxlint in all three apps via `@tctcl/oxlint-config`; `packages/*` have no lint script |
-| Tests | `pnpm test` | `vitest run` in all three apps via `@tctcl/vitest-config`; frontend uses jsdom + Testing Library |
+| Lint | `pnpm lint` | oxlint in all three apps via `@cake-harness/oxlint-config`; `packages/*` have no lint script |
+| Tests | `pnpm test` | `vitest run` in all three apps via `@cake-harness/vitest-config`; frontend uses jsdom + Testing Library |
 | Build | `pnpm build` | `tsc` for `agent`/`backend`, `tsc -b && vite build` for `frontend` |
 
 Report each as PASS / FAIL / SKIP with the exact error and `file:line`. Fix only
@@ -151,7 +151,7 @@ is unignored.
 - Issue labels ("bug", "enhancement", "good first issue") and an organized queue.
 - At least two admins, or a written note that this is a solo project.
 - One-time name/trademark check (WIPO Global Brand Database, npm name
-  availability) for `tctcl` — do this once, note it in `docs/`, never re-check
+  availability) for `cake-harness` — do this once, note it in `docs/`, never re-check
   every commit.
 
 ## Phase 4 — Verdict

@@ -1,11 +1,11 @@
 [Unit]
-Description=tctcl-platform update request %i
+Description=Cake update request %i
 After=docker.service
 Requires=docker.service
 
 [Service]
 Type=simple
-ExecStart=/opt/tctcl-platform/updater.sh
+ExecStart=/opt/cake-harness/updater.sh
 # stdin and stdout are the accepted connection; the request arrives on one, the
 # progress lines and the final OK/ERR leave on the other.
 StandardInput=socket
