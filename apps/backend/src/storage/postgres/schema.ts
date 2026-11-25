@@ -965,6 +965,15 @@ const providerMigration = (schema: PostgresSchema): readonly string[] => {
   ]
 }
 
+/**
+ * Records which open of the storage may write. Durable assumes one writer, and the storage keeps its next ID in memory,
+ * so a second process committing to the same log would mint the same IDs. Each open stamps a fresh token here and every
+ * commit checks it, so the older process fails loudly instead of interleaving. Null until the first open stamps it.
+ */
+const writerMigration = (schema: PostgresSchema): readonly string[] => [
+  `ALTER TABLE ${schema.tables.durableMetadata} ADD COLUMN writer uuid`,
+]
+
 /** Ordered schema history: a released version is never edited, a change appends one. */
 export const MIGRATIONS: readonly { version: number; statements: (schema: PostgresSchema) => readonly string[] }[] = [
   { version: 1, statements: migration },
@@ -974,14 +983,15 @@ export const MIGRATIONS: readonly { version: number; statements: (schema: Postgr
   { version: 5, statements: archiveMigration },
   { version: 6, statements: capabilityMigration },
   { version: 7, statements: capabilityLinkMigration },
-  { version: 8, statements: environmentMigration },
-  { version: 9, statements: reportedStateMigration },
-  { version: 10, statements: authMigration },
-  { version: 11, statements: workspaceOrderMigration },
-  { version: 12, statements: oneEnvironmentPerWorkspaceMigration },
-  { version: 13, statements: credentialsMigration },
-  { version: 14, statements: workspaceMcpMigration },
-  { version: 15, statements: providerMigration },
+  { version: 8, statements: writerMigration },
+  { version: 9, statements: environmentMigration },
+  { version: 10, statements: reportedStateMigration },
+  { version: 11, statements: authMigration },
+  { version: 12, statements: workspaceOrderMigration },
+  { version: 13, statements: oneEnvironmentPerWorkspaceMigration },
+  { version: 14, statements: credentialsMigration },
+  { version: 15, statements: workspaceMcpMigration },
+  { version: 16, statements: providerMigration },
 ]
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0
@@ -1004,14 +1014,13 @@ const appliedVersions = async (client: Queryable, schema: PostgresSchema): Promi
  * same database at once, so one of them finds the schema already applied instead of racing it.
  */
 export const applyMigrations = async (client: Queryable, schema: PostgresSchema): Promise<void> => {
-  const applied = await appliedVersions(client, schema)
-  const pending = MIGRATIONS.filter((entry) => !applied.has(entry.version))
-  if (pending.length === 0) return
-  // One lock for the whole database: the durable log and the platform tables share a schema and a runner.
+  // One lock for the whole database: the durable log and the platform tables share a schema and a runner. It is taken
+  // before the first statement because even `CREATE TABLE IF NOT EXISTS` fails with a duplicate-type error when two
+  // processes run it against a fresh database at once.
   await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`durable-schema:${schema.prefix}`])
-  const already = await appliedVersions(client, schema)
+  const applied = await appliedVersions(client, schema)
   for (const entry of MIGRATIONS) {
-    if (already.has(entry.version)) continue
+    if (applied.has(entry.version)) continue
     for (const statement of entry.statements(schema)) await client.query(statement)
     const record = `INSERT INTO ${schema.tables.durableSchema} (version) VALUES ($1)`
     await client.query(record, [entry.version])

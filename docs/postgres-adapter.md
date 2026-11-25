@@ -203,8 +203,11 @@ What the porting analysis predicted and the tests confirmed:
 
 - `ON CONFLICT … DO NOTHING/DO UPDATE` carries over unchanged (SQLite and Postgres agree).
 - Cursor stability needed no `COLLATE "C"`: those queries order by `bigint`, not by text.
-- Single writer means no advisory locking on the commit path; MVCC never sees a second
-  writer because the backend is the only writer (see `docs/durable.md`).
+- Single writer is enforced, not assumed: each open stamps a fresh `writer` token into the
+  metadata row, and `commit` reads that row `FOR UPDATE` and refuses with
+  `WriterReplacedError` when the token is no longer its own. The last open wins; an older
+  process fails loudly instead of minting IDs that collide with the newer one's (the next
+  ID lives in memory, as in SQLite). See *Single writer* under *Limits*.
 - Type affinity was a non-issue once every key column got an explicit column type and
   values are bound as their real types.
 
@@ -235,9 +238,11 @@ Durable is explicit that a `Storage` error escaping a method fails the Session f
 make that true for this backend, in the order a failure meets them.
 
 1. **Inside the call — `retry.ts` + `resilient.ts`.** `retryingStorage` wraps every method.
-   Reads retry any lost connection (`ECONNRESET`, `57P01`, `08006`, …). Writes (`commit`,
-   `mintId`) retry only a connection that never opened (`ECONNREFUSED`, `57P03`, `53300`),
-   because a statement that may have landed cannot be replayed: `commit` is one
+   Reads retry any lost connection (`ECONNRESET`, `ETIMEDOUT`, `57P01`, `08006`, …). Writes
+   (`commit`, `mintId`) retry only a connection that never opened (`ECONNREFUSED`, `57P03`,
+   `53300`), because a statement that may have landed cannot be replayed. `ETIMEDOUT` counts
+   as lost, not unopened: an established socket reports it mid-statement, and a replayed
+   commit that had landed would be refused as a duplicate of itself. `commit` is one
    transaction, so a reply lost in flight is all or nothing, and only the server that ran
    it can say which. A Session never sees the blip; a request that cannot be retried fails
    as `503 AGENT_UNAVAILABLE` with `{ error: { code, message } }`.
@@ -281,7 +286,13 @@ connection's death on the pool, and an unhandled `'error'` event is fatal to Nod
    nothing retries the model call after a provider error beyond the provider's own policy.
 3. **Single writer.** `docs/durable.md` records durable's assumption: one writer per
    storage. Postgres does not change that contract; two backend processes over one
-   database still need the "sessions pinned to a process" rule.
+   database still need the "sessions pinned to a process" rule. What changed is that a
+   violation is now caught: the newest `openPostgresStorage` becomes the writer (schema
+   version 8, `metadata.writer`), and every later commit from an older open rejects with
+   `WriterReplacedError`. That suits stop-then-start and blue/green deploys, where the old
+   process should stop writing. The older process does not recover by itself — its
+   supervisor reopens harnesses over the same fenced storage, so its requests keep failing
+   with 503 until it is restarted. Reads are not fenced.
 4. **`DATABASE_URL` shape.** Implemented: `apps/backend/src/config.ts` validates it with
    `z.url({ protocol: /^postgres(ql)?$/ })`, so a wrong scheme or a bare `host:port`
    fails at startup with the other configuration problems rather than at connect time.

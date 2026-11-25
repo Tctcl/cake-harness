@@ -33,6 +33,11 @@ describe('failure classification', () => {
     expect(isTransient(withCode('08006'))).toBe(true)
   })
 
+  it('does not replay a write after a timeout, which may hit an open connection mid-statement', () => {
+    expect(isConnectFailure(withCode('ETIMEDOUT'))).toBe(false)
+    expect(isTransient(withCode('ETIMEDOUT'))).toBe(true)
+  })
+
   it('ignores errors that carry no code', () => {
     expect(isConnectFailure(new Error('boom'))).toBe(false)
     expect(isTransient(new Error('boom'))).toBe(false)
