@@ -1,5 +1,5 @@
 /** The one cookie the app sets. Named with the product so a shared domain does not collide with something else. */
-export const SESSION_COOKIE = 'tctcl_session'
+export const SESSION_COOKIE = 'cake_session'
 
 /** `name=value` pairs, split by hand: one cookie is not worth a dependency and `@fastify/cookie` is one. */
 export const readCookie = (header: string | undefined, name: string): string | undefined => {

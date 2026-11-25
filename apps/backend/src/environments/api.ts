@@ -51,7 +51,7 @@ export interface EnvironmentApi {
   metrics(id: string): Promise<ContainerMetrics | null | undefined>
   /**
    * How to reach the container over SSH. `null` when it is not running or no port was published for it, which is the
-   * answer for every container this platform creates today; `undefined` when the id is unknown.
+   * answer for every container Cake creates today; `undefined` when the id is unknown.
    */
   ssh(id: string): Promise<SshAccessView | null | undefined>
   ofWorkspace(workspaceId: string): Promise<DevEnvironment[]>

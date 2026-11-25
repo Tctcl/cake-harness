@@ -40,7 +40,7 @@ const ptys: PtyFactory = { open: async () => new FakePty() }
 const environmentOf = (overrides: Partial<DevEnvironment> = {}): DevEnvironment => ({
   id: ENVIRONMENT_ID,
   name: 'Node',
-  image: 'ghcr.io/tctcl/tlabs-platform/workspace:1.0.0',
+  image: 'ghcr.io/tctcl/cake-harness/workspace:1.0.0',
   containerId: 'container-one',
   createdAt: new Date(0),
   updatedAt: new Date(0),

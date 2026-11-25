@@ -52,7 +52,7 @@ export async function registerPlugins(
 
   /**
    * Sessions live in this process, so they are owned here rather than by a plugin that could be registered twice. The
-   * shell is bash when the image has it and `sh` otherwise, because an environment may run any image the platform
+   * shell is bash when the image has it and `sh` otherwise, because an environment may run any image Cake
    * publishes.
    */
   const terminals = new TerminalSessions({

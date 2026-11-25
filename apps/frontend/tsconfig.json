@@ -1,5 +1,5 @@
 {
-  "extends": "@tctcl/typescript-config/vite.json",
+  "extends": "@cake-harness/typescript-config/vite.json",
   "compilerOptions": {
     "paths": {
       "@/*": ["./src/*"]

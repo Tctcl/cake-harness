@@ -5,7 +5,7 @@
  */
 export type Theme = 'light' | 'dark' | 'system'
 
-export const THEME_STORAGE_KEY = 'tlabs-theme'
+export const THEME_STORAGE_KEY = 'cake-theme'
 
 const DARK_QUERY = '(prefers-color-scheme: dark)'
 

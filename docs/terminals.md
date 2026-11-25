@@ -3,7 +3,7 @@
 A terminal is a program running in the environment's container, reachable from the
 browser. It is not a second execution mechanism: the bytes travel through
 `docker exec` with a TTY allocated, so the program is the same one a person would
-get from `docker exec -it tctcl-env-<id> /bin/sh`, with the environment's own shell,
+get from `docker exec -it cake-env-<id> /bin/sh`, with the environment's own shell,
 user and working directory.
 
 This document is the contract. `apps/backend/src/terminal/contract.ts` holds the

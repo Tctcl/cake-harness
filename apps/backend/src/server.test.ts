@@ -20,8 +20,8 @@ import type { ChatThread } from './threads/thread-repository.js'
 import type { Workspace } from './workspaces/workspace-repository.js'
 
 // The server is built from a validated Config, so the URL only has to parse; no connection is opened in these tests.
-const DATABASE_URL = 'postgres://test:test@localhost:5432/tlabs_test'
-const PRODUCTION_DATABASE_URL = 'postgres://app:app@db.internal:5432/tlabs'
+const DATABASE_URL = 'postgres://test:test@localhost:5432/cake_test'
+const PRODUCTION_DATABASE_URL = 'postgres://app:app@db.internal:5432/cake'
 const config = loadConfig({ NODE_ENV: 'test', DATABASE_URL, SECRET_KEY: 'a-test-secret-key' })
 
 const THREAD_ID = '2f1c1f9e-3f6d-4b0a-9d1e-1a2b3c4d5e6f'
@@ -82,7 +82,7 @@ const unused = async (): Promise<never> => {
 const environmentOf = (overrides: Partial<DevEnvironment> = {}): DevEnvironment => ({
   id: ENVIRONMENT_ID,
   name: 'Node',
-  image: 'ghcr.io/tctcl/tlabs-platform/workspace:1.0.0',
+  image: 'ghcr.io/tctcl/cake-harness/workspace:1.0.0',
   containerId: null,
   createdAt: new Date(0),
   updatedAt: new Date(0),
@@ -993,7 +993,7 @@ describe('workspace routes', () => {
 
 describe('static frontend', () => {
   // The image puts the Vite build in FRONTEND_DIR; the test answers the same three requests the browser makes.
-  const root = mkdtempSync(join(tmpdir(), 'tctcl-frontend-'))
+  const root = mkdtempSync(join(tmpdir(), 'cake-frontend-'))
   writeFileSync(join(root, 'index.html'), '<!doctype html><title>app</title>')
   const frontendConfig = loadConfig({ NODE_ENV: 'test', DATABASE_URL, FRONTEND_DIR: root })
 
@@ -1103,7 +1103,7 @@ describe('environment routes', () => {
           {
             id: ENVIRONMENT_ID,
             name: 'Node',
-            image: 'ghcr.io/tctcl/tlabs-platform/workspace:1.0.0',
+            image: 'ghcr.io/tctcl/cake-harness/workspace:1.0.0',
             containerId: null,
             createdAt: '1970-01-01T00:00:00.000Z',
             updatedAt: '1970-01-01T00:00:00.000Z',
@@ -1468,7 +1468,7 @@ describe('update routes', () => {
     channel: 'production',
     current: '0.2.0',
     latest: '0.3.0',
-    url: 'https://github.com/Tctcl/tlabs-platform/releases/tag/v0.3.0',
+    url: 'https://github.com/Tctcl/cake-harness/releases/tag/v0.3.0',
     available: true,
     checkedAt: '2026-01-01T00:00:00.000Z',
     error: null,

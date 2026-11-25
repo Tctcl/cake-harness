@@ -5,11 +5,11 @@
 # reachable from the edge network, so a workspace container cannot talk to the
 # Docker API. See docs/deployment.md for the install and upgrade flow.
 #
-# Paths that must exist come from /var/lib/tctcl-platform/.env, written by
+# Paths that must exist come from /var/lib/cake-harness/.env, written by
 # install.sh. `${VAR:?}` makes a missing value a startup failure instead of a
 # stack that comes up half-configured.
 
-name: tctcl
+name: cake
 
 services:
   traefik:
@@ -24,7 +24,7 @@ services:
       - --providers.docker.exposedByDefault=false
       # The Docker network name, not the compose key: compose would call it <project>_edge, and Traefik matches the
       # real name. Without a match it picks the first network the container is on, which it cannot reach (a 504).
-      - --providers.docker.network=tctcl-edge
+      - --providers.docker.network=cake-edge
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
@@ -91,8 +91,8 @@ services:
     image: postgres:18-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-tctcl}
-      POSTGRES_USER: ${POSTGRES_USER:-tctcl}
+      POSTGRES_DB: ${POSTGRES_DB:-cake}
+      POSTGRES_USER: ${POSTGRES_USER:-cake}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     volumes:
       # The one named volume. Nobody reads inside it, `pg_dump` is the copy of
@@ -104,7 +104,7 @@ services:
     networks:
       - db
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tctcl} -d ${POSTGRES_DB:-tctcl}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cake} -d ${POSTGRES_DB:-cake}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -113,7 +113,7 @@ services:
   # which keeps Postgres, the backend and the workspaces to one bootstrap secret each. See
   # docs/deployment.md, "Secrets".
   ciphergate:
-    image: ${TCTCL_CIPHERGATE_IMAGE:?set TCTCL_CIPHERGATE_IMAGE}
+    image: ${CAKE_CIPHERGATE_IMAGE:?set CAKE_CIPHERGATE_IMAGE}
     restart: unless-stopped
     # A bind mount keeps the host's ownership instead of inheriting the image's, so this runs as
     # the uid install.sh chowns the data directory to. Change both or neither.
@@ -135,7 +135,7 @@ services:
   # The product image: Fastify serving the built SPA on one origin, so the router
   # needs one rule, not a path split between a web server and an API.
   app:
-    image: ${TCTCL_IMAGE:?set TCTCL_IMAGE}
+    image: ${CAKE_IMAGE:?set CAKE_IMAGE}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -147,17 +147,17 @@ services:
     environment:
       # NODE_ENV, HOST, PORT and FRONTEND_DIR come from the image. These are the values
       # that differ per install, and neither password leaves .env.
-      DATABASE_URL: postgres://${POSTGRES_USER:-tctcl}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tctcl}
+      DATABASE_URL: postgres://${POSTGRES_USER:-cake}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cake}
       # Only the write proxy: a workspace container cannot reach this network.
       DOCKER_HOST: tcp://socket-proxy-rw:2375
       # What a new environment is created from, so provisioning pulls a released
       # image instead of whatever tag happens to be on the host.
-      WORKSPACE_IMAGE: ${TCTCL_WORKSPACE_IMAGE:?set TCTCL_WORKSPACE_IMAGE}
+      WORKSPACE_IMAGE: ${CAKE_WORKSPACE_IMAGE:?set CAKE_WORKSPACE_IMAGE}
       # What the update check compares: the channel decides whether a comparison is meaningful at
       # all, and the version is the half of it the image cannot know on its own.
-      TCTCL_CHANNEL: ${TCTCL_CHANNEL:?set TCTCL_CHANNEL}
+      CAKE_CHANNEL: ${CAKE_CHANNEL:?set CAKE_CHANNEL}
       # Empty on a staging install: it follows a moving tag, and the backend reads empty as "no version".
-      TCTCL_VERSION: ${TCTCL_VERSION:-}
+      CAKE_VERSION: ${CAKE_VERSION:-}
       UPDATE_CHECK_INTERVAL_MS: ${UPDATE_CHECK_INTERVAL_MS:-900000}
       # Where credentials come from, and the reader key that says which install is asking.
       # install.sh creates the consumer and writes the key once; the admin key is never stored.
@@ -171,7 +171,7 @@ services:
       # How a workspace container reaches this backend for its documents. Both or neither:
       # without them an environment boots on the image's floor and is never told anything.
       WORKSPACE_BACKEND_URL: http://app:8080
-      WORKSPACE_NETWORK: tctcl-workspaces
+      WORKSPACE_NETWORK: cake-workspaces
     networks:
       - edge
       - db
@@ -188,7 +188,7 @@ services:
 networks:
   # Traefik and whatever it proxies. Named explicitly because Traefik looks the network up by its Docker name.
   edge:
-    name: tctcl-edge
+    name: cake-edge
   # Postgres only; internal means it cannot reach the internet.
   db:
     internal: true
@@ -200,7 +200,7 @@ networks:
   # name to Docker when it creates a container, so it has to be the same string from one run to the next.
   # A workspace reaches `app` here and nothing else: no database, no Docker API, no store.
   workspaces:
-    name: tctcl-workspaces
+    name: cake-workspaces
   # The backend and the secrets store. Internal: nothing behind it has any business on the
   # internet, and no workspace is on it, so a container cannot reach the store even if it
   # learns the address.

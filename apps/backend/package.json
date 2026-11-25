@@ -26,9 +26,9 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@tctcl/oxlint-config": "workspace:*",
-    "@tctcl/typescript-config": "workspace:*",
-    "@tctcl/vitest-config": "workspace:*",
+    "@cake-harness/oxlint-config": "workspace:*",
+    "@cake-harness/typescript-config": "workspace:*",
+    "@cake-harness/vitest-config": "workspace:*",
     "@types/dockerode": "^4.0.2",
     "@types/node": "^26.6.6",
     "@types/pg": "^8.23.1",

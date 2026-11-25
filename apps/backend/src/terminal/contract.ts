@@ -41,7 +41,7 @@ export interface TerminalLimits {
   readonly idleTimeoutMs: number
 }
 
-/** A session as the platform knows it. The container, the exec id and the pid stay on this side of the boundary. */
+/** A session as Cake knows it. The container, the exec id and the pid stay on this side of the boundary. */
 export interface TerminalView {
   readonly id: string
   readonly environmentId: string

@@ -40,7 +40,7 @@ handlers, not a redesign.
 
 | | |
 | --- | --- |
-| Cookie | `tctcl_session`, `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` when `TRUST_PROXY=true` and the request is https |
+| Cookie | `cake_session`, `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` when `TRUST_PROXY=true` and the request is https |
 | Token | 32 random bytes, base64url; only its SHA-256 is stored in `sessions` |
 | Lifetime | 30 days, sliding — `last_seen_at` is written at most once a minute |
 | Ends | logout, password change, role change, disable, reset, or either direction of the single-user switch |

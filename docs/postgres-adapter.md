@@ -6,7 +6,7 @@ next reader does not have to.
 
 Status: **shape B shipped.** `apps/backend/src/storage/postgres/` implements `Storage`
 as a relational store mirroring `sqlite/`, gated by `registerStorageConformance`
-(33 cases, all green against container `tlabs-pg`). `DATABASE_URL` selects it in
+(33 cases, all green against container `cake-pg`). `DATABASE_URL` selects it in
 `src/agent.ts`; without the variable the backend still runs `MemoryStorage`.
 
 Shape A below is kept because it was the first recommendation and the reason it lost
@@ -224,11 +224,11 @@ Each case opens storage with a fresh table prefix, runs, closes, and the file dr
 table it created in `afterAll`. Locally:
 
 ```bash
-DATABASE_URL='postgres://postgres:postgres@127.0.0.1:55432/tlabs' \
+DATABASE_URL='postgres://postgres:postgres@127.0.0.1:55432/cake' \
   pnpm --filter backend test
 ```
 
-A server is available locally: container `tlabs-pg`, Postgres 18.7 on port **55432**
+A server is available locally: container `cake-pg`, Postgres 18.7 on port **55432**
 (the default 5432 is already taken on this machine).
 
 ## Surviving a database restart
@@ -259,15 +259,15 @@ make that true for this backend, in the order a failure meets them.
    `'error'` event is handled: an idle connection dying is otherwise an unhandled event,
    which ends the Node process.
 
-Verified locally against `tlabs-pg` with the backend running (`PORT=8099`,
-`DATABASE_URL=…:55432/tlabs`):
+Verified locally against `cake-pg` with the backend running (`PORT=8099`,
+`DATABASE_URL=…:55432/cake`):
 
 | Scenario | Result |
 | --- | --- |
-| `docker stop tlabs-pg`, then a request | `503` in ~26 ms, `/health` still `200`, process alive |
+| `docker stop cake-pg`, then a request | `503` in ~26 ms, `/health` still `200`, process alive |
 | The next request, server back | `503` once (the stale Session is discarded here) |
 | The request after that | `200`, full history — the reopened harness resumed from Postgres |
-| `docker restart tlabs-pg` while idle, then one request | `200` first try, history intact |
+| `docker restart cake-pg` while idle, then one request | `200` first try, history intact |
 | Kill and restart the backend | `200`, history intact |
 | Both cycles repeated | the same; no crash, no lost transcript |
 
@@ -300,7 +300,7 @@ connection's death on the pool, and an unhandled `'error'` event is fatal to Nod
 5. **Schema ownership.** Answered by `MIGRATIONS` in `schema.ts` plus the
    `durable_schema` version table, applied at open under an advisory lock. A release
    change appends a version; it never edits one.
-   Version 2 adds the platform's own tables (`users`, `chat_threads`). They share this
+   Version 2 adds Cake's own tables (`users`, `chat_threads`). They share this
    migration list because they share the pool and the database, but they are named
    without `DURABLE_PREFIX`: the log is namespaced because its table names are generic,
    while these rows belong to the product. `createSchema(prefix)` applies the caller's

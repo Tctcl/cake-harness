@@ -1,6 +1,6 @@
 # backend
 
-Fastify HTTP service for the tctcl platform.
+Fastify HTTP service for Cake.
 
 **Status: chat and workspace tools.** The service boots from a validated environment, logs
 through Fastify's logger, answers `GET /health`, signs people in, serves chat threads over a
@@ -112,7 +112,7 @@ both cases that log.
 | `build` | `tsc -p tsconfig.json` | emits to `dist/` |
 | `start` | `node dist/index.js` | requires a prior build |
 | `typecheck` | `tsc -p tsconfig.test.json` | type-checks source and tests, no emit |
-| `lint` | `oxlint` | shared config from `@tctcl/oxlint-config/base.json` |
+| `lint` | `oxlint` | shared config from `@cake-harness/oxlint-config/base.json` |
 | `test` | `vitest run` | one-shot run, CI friendly |
 | `test:watch` | `vitest` | watch mode |
 
@@ -151,14 +151,14 @@ Environment variables, validated once at startup by `src/config.ts`:
 | `HOST` | non-empty string | `127.0.0.1` | `listen()` host |
 | `PORT` | integer 1–65535 | `8080` | `listen()` port |
 | `LOG_LEVEL` | `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` | `info` | Fastify logger level |
-| `DATABASE_URL` | `postgres://` or `postgresql://` URL | required | the durable log and the platform tables |
+| `DATABASE_URL` | `postgres://` or `postgresql://` URL | required | the durable log and Cake's tables |
 | `DATABASE_POOL_SIZE` | integer 1–100 | `10` | Postgres pool ceiling, read only when `DATABASE_URL` is set |
 | `DOCKER_HOST` | non-empty string | `unix:///var/run/docker.sock` | the daemon environments are created on |
-| `WORKSPACE_IMAGE` | non-empty string | `tctcl/dev-env:dev` | the image a workspace container is built from |
+| `WORKSPACE_IMAGE` | non-empty string | `cake-harness/dev-env:dev` | the image a workspace container is built from |
 | `WORKSPACE_BACKEND_URL` | http(s) URL | none | how a container reaches this service for its documents; with `WORKSPACE_NETWORK`, both or neither |
 | `WORKSPACE_NETWORK` | non-empty string | none | the network a container joins so it can resolve the backend |
-| `TCTCL_CHANNEL` | `production`, `staging` | `production` | which release channel the update check asks about |
-| `TCTCL_VERSION` | `X.Y.Z` | none | what this build is; absent in a checkout, so the check reports it cannot compare |
+| `CAKE_CHANNEL` | `production`, `staging` | `production` | which release channel the update check asks about |
+| `CAKE_VERSION` | `X.Y.Z` | none | what this build is; absent in a checkout, so the check reports it cannot compare |
 | `UPDATE_CHECK_INTERVAL_MS` | integer ≥ 0 | `900000` | how long a release answer is reused; `0` checks every time |
 | `FRONTEND_DIR` | non-empty string | none | the compiled SPA to serve; absent means the service answers API routes only |
 | `CIPHERGATE_URL` | http(s) URL | none | the secrets store; with `CIPHERGATE_TOKEN`, both or neither |
@@ -176,11 +176,11 @@ missing `.env` is not an error.
 
 Tool configuration:
 
-- TypeScript: extends `@tctcl/typescript-config/fastify.json`, sources in
+- TypeScript: extends `@cake-harness/typescript-config/fastify.json`, sources in
   `src/`, output in `dist/`. `tsconfig.json` excludes `*.test.ts` from the build;
   `tsconfig.test.json` re-includes them for the no-emit typecheck.
 - Lint: `.oxlintrc.json` extends `../../packages/oxlint-config/base.json`.
-- Tests: `vitest.config.ts` extends `@tctcl/vitest-config/base`.
+- Tests: `vitest.config.ts` extends `@cake-harness/vitest-config/base`.
 
 ## Agent
 
@@ -199,7 +199,7 @@ thread:
 
 ### Storage
 
-Postgres holds both the durable log and the platform's own tables, so
+Postgres holds both the durable log and Cake's own tables, so
 `DATABASE_URL` has no fallback: an unset or unreachable database is a startup
 failure, not a degraded mode.
 
@@ -208,7 +208,7 @@ checked by durable's conformance suite in `src/storage/postgres/storage.test.ts`
 which skips when `DATABASE_URL` is unset:
 
 ```bash
-DATABASE_URL='postgres://postgres:postgres@127.0.0.1:55432/tlabs' \
+DATABASE_URL='postgres://postgres:postgres@127.0.0.1:55432/cake' \
   pnpm --filter backend test
 ```
 
@@ -222,10 +222,10 @@ Two sets share the database, told apart by prefix:
 | Prefix | Tables | Owner |
 | --- | --- | --- |
 | `durable_` | `conversations`, `entries`, `tasks`, `submissions`, `record_ids`, `documents`, `document_revisions`, `schema`, `metadata` | durable's log |
-| none | `users`, `chat_threads`, `workspaces`, `agents` | the platform |
+| none | `users`, `chat_threads`, `workspaces`, `agents` | Cake |
 
 `MIGRATIONS` in `src/storage/postgres/schema.ts` is the ordered history: version 1
-creates the log, version 2 the platform tables, version 3 repairs the legacy table
+creates the log, version 2 Cake's tables, version 3 repairs the legacy table
 layout, version 4 adds workspaces and agents and files every existing thread under
 the default pair, version 5 adds `archived_at` to workspaces, agents and threads, and
 version 11 adds `workspaces.position` — the list order the user drags into place,
@@ -339,7 +339,7 @@ violation rather than something the routes have to remember; `DELETE /environmen
 ### Environments
 
 An environment is one container, provisioned by `src/environments/container-runtime.ts` and named
-`tctcl-env-<id>`. `POST /environments` records the row; `POST /environments/:environmentId/start` creates the
+`cake-env-<id>`. `POST /environments` records the row; `POST /environments/:environmentId/start` creates the
 container if it is missing (pulling the image when the host has never seen it), starts it and records the id Docker
 answered; `stop` keeps the row and the id, so the next start reuses the container instead of paying for another one;
 `DELETE` removes the container before the row.

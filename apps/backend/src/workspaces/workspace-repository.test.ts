@@ -18,7 +18,7 @@ import { WorkspaceRepository } from './workspace-repository.js'
  * gets its own table prefix. Without the variable the file reports nothing instead of failing.
  */
 /** The image a workspace records until its container is first started; the value `WORKSPACE_IMAGE` defaults to. */
-const IMAGE = 'tctcl/dev-env:dev'
+const IMAGE = 'cake-harness/dev-env:dev'
 
 const url = process.env['DATABASE_URL']
 
@@ -117,12 +117,12 @@ if (url === undefined) {
         await environments.remove(environment.id)
         await expect(environments.ofWorkspace(workspace.id)).resolves.toEqual([])
 
-        await expect(workspaces.ensureEnvironments(ownerId, 'tctcl/dev-env:next')).resolves.toBe(1)
+        await expect(workspaces.ensureEnvironments(ownerId, 'cake-harness/dev-env:next')).resolves.toBe(1)
         const [healed] = await environments.ofWorkspace(workspace.id)
-        expect(healed).toMatchObject({ name: 'Platform', image: 'tctcl/dev-env:next' })
+        expect(healed).toMatchObject({ name: 'Platform', image: 'cake-harness/dev-env:next' })
 
         // Nothing is missing the second time, which is what makes it safe to run on every boot.
-        await expect(workspaces.ensureEnvironments(ownerId, 'tctcl/dev-env:next')).resolves.toBe(0)
+        await expect(workspaces.ensureEnvironments(ownerId, 'cake-harness/dev-env:next')).resolves.toBe(0)
       })
     })
 

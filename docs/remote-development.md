@@ -96,7 +96,7 @@ authentication and authorization.
 
 **Where this stands.** The image implements its half: `apps/agent/Dockerfile`
 installs `openssh-server`, runs it as the `dev` user, and `docker/sshd_config`
-allows public keys and TCP forwarding while refusing passwords. The platform does
+allows public keys and TCP forwarding while refusing passwords. Cake does
 not publish the port yet: containers are created with no port bindings
 (`apps/backend/src/environments/container-runtime.ts`), so
 `GET /environments/:id/ssh` inspects the container, reports the mapping when one
@@ -230,7 +230,7 @@ what it found back.
 URL is set and the bootstrap is skipped: what remains is the image's floor over
 SSH. The deployed stack passes `WORKSPACE_BACKEND_URL` and `WORKSPACE_NETWORK`, the
 backend adds both to the container it creates, and the container joins
-`tctcl-workspaces`, from where `app` is the only thing it can reach.
+`cake-workspaces`, from where `app` is the only thing it can reach.
 
 The next slice is the part that changes the machine: apply the plan instead of
 logging it, and write what it installed into the record the next boot reads.

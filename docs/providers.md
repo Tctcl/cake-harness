@@ -1,7 +1,7 @@
 # Provider credentials, models and usage
 
 How a workspace decides which credentials it may spend, which models an agent may
-pick, and how the platform accounts for what was spent.
+pick, and how Cake accounts for what was spent.
 
 Status: **a slice is built.** `apps/backend/src/providers/` stores a key as a
 `user_credentials` row of kind `opencode-go`, proves it against the usage endpoint
@@ -286,7 +286,7 @@ exists at all.
   client. Until one of those lands, per-message dollars are computed at list price
   and reconciled against meter deltas.
 - **What counts as a "budget" for a metered key.** No window and no provider
-  number: either the user sets a monthly ceiling and the platform enforces it, or
+  number: either the user sets a monthly ceiling and Cake enforces it, or
   there is no budget and only spend. Guarding it means checking before a turn, not
   after — which means a metered key needs a local ledger that is trustworthy enough
   to refuse on.

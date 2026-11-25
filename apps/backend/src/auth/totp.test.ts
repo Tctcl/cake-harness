@@ -17,7 +17,7 @@ describe('totpProvisioningUri', () => {
   it('names the app and the account, so it is unambiguous in a password manager', () => {
     const uri = totpProvisioningUri(newTotpSecret(), 'luke')
 
-    expect(uri).toMatch(/^otpauth:\/\/totp\/tctcl:luke\?/)
+    expect(uri).toMatch(/^otpauth:\/\/totp\/Cake:luke\?/)
     expect(uri).toContain('digits=6')
     expect(uri).toContain('period=30')
   })

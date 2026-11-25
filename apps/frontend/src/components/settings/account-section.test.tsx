@@ -29,7 +29,7 @@ const backend = (state: { session: ReturnType<typeof session>; totp: boolean }) 
         ? new Response(null, { status: 204 })
         : json(401, { error: { code: 'auth.invalid_credentials', message: 'Wrong password.' } })
     }
-    if (path === '/auth/2fa/setup') return json(200, { secret: 'JBSWY3DPEHPK3PXP', uri: 'otpauth://totp/tlabs:admin' })
+    if (path === '/auth/2fa/setup') return json(200, { secret: 'JBSWY3DPEHPK3PXP', uri: 'otpauth://totp/cake:admin' })
     if (path === '/auth/2fa/enable') return new Response(null, { status: 204 })
 
     return json(500, { error: { code: 'INTERNAL_ERROR', message: `unexpected ${path}` } })

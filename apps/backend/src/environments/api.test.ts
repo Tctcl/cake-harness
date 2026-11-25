@@ -7,7 +7,7 @@ import type { DevEnvironment, EnvironmentRepository } from './environment-reposi
 
 const OWNER_ID = '00000000-0000-4000-8000-000000000001'
 const ENVIRONMENT_ID = '5d4e3f60-7b8c-4d1e-9f2a-3b4c5d6e7f80'
-const IMAGE = 'ghcr.io/tctcl/tlabs-platform/workspace:1.0.0'
+const IMAGE = 'ghcr.io/tctcl/cake-harness/workspace:1.0.0'
 
 const METRICS = {
   cpuPercent: 12.5,
@@ -252,7 +252,7 @@ describe('EnvironmentApi', () => {
       image: IMAGE,
       secrets: noSecrets,
       backendUrl: 'http://backend:8080',
-      network: 'tctcl-workspaces',
+      network: 'cake-workspaces',
     })
 
     await api.start(ENVIRONMENT_ID)
@@ -261,7 +261,7 @@ describe('EnvironmentApi', () => {
       DEV_ENV_MANIFEST_URL: `http://backend:8080/environments/${ENVIRONMENT_ID}/manifest`,
       DEV_ENV_STATE_URL: `http://backend:8080/environments/${ENVIRONMENT_ID}/state`,
     })
-    expect(requests[0]?.network).toBe('tctcl-workspaces')
+    expect(requests[0]?.network).toBe('cake-workspaces')
   })
 
   it('leaves the container without documents when no backend URL is configured', async () => {

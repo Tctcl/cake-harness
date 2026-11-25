@@ -4,7 +4,7 @@ The chat surface is built from [AI Elements](https://ai-sdk.dev/elements) — th
 chat components published in the shadcn registry under `@ai-elements`. They are
 vendored source: installed with the shadcn CLI, checked into
 `src/components/ui/`, and styled by the same Tailwind tokens as the rest of the
-app, so they can be edited where the platform needs something different.
+app, so they can be edited where Cake needs something different.
 
 Everything in the first table is rendered by the running screen. Components
 that are installed but waiting on backend capabilities are listed separately so

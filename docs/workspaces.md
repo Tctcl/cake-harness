@@ -1,6 +1,6 @@
 # Workspaces, agents and sessions
 
-The entity model this platform is moving to, and the mechanism that keeps a
+The entity model Cake is moving to, and the mechanism that keeps a
 conversation coherent when the agent running it changes.
 
 Status: **mixed.** The tool-execution section and previously landed slices

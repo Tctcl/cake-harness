@@ -13,7 +13,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: tctcl/dev-env:dev
+    image: cake-harness/dev-env:dev
     ports:
       # Loopback only: compose publishes on 0.0.0.0 by default, which would put a
       # single-key sshd on the network.

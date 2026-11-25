@@ -173,7 +173,7 @@ version, not accidentally so.
 
 ## 10. `apps/agent` is still a scaffold
 
-**Missing:** the platform does not run the agent as a separate long-running
+**Missing:** Cake does not run the agent as a separate long-running
 process; the harness lives inside the backend.
 
 **Where it stands:** `apps/agent` holds the workspace bootstrap and its image (see
@@ -212,12 +212,12 @@ most of the risk while the codebase is small and written by one person. oxlint
 
 **Decision, so it does not have to be relitigated:** when a formatter is adopted
 it is `oxfmt`, not Biome and not Prettier. Biome also lints, which would put a
-second rule set beside `@tctcl/oxlint-config`; Prettier costs the most in a
+second rule set beside `@cake-harness/oxlint-config`; Prettier costs the most in a
 turbo/pnpm monorepo for no capability this repository needs. oxfmt keeps the
 vendor, the config lineage and the editor extension (`oxc.oxc-vscode`) already in
 use for lint.
 
-**What it would take:** a shared `@tctcl/oxfmt-config` package beside the other
+**What it would take:** a shared `@cake-harness/oxfmt-config` package beside the other
 presets (AGENTS.md rule 5), `format` and `format:check` scripts per workspace,
 the initial repo-wide reformat as its own `chore:` commit so it never rides along
 with a behavioural change, and a deliberate fifth step in the gates workflow.
@@ -232,7 +232,7 @@ obscures a real diff. Until then the `.editorconfig` is the contract.
 
 ## 13. Documentation debt
 
-- `docs/postgres-adapter.md` and `docs/durable.md` predate the platform tables
+- `docs/postgres-adapter.md` and `docs/durable.md` predate Cake's tables
   (`workspaces`, `agents`, capabilities, environments, auth, providers). Neither
   describes them; `apps/backend/src/storage/postgres/schema.ts` and its migration
   list are the source of truth until they do.
@@ -241,14 +241,14 @@ obscures a real diff. Until then the `.editorconfig` is the contract.
 
 **Missing:** the update socket works and nothing calls it.
 
-**Where it stands:** `infrastructure/systemd/tctcl-updater.socket` and
-`tctcl-updater@.service` are installed by `install.sh`, and
-`infrastructure/tctcl-updater.sh` implements the one-line protocol (`UPDATE 1.2.3`
+**Where it stands:** `infrastructure/systemd/cake-updater.socket` and
+`cake-updater@.service` are installed by `install.sh`, and
+`infrastructure/cake-updater.sh` implements the one-line protocol (`UPDATE 1.2.3`
 in, `START`/progress/`OK`/`ERR` out) documented in `docs/deployment.md`. No
-backend code opens `/run/tctcl/updater.sock`: there is no route, no progress
+backend code opens `/run/cake/updater.sock`: there is no route, no progress
 stream and no container that mounts the directory.
 
-**What it would take:** the application container mounts `/run/tctcl` and runs
+**What it would take:** the application container mounts `/run/cake` and runs
 with gid 1001; a backend client that writes one line and streams the reply; a
 route behind whatever authentication item 7 ends up with, since triggering an
 update is a privileged action; and a UI that shows the installer's output instead
@@ -259,8 +259,8 @@ of a spinner.
 **Missing:** nothing copies the database or the state directory, and there is no
 restore path to test.
 
-**Where it stands:** Postgres is the named volume `tctcl_postgres-data` and the
-rest of the state is bind-mounted under `/var/lib/tctcl-platform`. Both are
+**Where it stands:** Postgres is the named volume `cake_postgres-data` and the
+rest of the state is bind-mounted under `/var/lib/cake-harness`. Both are
 described in `docs/deployment.md`; neither is copied anywhere.
 
 **What it would take:** the decision that the backend drives backups (it will

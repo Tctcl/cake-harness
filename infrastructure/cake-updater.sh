@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# One connection on /run/tctcl/updater.sock.
+# One connection on /run/cake/updater.sock.
 #
 #   in:   UPDATE 1.2.3
 #   out:  progress lines, then a final OK line or ERR line
 #
-# Started by tctcl-updater@.service (socket activation with Accept=yes): systemd
+# Started by cake-updater@.service (socket activation with Accept=yes): systemd
 # owns the listening socket, accepts the connection, and binds this process's
 # stdin and stdout to it. Journald holds the failures; the update log holds the
 # installer's output.
@@ -15,10 +15,10 @@
 #
 set -uo pipefail
 
-INSTALL_SCRIPT="${TCTCL_INSTALL_SCRIPT:-/opt/tctcl-platform/install.sh}"
-STATE_DIR="${TCTCL_STATE_DIR:-/var/lib/tctcl-platform}"
+INSTALL_SCRIPT="${CAKE_INSTALL_SCRIPT:-/opt/cake-harness/install.sh}"
+STATE_DIR="${CAKE_STATE_DIR:-/var/lib/cake-harness}"
 LOG="$STATE_DIR/updater.log"
-LOCK="/run/tctcl/updater.lock"
+LOCK="/run/cake/updater.lock"
 
 fail() {
   printf 'ERR %s\n' "$*"

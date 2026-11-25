@@ -39,11 +39,11 @@ jobs:
           install -m 0755 deploy/install.sh "$staging/install.sh"
           install -m 0644 deploy/compose.yaml "$staging/compose.yaml"
           install -m 0644 deploy/.env.example "$staging/.env.example"
-          install -m 0755 infrastructure/tctcl-updater.sh "$staging/updater.sh"
-          install -m 0644 infrastructure/systemd/tctcl-updater.socket "$staging/tctcl-updater.socket"
-          install -m 0644 infrastructure/systemd/tctcl-updater@.service "$staging/tctcl-updater@.service"
-          tar -czf "tctcl-deploy-v${version}.tar.gz" -C "$staging" .
-          tar -tzf "tctcl-deploy-v${version}.tar.gz"
+          install -m 0755 infrastructure/cake-updater.sh "$staging/updater.sh"
+          install -m 0644 infrastructure/systemd/cake-updater.socket "$staging/cake-updater.socket"
+          install -m 0644 infrastructure/systemd/cake-updater@.service "$staging/cake-updater@.service"
+          tar -czf "cake-deploy-v${version}.tar.gz" -C "$staging" .
+          tar -tzf "cake-deploy-v${version}.tar.gz"
 
       - name: Upload to the release
         env:
@@ -52,4 +52,4 @@ jobs:
         run: |
           set -euo pipefail
           version="${TAG#v}"
-          gh release upload "$TAG" "tctcl-deploy-v${version}.tar.gz" --clobber
+          gh release upload "$TAG" "cake-deploy-v${version}.tar.gz" --clobber

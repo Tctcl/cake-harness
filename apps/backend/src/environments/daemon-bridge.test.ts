@@ -46,7 +46,7 @@ describe('runDaemonBridge', () => {
     const received = once(transport, 'data')
 
     const exitCode = await runDaemonBridge({
-      argv: ['container-1', '/home/dev/.local/share/tlabs/pi-env-1.6.0', 'serve', '--token', token],
+      argv: ['container-1', '/home/dev/.local/share/cake/pi-env-1.6.0', 'serve', '--token', token],
       docker,
       input,
       output,
@@ -57,7 +57,7 @@ describe('runDaemonBridge', () => {
 
     expect(exitCode).toBe(23)
     expect(execOptions).toEqual([{
-      Cmd: ['/home/dev/.local/share/tlabs/pi-env-1.6.0', 'serve', '--token', token],
+      Cmd: ['/home/dev/.local/share/cake/pi-env-1.6.0', 'serve', '--token', token],
       AttachStdin: true,
       AttachStdout: true,
       AttachStderr: true,

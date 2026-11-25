@@ -25,7 +25,7 @@ describe('readSshEndpoint', () => {
     })
   })
 
-  it('answers null when no port was published, which is how the platform creates containers', () => {
+  it('answers null when no port was published, which is how Cake creates containers', () => {
     expect(readSshEndpoint(running(null), '127.0.0.1')).toBeNull()
     expect(readSshEndpoint(running([]), '127.0.0.1')).toBeNull()
   })

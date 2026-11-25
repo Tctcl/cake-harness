@@ -1,6 +1,6 @@
 # frontend
 
-React + Vite web client for the tctcl platform.
+React + Vite web client for Cake.
 
 **Status: chat shell.** Every conversation of every workspace on the left, grouped
 under the workspace it belongs to and folded by clicking that heading, a topbar
@@ -22,7 +22,7 @@ yet; editing an agent's capabilities is not built here yet.
 | `build` | `tsc -b && vite build` | type-checks the project references, then bundles to `dist/` |
 | `preview` | `vite preview` | serves the built `dist/` locally |
 | `typecheck` | `tsc -p tsconfig.json --noEmit` | no emit |
-| `lint` | `oxlint` | shared config from `@tctcl/oxlint-config/react.json` |
+| `lint` | `oxlint` | shared config from `@cake-harness/oxlint-config/react.json` |
 | `test` | `vitest run` | jsdom + Testing Library, one-shot run |
 | `test:watch` | `vitest` | watch mode |
 
@@ -93,7 +93,7 @@ them. The heading is gray, carries a down chevron while its group is open and a
 right chevron while it is folded, and clicking it folds the group away; the +
 at the end of the heading starts a conversation in that workspace and reopens the
 group if it was shut. Folded groups are remembered in `localStorage`
-(`src/lib/workspace-groups.ts`, key `tlabs-collapsed-workspaces`) because that is
+(`src/lib/workspace-groups.ts`, key `cake-collapsed-workspaces`) because that is
 how this browser is reading the list, not what the list is.
 
 The order is the user's and lives in the database: a new workspace takes position
@@ -155,7 +155,7 @@ Nothing renders until `AuthGate` (`src/components/auth/auth-gate.tsx`) has read
 `GET /auth/session`. A single-user install answers with the owner and passes
 straight through. An install with accounts shows the sign-in form, then any step
 the session still owes: a password an admin set, or a second factor. Any call that
-later answers `401 auth.unauthenticated` fires `tctcl:signed-out` from
+later answers `401 auth.unauthenticated` fires `cake:signed-out` from
 `src/lib/http.ts`, and the gate shows the form again, so no screen handles a lost
 session on its own. Enrolling a second factor has no screen yet (`docs/auth.md`).
 
@@ -248,11 +248,11 @@ src/test/setup.ts                 Testing Library setup (jest-dom matchers, clea
 
 ## Configuration
 
-- TypeScript: extends `@tctcl/typescript-config/vite.json`; build info is kept in
+- TypeScript: extends `@cake-harness/typescript-config/vite.json`; build info is kept in
   `node_modules/.tmp/tsconfig.tsbuildinfo`.
 - Lint: `.oxlintrc.json` extends `../../packages/oxlint-config/react.json`
   (React rules, browser environment).
-- Tests: `vitest.config.ts` extends `@tctcl/vitest-config/react` (jsdom,
+- Tests: `vitest.config.ts` extends `@cake-harness/vitest-config/react` (jsdom,
   Testing Library, jest-dom matchers, and a setup file that unmounts between
   tests) and adds the `@` alias the shadcn components import through. Test files
   are `src/**/*.test.ts` and `src/**/*.test.tsx`.
@@ -271,7 +271,7 @@ src/test/setup.ts                 Testing Library setup (jest-dom matchers, clea
   `@fontsource-variable/jetbrains-mono` for code, imported in `src/index.css`;
   replies are set in the serif stack. Nothing is fetched from a CDN.
 - Theme: `src/lib/theme.ts` stores `light`, `dark` or `system` in
-  `localStorage` under `tlabs-theme`, toggles `.dark` on `<html>`, and follows
+  `localStorage` under `cake-theme`, toggles `.dark` on `<html>`, and follows
   the media query while `system` is selected. The inline script in `index.html`
   applies the stored choice before the first paint so dark mode never flashes
   white. `theme-picker.tsx` is the control, in the left sidebar header.

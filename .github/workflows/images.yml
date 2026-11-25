@@ -100,7 +100,7 @@ jobs:
       # image compiles both apps inside its own multi-stage Dockerfile instead.
       - name: Build the bootstrap
         if: matrix.prebuild == 'true'
-        run: pnpm --filter @tctcl/agent build
+        run: pnpm --filter @cake-harness/agent build
 
       - name: Enable Buildx
         uses: docker/setup-buildx-action@v4

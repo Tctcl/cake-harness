@@ -6,7 +6,7 @@ import type { Value } from '../storage/postgres/db.js'
 import type { PostgresSchema } from '../storage/postgres/schema.js'
 
 /**
- * A tool the platform can offer. The row is a pointer, not a definition: the implementation lives in a registry
+ * A tool Cake can offer. The row is a pointer, not a definition: the implementation lives in a registry
  * extension, so the catalog is written from what is installed and a name here always resolves to code.
  */
 export interface Tool {

@@ -7,8 +7,8 @@ import Docker from 'dockerode'
 import type { DockerConnection } from './docker-connection.js'
 
 export const PI_ENV_VERSION = '1.6.0'
-export const PI_ENV_DAEMON_PATH = `/home/dev/.local/share/tlabs/pi-env-${PI_ENV_VERSION}`
-const DAEMON_DIRECTORY = '/home/dev/.local/share/tlabs'
+export const PI_ENV_DAEMON_PATH = `/home/dev/.local/share/cake/pi-env-${PI_ENV_VERSION}`
+const DAEMON_DIRECTORY = '/home/dev/.local/share/cake'
 
 export interface DaemonInstaller {
   ensure(containerId: string): Promise<string>

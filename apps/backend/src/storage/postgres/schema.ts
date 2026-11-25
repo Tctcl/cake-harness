@@ -113,7 +113,7 @@ export type PostgresSchema = {
 
 /**
  * The durable log's namespace. `apps/backend` owns these tables too, but they hold durable's internal state while the
- * bare names are the platform's own, so the two never collide in one database.
+ * bare names are Cake's own, so the two never collide in one database.
  */
 export const DURABLE_PREFIX = 'durable_'
 
@@ -1060,7 +1060,7 @@ const appliedVersions = async (client: Queryable, schema: PostgresSchema): Promi
  * same database at once, so one of them finds the schema already applied instead of racing it.
  */
 export const applyMigrations = async (client: Queryable, schema: PostgresSchema): Promise<void> => {
-  // One lock for the whole database: the durable log and the platform tables share a schema and a runner. It is taken
+  // One lock for the whole database: the durable log and Cake's tables share a schema and a runner. It is taken
   // before the first statement because even `CREATE TABLE IF NOT EXISTS` fails with a duplicate-type error when two
   // processes run it against a fresh database at once.
   await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`durable-schema:${schema.prefix}`])

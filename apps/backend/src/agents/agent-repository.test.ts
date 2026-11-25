@@ -15,7 +15,7 @@ import { DEFAULT_SYSTEM_PROMPT } from './default-prompt.js'
  * each case gets its own table prefix. Without the variable the file reports nothing instead of failing.
  */
 /** The image a workspace records until its container is first started. */
-const IMAGE = 'tctcl/dev-env:dev'
+const IMAGE = 'cake-harness/dev-env:dev'
 
 const url = process.env['DATABASE_URL']
 

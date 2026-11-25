@@ -8,7 +8,7 @@ const releasesOf = (latest: () => Promise<{ tag: string; url: string }>): Releas
 })
 
 const githubAnswers = (tag: string): ReleaseSource =>
-  releasesOf(async () => ({ tag, url: `https://github.com/Tctcl/tlabs-platform/releases/tag/${tag}` }))
+  releasesOf(async () => ({ tag, url: `https://github.com/Tctcl/cake-harness/releases/tag/${tag}` }))
 
 describe('createUpdateChecker', () => {
   it('reports an available update when the release is newer', async () => {
@@ -63,7 +63,7 @@ describe('createUpdateChecker', () => {
   it('records the failure and keeps the previous answer', async () => {
     let answer: () => Promise<{ tag: string; url: string }> = async () => ({
       tag: 'v0.3.0',
-      url: 'https://github.com/Tctcl/tlabs-platform/releases/tag/v0.3.0',
+      url: 'https://github.com/Tctcl/cake-harness/releases/tag/v0.3.0',
     })
     const checker = createUpdateChecker({
       channel: 'production',
@@ -111,7 +111,7 @@ describe('createUpdateChecker', () => {
   it('shares one request between concurrent callers', async () => {
     const latest = vi.fn(async () => ({
       tag: 'v0.3.0',
-      url: 'https://github.com/Tctcl/tlabs-platform/releases/tag/v0.3.0',
+      url: 'https://github.com/Tctcl/cake-harness/releases/tag/v0.3.0',
     }))
     const checker = createUpdateChecker({
       channel: 'production',

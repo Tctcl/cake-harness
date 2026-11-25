@@ -1,3 +1,3 @@
-import base from '@tctcl/vitest-config/base'
+import base from '@cake-harness/vitest-config/base'
 
 export default base
