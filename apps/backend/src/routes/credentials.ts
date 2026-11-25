@@ -76,11 +76,10 @@ const toInput = (body: {
   const base = { kind: body.kind, name: body.name, value: body.value, expiresAt: body.expiresAt ?? null }
 
   if (body.kind === 'opencode-go') {
-    if (typeof body.email !== 'string' || body.email.trim() === '') {
-      throw badRequest('an opencode-go key names the account it belongs to', 'CREDENTIAL_EMAIL_REQUIRED')
-    }
+    // The account email is a note for the person telling keys apart, not something the provider needs.
+    const email = typeof body.email === 'string' && body.email.trim() !== '' ? body.email.trim() : null
 
-    return { ...base, email: body.email.trim() }
+    return { ...base, email }
   }
 
   if (typeof body.mcpId !== 'string' || body.mcpId.trim() === '') {

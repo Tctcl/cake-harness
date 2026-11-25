@@ -53,6 +53,9 @@ const agentOf = (overrides: Partial<AgentProfile> = {}): AgentProfile => ({
   allowAll: true,
   systemPrompt: '',
   instructions: '',
+  credentialId: null,
+  modelId: null,
+  thinkingLevel: 'low',
   archivedAt: null,
   createdAt: new Date(0),
   updatedAt: new Date(0),
@@ -175,7 +178,6 @@ function stubAgent(overrides: Partial<Agent> = {}): Agent {
     // Same rule for the provider routes: the stub answers only what registration needs.
     providers: {
       logins: async () => [],
-      createLogin: unused,
       models: async () => [],
       workspaceProviders: unused,
       setWorkspaceProviders: unused,
@@ -1036,6 +1038,24 @@ describe('static frontend', () => {
 
       expect(response.statusCode).toBe(404)
       expect(response.json<{ error: { code: string } }>().error.code).toBe('NOT_FOUND')
+    } finally {
+      await server.close()
+    }
+  })
+})
+
+describe('capability grant routes', () => {
+  it('answers a workspace s grants, which carry no MCP servers because the workspace owns them', async () => {
+    const grants = { allowAll: false, grants: { tools: ['t1'], prompts: [], skills: ['s1'] } }
+    const server = buildServer(config, {
+      agent: stubAgent({ capabilities: { ...capabilitiesOf(), workspaceGrants: async () => grants } }),
+    })
+
+    try {
+      const response = await server.inject({ method: 'GET', url: `/workspaces/${WORKSPACE_ID}/grants` })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual(grants)
     } finally {
       await server.close()
     }

@@ -6,6 +6,7 @@ import { AppError } from '../errors.js'
 import type { Value } from '../storage/postgres/db.js'
 import { rowsOf, withClient, withTransaction } from '../storage/postgres/db.js'
 import type { PostgresSchema } from '../storage/postgres/schema.js'
+import { WORKSPACE_AGENT_DESCRIPTION, WORKSPACE_AGENT_NAME } from './defaults.js'
 
 /**
  * A workspace: the scope threads and agents live in, and the container they run in. Each workspace owns exactly one
@@ -98,6 +99,7 @@ export class WorkspaceRepository {
     readonly insertOnTop: string
     readonly insertEnvironment: string
     readonly attachEnvironment: string
+    readonly insertDefaultAgent: string
   }
 
   constructor(pool: Pool, schema: PostgresSchema) {
@@ -127,6 +129,9 @@ export class WorkspaceRepository {
         VALUES ($1, $2, $3, $4)`,
       attachEnvironment: `INSERT INTO ${tables.workspaceEnvironments} (workspace_id, environment_id)
         VALUES ($1, $2)`,
+      // Every workspace starts with an agent, so a conversation can start there before anyone opens the Agents tab.
+      insertDefaultAgent: `INSERT INTO ${tables.agents} (id, workspace_id, name, description, is_default, allow_all)
+        VALUES ($1, $2, '${WORKSPACE_AGENT_NAME}', '${WORKSPACE_AGENT_DESCRIPTION}', true, true)`,
     }
   }
 
@@ -174,6 +179,7 @@ export class WorkspaceRepository {
       ])
       await client.query(this.#sql.insertEnvironment, [environmentId, ownerId, input.name, environmentImage])
       await client.query(this.#sql.attachEnvironment, [id, environmentId])
+      await client.query(this.#sql.insertDefaultAgent, [randomUUID(), id])
 
       return inserted
     })
@@ -209,6 +215,31 @@ export class WorkspaceRepository {
         await client.query(this.#sql.insertEnvironment, [environmentId, row.owner_id, row.name, image])
         await client.query(this.#sql.attachEnvironment, [row.id, environmentId])
       }
+    })
+
+    return missing.length
+  }
+
+  /**
+   * Give every live workspace of `ownerId` that has no default agent one, and answer how many were created. Workspaces
+   * made before every workspace got an agent could not start a conversation at all; this repairs them at startup and
+   * does nothing on the next boot.
+   */
+  async ensureDefaultAgents(ownerId: string): Promise<number> {
+    const { workspaces, agents } = this.#schema.tables
+    const missing = await withClient(this.#pool, (client) =>
+      rowsOf<{ readonly id: string }>(
+        client,
+        `SELECT w.id FROM ${workspaces} w
+          WHERE w.owner_id = $1 AND w.archived_at IS NULL
+            AND NOT EXISTS (SELECT 1 FROM ${agents} a WHERE a.workspace_id = w.id AND a.is_default)`,
+        [ownerId],
+      ),
+    )
+    if (missing.length === 0) return 0
+
+    await withTransaction(this.#pool, async (client) => {
+      for (const row of missing) await client.query(this.#sql.insertDefaultAgent, [randomUUID(), row.id])
     })
 
     return missing.length

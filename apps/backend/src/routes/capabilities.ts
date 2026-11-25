@@ -180,7 +180,14 @@ const agentGrantsBody = {
   additionalProperties: false,
 } as const
 
-const workspaceGrantsBody = agentGrantsBody
+// A workspace owns its MCP servers rather than being granted them, so its grants are the three catalogs only. Reusing
+// the agent body here made every grants response fail serialization on the missing `mcpServers`.
+const workspaceGrantsBody = {
+  type: 'object',
+  properties: { tools: stringList, prompts: stringList, skills: stringList },
+  required: ['tools', 'prompts', 'skills'],
+  additionalProperties: false,
+} as const
 
 const agentGrantsSchema = {
   type: 'object',

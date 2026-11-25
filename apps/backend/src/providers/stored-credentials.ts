@@ -1,49 +1,61 @@
 import type { CredentialInfo, CredentialStore } from '@earendil-works/pi-ai'
+import type { MutableModels, Provider } from '@earendil-works/pi-ai/models'
+import { opencodeGoProvider } from '@earendil-works/pi-ai/providers/opencode-go'
 
+import { credentialIdOf, providerIdFor, PROVIDER } from '../agents/run-settings.js'
 import type { ProviderRepository } from './provider-repository.js'
-import { SUPPORTED_PROVIDER } from './provider-repository.js'
 
 /** The two reads this store makes, so a test can answer without a database. */
 export type StoredKeys = Pick<ProviderRepository, 'logins' | 'key'>
 
 const readOnly = async (): Promise<never> => {
-  throw new Error('provider keys are written through the providers API, not by the model runtime')
+  throw new Error('provider keys are written through the credentials API, not by the model runtime')
 }
 
 /**
- * The model runtime's view of the keys a user stored on the credentials page. Without it the harness only ever read
- * `OPENCODE_API_KEY` from the environment, so a key added in the app was checked, listed and never used.
+ * The model runtime's view of the keys a user stored on the credentials page.
  *
- * The newest login of the supported provider answers. Which login pays for which workspace (`docs/providers.md`) needs
- * the harness to resolve credentials per conversation, which it does not do yet; until then one key serves every chat.
- * `envApiKeyAuth` prefers a stored credential, so `OPENCODE_API_KEY` remains the fallback when no key is stored.
+ * Every stored key is its own provider (`opencode-go~<credential id>`, see `registerKeyProvider`), so a conversation's
+ * model reference names the key that pays for it and this store answers exactly that key. The bare `opencode-go`
+ * provider is what conversations created before per-agent keys still name; it answers the newest stored key, and
+ * `envApiKeyAuth` falls back to `OPENCODE_API_KEY` when there is none.
  */
-export const storedCredentials = (keys: StoredKeys, ownerId: string): CredentialStore => {
-  const newestLogin = async (providerId: string) => {
-    if (providerId !== SUPPORTED_PROVIDER) return undefined
-    const [newest] = await keys.logins(ownerId)
+export const storedCredentials = (keys: StoredKeys, ownerId: string): CredentialStore => ({
+  async read(providerId) {
+    const credentialId = credentialIdOf(providerId)
+    const id = credentialId ?? (providerId === PROVIDER ? (await keys.logins(ownerId))[0]?.id : undefined)
+    if (id === undefined) return undefined
 
-    return newest
-  }
+    const key = await keys.key(ownerId, id)
 
-  return {
-    async read(providerId) {
-      const login = await newestLogin(providerId)
-      if (login === undefined) return undefined
+    return key === undefined ? undefined : { type: 'api_key', key }
+  },
 
-      const key = await keys.key(ownerId, login.id)
+  async list() {
+    const logins = await keys.logins(ownerId)
 
-      return key === undefined ? undefined : { type: 'api_key', key }
-    },
+    return logins.map((login): CredentialInfo => ({ providerId: providerIdFor(login.id), type: 'api_key' }))
+  },
 
-    async list() {
-      const logins = await keys.logins(ownerId)
-      const info: CredentialInfo = { providerId: SUPPORTED_PROVIDER, type: 'api_key' }
+  modify: readOnly,
+  delete: readOnly,
+})
 
-      return logins.length === 0 ? [] : [info]
-    },
+/**
+ * Registers one stored key as a provider: OpenCode Go's catalog and API under the key's own id. Idempotent, so it is
+ * called whenever a run is about to use a key, and once per key at startup so a run resumed after a restart finds it.
+ */
+export const registerKeyProvider = (models: MutableModels, credentialId: string): void => {
+  const id = providerIdFor(credentialId)
+  if (models.getProvider(id) !== undefined) return
 
-    modify: readOnly,
-    delete: readOnly,
-  }
+  const base: Provider = opencodeGoProvider()
+  const relabel = <M extends { readonly provider: string }>(model: M): M => ({ ...model, provider: id })
+
+  models.setProvider({
+    ...base,
+    id,
+    getModels: () => base.getModels().map(relabel),
+    ...(base.getAllModels === undefined ? {} : { getAllModels: () => (base.getAllModels?.() ?? []).map(relabel) }),
+  })
 }

@@ -974,6 +974,26 @@ const writerMigration = (schema: PostgresSchema): readonly string[] => [
   `ALTER TABLE ${schema.tables.durableMetadata} ADD COLUMN writer uuid`,
 ]
 
+/**
+ * What an agent runs with: the stored key that pays for it, the model and how hard it thinks. The key and the model are
+ * optional on the row; `agents/run-settings.ts` fills the gaps (the workspace's linked key, the default model) when a
+ * run starts. Deleting a key leaves the agent without one rather than deleting the agent.
+ */
+const agentRunSettingsMigration = (schema: PostgresSchema): readonly string[] => [
+  // The account email on a provider key is a note for telling keys apart, not something the provider needs. Requiring
+  // it also made every key stored without one (the providers API did exactly that) a constraint violation.
+  `ALTER TABLE ${schema.tables.userCredentials} DROP CONSTRAINT user_credentials_fields`,
+  `ALTER TABLE ${schema.tables.userCredentials} ADD CONSTRAINT user_credentials_fields CHECK (
+    (kind = 'opencode-go' AND mcp_id IS NULL)
+    OR (kind = 'mcp' AND mcp_id IS NOT NULL AND email IS NULL)
+  )`,
+  `ALTER TABLE ${schema.tables.agents}
+    ADD COLUMN credential_id uuid REFERENCES ${schema.tables.userCredentials} (id) ON DELETE SET NULL,
+    ADD COLUMN model_id text,
+    ADD COLUMN thinking_level text NOT NULL DEFAULT 'low'
+      CHECK (thinking_level IN ('off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'))`,
+]
+
 /** Ordered schema history: a released version is never edited, a change appends one. */
 export const MIGRATIONS: readonly { version: number; statements: (schema: PostgresSchema) => readonly string[] }[] = [
   { version: 1, statements: migration },
@@ -992,6 +1012,7 @@ export const MIGRATIONS: readonly { version: number; statements: (schema: Postgr
   { version: 14, statements: credentialsMigration },
   { version: 15, statements: workspaceMcpMigration },
   { version: 16, statements: providerMigration },
+  { version: 17, statements: agentRunSettingsMigration },
 ]
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0

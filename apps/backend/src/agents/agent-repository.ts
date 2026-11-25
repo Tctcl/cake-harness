@@ -7,6 +7,10 @@ import type { Value } from '../storage/postgres/db.js'
 import { rowsOf, withClient, withTransaction } from '../storage/postgres/db.js'
 import type { PostgresSchema } from '../storage/postgres/schema.js'
 
+/** How hard the model reasons, in pi-ai's names. `low` is what an agent starts with. */
+export const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number]
+
 /**
  * One profile inside a workspace: the prompts that steer a conversation, the system prompt and whether it reaches
  * everything its workspace allows. Which tools, skills and MCP servers it selected lives in the link tables, because
@@ -21,6 +25,11 @@ export interface AgentProfile {
   readonly allowAll: boolean
   readonly systemPrompt: string
   readonly instructions: string
+  /** The stored key the agent runs with, or `null` to use the one its workspace links. */
+  readonly credentialId: string | null
+  /** The model id within the provider, or `null` for the platform default. */
+  readonly modelId: string | null
+  readonly thinkingLevel: ThinkingLevel
   readonly archivedAt: Date | null
   readonly createdAt: Date
   readonly updatedAt: Date
@@ -32,6 +41,9 @@ export interface AgentInput {
   readonly allowAll?: boolean
   readonly systemPrompt?: string
   readonly instructions?: string
+  readonly credentialId?: string | null
+  readonly modelId?: string | null
+  readonly thinkingLevel?: ThinkingLevel
 }
 
 export type AgentPatch = Partial<AgentInput>
@@ -45,6 +57,9 @@ interface AgentRow {
   readonly allow_all: boolean
   readonly system_prompt: string
   readonly instructions: string
+  readonly credential_id: string | null
+  readonly model_id: string | null
+  readonly thinking_level: ThinkingLevel
   readonly archived_at: Date | null
   readonly created_at: Date
   readonly updated_at: Date
@@ -63,16 +78,19 @@ const toAgent = (row: AgentRow): AgentProfile => ({
   allowAll: row.allow_all,
   systemPrompt: row.system_prompt,
   instructions: row.instructions,
+  credentialId: row.credential_id,
+  modelId: row.model_id,
+  thinkingLevel: row.thinking_level,
   archivedAt: row.archived_at,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 })
 
 const COLUMNS = `id, workspace_id, name, description, is_default, allow_all,
-  system_prompt, instructions, archived_at, created_at, updated_at`
+  system_prompt, instructions, credential_id, model_id, thinking_level, archived_at, created_at, updated_at`
 
 const immutable = (): AppError =>
-  new AppError('the default agent cannot be edited, archived or deleted', {
+  new AppError('the default agent cannot be archived or deleted', {
     statusCode: 403,
     code: 'AGENT_IMMUTABLE',
   })
@@ -143,8 +161,9 @@ export class AgentRepository {
     await this.#assertWorkspaceOpen(workspaceId)
 
     const text = `INSERT INTO ${this.#schema.tables.agents}
-      (id, workspace_id, name, description, allow_all, system_prompt, instructions)
-      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING ${COLUMNS}`
+      (id, workspace_id, name, description, allow_all, system_prompt, instructions, credential_id, model_id,
+       thinking_level)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING ${COLUMNS}`
     const rows = await this.#select(text, [
       randomUUID(),
       workspaceId,
@@ -154,6 +173,9 @@ export class AgentRepository {
       input.allowAll ?? true,
       input.systemPrompt ?? '',
       input.instructions ?? '',
+      input.credentialId ?? null,
+      input.modelId ?? null,
+      input.thinkingLevel ?? 'low',
     ])
     const row = rows[0]
     if (row === undefined) throw new Error('The agent insert returned no row')
@@ -161,11 +183,13 @@ export class AgentRepository {
     return toAgent(row)
   }
 
-  /** Edit an agent, or answer `undefined` when the id is unknown. The default one is immutable. */
+  /**
+   * Edit an agent, or answer `undefined` when the id is unknown. The default agent is edited like any other (it needs a
+   * key and a model as much as any agent does); only archiving and deleting it are refused.
+   */
   async update(id: string, patch: AgentPatch): Promise<AgentProfile | undefined> {
     const existing = await this.find(id)
     if (existing === undefined) return undefined
-    if (existing.isDefault) throw immutable()
     // An archived workspace files its agents with it, so an edit now would land somewhere nobody is looking.
     await this.#assertWorkspaceOpen(existing.workspaceId)
 
@@ -181,6 +205,9 @@ export class AgentRepository {
     if (patch.allowAll !== undefined) assign('allow_all', patch.allowAll)
     if (patch.systemPrompt !== undefined) assign('system_prompt', patch.systemPrompt)
     if (patch.instructions !== undefined) assign('instructions', patch.instructions)
+    if (patch.credentialId !== undefined) assign('credential_id', patch.credentialId)
+    if (patch.modelId !== undefined) assign('model_id', patch.modelId)
+    if (patch.thinkingLevel !== undefined) assign('thinking_level', patch.thinkingLevel)
     if (assignments.length === 0) return existing
 
     values.push(id)

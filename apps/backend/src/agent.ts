@@ -36,7 +36,9 @@ import { createProviderApi } from './providers/api.js'
 import type { ProviderApi } from './providers/api.js'
 import { checkKey, fetchModels } from './providers/provider-client.js'
 import { ProviderRepository } from './providers/provider-repository.js'
-import { storedCredentials } from './providers/stored-credentials.js'
+import { registerKeyProvider, storedCredentials } from './providers/stored-credentials.js'
+import { PROVIDER, resolveRunSettings, validateRunSettings } from './agents/run-settings.js'
+import type { KeyCatalog, RunSettings, WorkspaceReach } from './agents/run-settings.js'
 import { AuthService } from './auth/service.js'
 import { ToolRepository } from './capabilities/tool-repository.js'
 import { idFromNumber } from './storage/postgres/ids.js'
@@ -56,8 +58,6 @@ import type { Workspace, WorkspaceInput, WorkspacePatch } from './workspaces/wor
 // One background context for the whole process: it never cancels and carries no telemetry.
 const CONTEXT = BACKGROUND_CONTEXT
 
-const MODEL = { provider: 'opencode-go', modelId: 'deepseek-v4.1-flash' } as const
-const THINKING_LEVEL = 'low'
 
 /**
  * How long a request waits for Postgres before answering 503. Reopening needs a connection, not a healthy Session, so
@@ -529,24 +529,61 @@ export async function createAgent(config: Config): Promise<Agent> {
   const servers = new WorkspaceMcpServerRepository(postgres.pool, postgres.schema)
   const links = new CapabilityLinks(postgres.pool, postgres.schema)
   const ownerId = await ensureLocalUser(postgres.pool, postgres.schema)
-  // The user's own keys, apart from the MCP credentials a server definition carries: a key outlives the server it serves.
-  const userCredentials = createCredentialApi({
-    ownerId,
-    credentials: new CredentialRepository(postgres.pool, postgres.schema, config.secrets),
-  })
   // Provider keys are credentials of one kind, so they live in the same table and are read through their own api.
   const providerRepository = new ProviderRepository(postgres.pool, postgres.schema, config.secrets)
   const providers = createProviderApi({
     ownerId,
     providers: providerRepository,
-    client: { checkKey, fetchModels },
   })
-  // Chats authenticate with the key stored on the credentials page; OPENCODE_API_KEY only answers when none is stored.
+  // Chats authenticate with the keys stored on the credentials page, each registered as its own provider so an agent's
+  // model reference names the key that pays for it. The bare provider serves conversations from before per-agent keys.
   const models = createModels({ credentials: storedCredentials(providerRepository, ownerId) })
   models.setProvider(opencodeGoProvider())
+  for (const login of await providerRepository.logins(ownerId)) registerKeyProvider(models, login.id)
+  // The user's own keys, apart from the MCP credentials a server definition carries: a key outlives the server it serves.
+  // A provider key is checked upstream before it is stored, and its models are loaded from it.
+  const userCredentials = createCredentialApi({
+    ownerId,
+    credentials: new CredentialRepository(postgres.pool, postgres.schema, config.secrets),
+    providerKeys: {
+      check: checkKey,
+      stored: async (credentialId, key) => {
+        registerKeyProvider(models, credentialId)
+        const upstream = await fetchModels(key)
+        if (upstream !== undefined) await providerRepository.replaceModels(PROVIDER, upstream)
+      },
+    },
+  })
+
+  /** The settings a run of `profile` uses right now, registering its key's provider on the way. */
+  const runSettingsOf = async (profile: AgentProfile): Promise<RunSettings> => {
+    const [reach, keys] = await Promise.all([reachOf(profile.workspaceId), keyCatalog()])
+    const settings = resolveRunSettings(profile, reach, keys)
+    registerKeyProvider(models, settings.credentialId)
+
+    return settings
+  }
+
+  const reachOf = async (workspaceId: string): Promise<WorkspaceReach> => {
+    const [workspace, linked] = await Promise.all([
+      workspaces.find(workspaceId),
+      providerRepository.workspaceProviders(ownerId, workspaceId),
+    ])
+    if (workspace === undefined || linked === undefined) {
+      throw new AppError('the workspace does not exist', { statusCode: 404, code: 'WORKSPACE_NOT_FOUND' })
+    }
+
+    return { allowAll: workspace.allowAll, ...linked }
+  }
+
+  const keyCatalog = async (): Promise<KeyCatalog> => ({
+    loginIds: (await providerRepository.logins(ownerId)).map((login) => login.id),
+    modelIds: new Set(opencodeGoProvider().getModels().map((model) => model.id)),
+  })
   // Every workspace except the default one runs in a container. The image is configuration, so the row is written here
   // rather than by a migration; on an install that already satisfies the rule this writes nothing.
   await workspaces.ensureEnvironments(ownerId, config.workspaceImage)
+  await workspaces.ensureDefaultAgents(ownerId)
   const auth = new AuthService({ pool: postgres.pool, schema: postgres.schema, secrets: config.secrets })
 
   // Harnesses come and go as Sessions fail; the storage outlives them and only the process closes it.
@@ -660,11 +697,17 @@ export async function createAgent(config: Config): Promise<Agent> {
       return agents.list(workspaceId, { archived: query?.archived })
     },
 
-    createAgent(workspaceId, input) {
+    async createAgent(workspaceId, input) {
+      validateRunSettings(input, await reachOf(workspaceId), await keyCatalog())
+
       return agents.create(workspaceId, input)
     },
 
-    updateAgent(id, patch) {
+    async updateAgent(id, patch) {
+      const existing = await agents.find(id)
+      if (existing === undefined) return undefined
+      validateRunSettings(patch, await reachOf(existing.workspaceId), await keyCatalog())
+
       return agents.update(id, patch)
     },
 
@@ -705,14 +748,16 @@ export async function createAgent(config: Config): Promise<Agent> {
           input,
         )
         const instructions = instructionsOf(profile)
+        // Resolved before anything is created: a conversation that could never run is refused with what to fix.
+        const settings = await runSettingsOf(profile)
         const harness = await supervisor.harness()
         // Ownerless: a thread is a top-level transcript, not work a parent task owns. Forks get a task owner instead.
         const conversation = await harness.createConversation(
           {
             ownership: { kind: 'ownerless' },
             agent: {
-              model: MODEL,
-              thinkingLevel: THINKING_LEVEL,
+              model: settings.model,
+              thinkingLevel: settings.thinkingLevel,
               ...(instructions === undefined ? {} : { instructions }),
             },
           },
@@ -768,10 +813,25 @@ export async function createAgent(config: Config): Promise<Agent> {
         throw new AppError('the thread is archived', { statusCode: 409, code: 'THREAD_ARCHIVED' })
       }
 
+      const profile = await agents.find(thread.agentId)
+      if (profile === undefined) throw new AppError('the agent does not exist', { statusCode: 404, code: 'AGENT_NOT_FOUND' })
+      // Outside the try: a missing key is the user's to fix, so it answers 409 with the fix rather than 503.
+      const settings = await runSettingsOf(profile)
+
       try {
         const conversation = await conversationOf(
           supervisor,
           idFromNumber(thread.durableConversationId),
+        )
+        // The agent's current settings, every turn: editing the agent (its key, model, thinking or prompts) applies to
+        // the conversations it already has, from their next message on.
+        await conversation.configure(
+          {
+            model: settings.model,
+            thinkingLevel: settings.thinkingLevel,
+            instructions: instructionsOf(profile) ?? null,
+          },
+          CONTEXT,
         )
         const submission = await conversation.submit({ type: 'input', content: input }, CONTEXT)
 

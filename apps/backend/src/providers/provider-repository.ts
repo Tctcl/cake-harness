@@ -50,12 +50,6 @@ export interface ProviderUsage {
   readonly costUsd: number
 }
 
-export interface ProviderLoginInput {
-  readonly provider: string
-  readonly label: string
-  readonly key: string
-}
-
 interface LoginRow {
   readonly id: string
   readonly name: string
@@ -120,8 +114,6 @@ const statements = (schema: PostgresSchema) => {
       WHERE owner_id = $1 AND kind = 'opencode-go' ORDER BY created_at DESC`,
     key: `SELECT value FROM ${tables.userCredentials}
       WHERE owner_id = $1 AND id = $2 AND kind = 'opencode-go'`,
-    createLogin: `INSERT INTO ${tables.userCredentials} (id, owner_id, kind, name, value)
-      VALUES ($1, $2, 'opencode-go', $3, $4) RETURNING ${LOGIN_COLUMNS}`,
     workspace: `SELECT allow_all_models FROM ${tables.workspaces} WHERE id = $1 AND owner_id = $2`,
     loginIds: `SELECT credential_id FROM ${tables.workspaceProviderLogins} WHERE workspace_id = $1`,
     modelIds: `SELECT model_id FROM ${tables.workspaceProviderModels} WHERE workspace_id = $1`,
@@ -188,20 +180,6 @@ export class ProviderRepository {
     const [row] = await poolRows<{ readonly value: string }>(this.#pool, this.#sql.key, [ownerId, id])
 
     return row === undefined ? undefined : this.#secrets.open(row.value)
-  }
-
-  /** Stores the key sealed. The provider is the kind, which is what the credentials page also reads. */
-  async createLogin(ownerId: string, id: string, input: ProviderLoginInput): Promise<ProviderLogin> {
-    const [row] = await poolRows<LoginRow>(this.#pool, this.#sql.createLogin, [
-      id,
-      ownerId,
-      input.label,
-      this.#secrets.seal(input.key),
-    ])
-
-    if (row === undefined) throw new Error('the provider login was not written')
-
-    return toLogin(row)
   }
 
   /** `undefined` when the workspace is unknown or belongs to somebody else, which are one answer at this layer. */
