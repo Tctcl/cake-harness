@@ -1,8 +1,8 @@
 import { AlertTriangleIcon, LoaderCircleIcon, WrenchIcon } from 'lucide-react'
 
 import type { ChatLive, ChatLiveBlock, ChatLiveTool, ChatRunFailure } from '../../lib/chat-api.ts'
-import { Reasoning, ReasoningContent, ReasoningTrigger } from '../ui/reasoning.tsx'
 import { Markdown } from './markdown.tsx'
+import { ThinkingBlock } from './thinking-block.tsx'
 
 /**
  * What the conversation is doing while it works: the reasoning as it streams, the text as it is written, and each tool
@@ -10,11 +10,11 @@ import { Markdown } from './markdown.tsx'
  * that the process is visible, not only its product.
  */
 
-/** A run of blocks the provider produced together: one reasoning stretch, one text stretch, one batch of calls. */
+/** Consecutive text or reasoning folds together; each tool call keeps its own exact position. */
 type Segment =
   | { readonly kind: 'thinking'; text: string; readonly redacted: boolean }
   | { readonly kind: 'text'; text: string }
-  | { readonly kind: 'calls'; readonly calls: readonly ChatLiveBlock[] }
+  | { readonly kind: 'toolCall'; readonly call: Extract<ChatLiveBlock, { type: 'toolCall' }> }
 
 /** Consecutive blocks of the same kind fold into one segment, so alternating turns stay in the order they happened. */
 const segmentsOf = (blocks: readonly ChatLiveBlock[]): Segment[] =>
@@ -33,9 +33,7 @@ const segmentsOf = (blocks: readonly ChatLiveBlock[]): Segment[] =>
       return segments
     }
 
-    if (last?.kind === 'calls') return [...segments.slice(0, -1), { kind: 'calls', calls: [...last.calls, block] }]
-
-    return [...segments, { kind: 'calls', calls: [block] }]
+    return [...segments, { kind: 'toolCall', call: block }]
   }, [])
 
 const oneLine = (value: string, max: number) => {
@@ -85,31 +83,23 @@ const ToolSlot = ({ tool }: { tool: ChatLiveTool }) => {
   )
 }
 
-const SegmentView = ({ segment, streaming }: { segment: Segment; streaming: boolean }) => {
+const SegmentView = ({
+  segment,
+  streaming,
+  tool,
+}: {
+  segment: Segment
+  streaming: boolean
+  tool: ChatLiveTool | undefined
+}) => {
   if (segment.kind === 'thinking') {
-    return (
-      <Reasoning isStreaming={streaming}>
-        <ReasoningTrigger />
-        <ReasoningContent>
-          {segment.text === ''
-            ? 'The provider did not release this reasoning: only its signature came back.'
-            : segment.text}
-        </ReasoningContent>
-      </Reasoning>
-    )
+    return <ThinkingBlock text={segment.text} redacted={segment.redacted} streaming={streaming} />
   }
 
   if (segment.kind === 'text') return <Markdown text={segment.text} />
+  if (tool !== undefined) return <ToolSlot tool={tool} />
 
-  return (
-    <div className="flex flex-col gap-1">
-      {segment.calls.map((call) =>
-        call.type === 'toolCall' ? (
-          <CallLine arguments={call.arguments} key={call.callId} name={call.name} />
-        ) : null,
-      )}
-    </div>
-  )
+  return <CallLine arguments={segment.call.arguments} name={segment.call.name} />
 }
 
 const FailureNotice = ({ failure }: { failure: ChatRunFailure }) => (
@@ -128,6 +118,11 @@ const FailureNotice = ({ failure }: { failure: ChatRunFailure }) => (
 
 export function LiveRun({ live, streaming }: { live: ChatLive; streaming: boolean }) {
   const segments = segmentsOf(live.blocks)
+  const toolsById = new Map(live.tools.map((tool) => [tool.id, tool]))
+  const blockCallIds = new Set(
+    live.blocks.flatMap((block) => (block.type === 'toolCall' ? [block.callId] : [])),
+  )
+  const trailingTools = live.tools.filter((tool) => !blockCallIds.has(tool.id))
   const working = streaming || live.compacting > 0
 
   // Nothing is in flight and nothing failed: the view has nothing to say, and the transcript speaks for itself.
@@ -138,10 +133,15 @@ export function LiveRun({ live, streaming }: { live: ChatLive; streaming: boolea
   return (
     <div className="not-prose flex flex-col gap-3">
       {segments.map((segment, index) => (
-        <SegmentView key={`${segment.kind}-${String(index)}`} segment={segment} streaming={streaming} />
+        <SegmentView
+          key={`${segment.kind}-${String(index)}`}
+          segment={segment}
+          streaming={streaming}
+          tool={segment.kind === 'toolCall' ? toolsById.get(segment.call.callId) : undefined}
+        />
       ))}
 
-      {live.tools.map((tool) => (
+      {trailingTools.map((tool) => (
         <ToolSlot key={`${tool.id}-${tool.status}-${String(tool.output?.length ?? 0)}`} tool={tool} />
       ))}
 

@@ -1,7 +1,7 @@
 import { ArrowDownIcon } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useSyncExternalStore, useState } from 'react'
 
-import type { ChatLive, ChatMessage } from '../../lib/chat-api.ts'
+import type { ChatLive, ChatMessage, ChatToolCall } from '../../lib/chat-api.ts'
 import type { PendingInput, ThreadSnapshot } from '../../lib/chat-store.ts'
 import {
   KEY_PROBLEMS,
@@ -28,7 +28,8 @@ import { Spinner } from '../ui/spinner.tsx'
 import { Markdown } from './markdown.tsx'
 import { PromptInput } from './prompt-input.tsx'
 import { LiveRun } from './live-run.tsx'
-import { ToolTrace } from './tool-trace.tsx'
+import { ThinkingBlock } from './thinking-block.tsx'
+import { ToolCallRow, ToolTrace } from './tool-trace.tsx'
 
 /** How close to the top the viewport has to be before older lines are asked for. */
 const LOAD_OLDER_THRESHOLD = 160
@@ -113,6 +114,13 @@ function Transcript({
   const [pinned, setPinned] = useState(true)
   // Anything that makes the transcript taller, so growth is followed without measuring it.
   const size = transcriptSize(state)
+  const toolsById = new Map(state.tools.map((call) => [call.id, call]))
+  const positionedCallIds = new Set(
+    state.messages.flatMap((message) =>
+      message.blocks.flatMap((block) => (block.type === 'toolCall' ? [block.callId] : [])),
+    ),
+  )
+  const trailingTools = state.tools.filter((call) => !positionedCallIds.has(call.id))
 
   useEffect(() => {
     if (pinned) scrollToEnd({ behavior: 'auto' })
@@ -141,7 +149,7 @@ function Transcript({
           {state.messages.map((message) => (
             <Fragment key={message.id}>
               <MessageScrollerItem messageId={String(message.id)}>
-                <Line message={message} />
+                <Line message={message} tools={toolsById} streaming={streaming} />
               </MessageScrollerItem>
 
               {state.pending
@@ -157,9 +165,9 @@ function Transcript({
             <PendingLine key={item.localId} item={item} threadId={threadId} />
           ))}
 
-          {state.tools.length === 0 ? null : (
+          {trailingTools.length === 0 ? null : (
             <MessageScrollerItem messageId="tools">
-              <ToolTrace calls={state.tools} />
+              <ToolTrace calls={trailingTools} active={streaming} />
             </MessageScrollerItem>
           )}
 
@@ -197,8 +205,16 @@ function transcriptSize(state: ThreadSnapshot): string {
   return `${state.messages.length}|${state.pending.length}|${state.tools.length}|${state.live.compacting}|${live}`
 }
 
-/** A turn of the transcript: the person's line sits in a bubble, the agent's reply is rendered markdown. */
-function Line({ message }: { message: ChatMessage }) {
+/** A transcript line: user input, an ordered assistant turn, or a visible context boundary. */
+function Line({
+  message,
+  tools,
+  streaming,
+}: {
+  message: ChatMessage
+  tools: ReadonlyMap<string, ChatToolCall>
+  streaming: boolean
+}) {
   if (message.role === 'user') {
     return (
       <Message align="end">
@@ -211,10 +227,77 @@ function Line({ message }: { message: ChatMessage }) {
     )
   }
 
+  if (message.role === 'compaction') {
+    return (
+      <details className="rounded-sm border border-border/60 px-3 py-2 text-sm">
+        <summary className="cursor-pointer text-muted-foreground">
+          Context compacted{message.reason === null ? '' : ` (${message.reason})`}
+        </summary>
+        <div className="mt-3">
+          <Markdown text={message.text} />
+        </div>
+      </details>
+    )
+  }
+
+  if (message.role === 'reset') {
+    if (message.text === '') {
+      return (
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <hr className="flex-1 border-border" />
+          <span>Context reset</span>
+          <hr className="flex-1 border-border" />
+        </div>
+      )
+    }
+
+    return (
+      <details className="border-y border-border/60 px-3 py-2 text-sm">
+        <summary className="cursor-pointer text-muted-foreground">Context reset</summary>
+        <div className="mt-3">
+          <Markdown text={message.text} />
+        </div>
+      </details>
+    )
+  }
+
   return (
     <Message>
       <MessageContent>
-        <Markdown text={message.text} />
+        {message.stopReason === 'error' || message.errorMessage !== null ? (
+          <div role="alert" className="rounded-sm border border-destructive/40 px-3 py-2 text-sm text-destructive">
+            {message.errorMessage ?? 'The assistant response ended with an error.'}
+          </div>
+        ) : null}
+
+        {message.blocks.map((block, index) => {
+          if (block.type === 'text') return <Markdown key={`text-${String(index)}`} text={block.text} />
+          if (block.type === 'thinking') {
+            return (
+              <ThinkingBlock
+                key={`thinking-${String(index)}`}
+                text={block.text}
+                redacted={block.redacted}
+              />
+            )
+          }
+
+          const settled = tools.get(block.callId)
+          const call: ChatToolCall =
+            settled === undefined
+              ? {
+                  id: block.callId,
+                  entryId: message.id,
+                  name: block.name,
+                  arguments: block.arguments,
+                  status: 'running',
+                  result: null,
+                  durationMs: null,
+                }
+              : { ...settled, arguments: block.arguments }
+
+          return <ToolCallRow key={block.callId} call={call} active={streaming} />
+        })}
       </MessageContent>
     </Message>
   )

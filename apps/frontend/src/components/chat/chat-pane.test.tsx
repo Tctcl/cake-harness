@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { ChatMessage } from '../../lib/chat-api.ts'
 import { ChatPane } from './chat-pane.tsx'
 import { STREAM_EVENT, resetThreads } from '../../lib/chat-store.ts'
 
@@ -37,8 +38,24 @@ const stream = () => FakeStream.opened[0]
 
 const NO_USAGE = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: 0 }
 
+const chatMessage = (
+  id: number,
+  role: ChatMessage['role'],
+  text: string,
+  overrides: Partial<ChatMessage> = {},
+): ChatMessage => ({
+  id,
+  role,
+  text,
+  blocks: text === '' ? [] : [{ type: 'text', text }],
+  stopReason: role === 'assistant' ? 'stop' : null,
+  errorMessage: null,
+  reason: null,
+  ...overrides,
+})
+
 /** A stream frame is the whole visible state, not just the lines: tools, model and spend travel with it. */
-const frame = (messages: unknown[], tools: unknown[] = []) => ({
+const frame = (messages: ChatMessage[], tools: unknown[] = []) => ({
   messages,
   tools,
   run: null,
@@ -61,7 +78,7 @@ describe('ChatPane', () => {
       'fetch',
       vi.fn(() =>
         reply({
-          messages: [{ id: 4, role: 'assistant', text: 'earlier answer' }],
+          messages: [chatMessage(4, 'assistant', 'earlier answer')],
           nextCursor: null,
         }),
       ),
@@ -74,8 +91,8 @@ describe('ChatPane', () => {
     stream()?.emit(
       STREAM_EVENT,
       frame([
-        { id: 4, role: 'assistant', text: 'earlier answer' },
-        { id: 5, role: 'user', text: 'a question' },
+        chatMessage(4, 'assistant', 'earlier answer'),
+        chatMessage(5, 'user', 'a question'),
       ]),
     )
 
@@ -85,7 +102,7 @@ describe('ChatPane', () => {
   it('shows the run tool calls under the reply', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(() => reply({ messages: [{ id: 4, role: 'assistant', text: 'done' }], nextCursor: null })),
+      vi.fn(() => reply({ messages: [chatMessage(4, 'assistant', 'done')], nextCursor: null })),
     )
 
     render(<ChatPane threadId={THREAD_ID} />)
@@ -94,10 +111,11 @@ describe('ChatPane', () => {
     stream()?.emit(
       STREAM_EVENT,
       frame(
-        [{ id: 4, role: 'assistant', text: 'done' }],
+        [chatMessage(4, 'assistant', 'done')],
         [
           {
             id: 'call_1',
+            entryId: 99,
             name: 'read',
             arguments: '{"path":"README.md"}',
             status: 'ok',
@@ -110,6 +128,124 @@ describe('ChatPane', () => {
 
     expect(await screen.findByText('read')).toBeInTheDocument()
     expect(screen.getByText('12 ms')).toBeInTheDocument()
+  })
+
+  it('renders committed thinking, its tool row and text in order inside the assistant turn', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => reply({ messages: [], nextCursor: null })))
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    await waitFor(() => expect(stream()).toBeDefined())
+
+    stream()?.emit(
+      STREAM_EVENT,
+      frame(
+        [
+          chatMessage(4, 'assistant', 'committed final text', {
+            blocks: [
+              { type: 'thinking', text: 'committed reasoning', redacted: false },
+              { type: 'toolCall', callId: 'call_1', name: 'read', arguments: '{"path":"README.md"}' },
+              { type: 'text', text: 'committed final text' },
+            ],
+          }),
+          chatMessage(5, 'assistant', 'later answer'),
+        ],
+        [
+          {
+            id: 'call_1',
+            entryId: 4,
+            name: 'read',
+            arguments: '{"path":"README.md"}',
+            status: 'ok',
+            result: '# tlabs',
+            durationMs: 12,
+          },
+        ],
+      ),
+    )
+
+    const thinking = await screen.findByRole('button', { name: 'Thought for a few seconds' })
+    expect(screen.queryByText('committed reasoning')).not.toBeInTheDocument()
+    fireEvent.click(thinking)
+    expect(await screen.findByText('committed reasoning')).toBeInTheDocument()
+
+    const transcript = screen.getByLabelText('Transcript').textContent ?? ''
+    expect(transcript.indexOf('committed reasoning')).toBeLessThan(transcript.indexOf('read'))
+    expect(transcript.indexOf('read')).toBeLessThan(transcript.indexOf('committed final text'))
+    expect(transcript.indexOf('committed final text')).toBeLessThan(transcript.indexOf('later answer'))
+  })
+
+  it('shows a compaction as a collapsed context row rather than a user bubble', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => reply({ messages: [], nextCursor: null })))
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    await waitFor(() => expect(stream()).toBeDefined())
+
+    stream()?.emit(
+      STREAM_EVENT,
+      frame([
+        chatMessage(4, 'compaction', 'the exact **summary**', { reason: 'threshold' }),
+      ]),
+    )
+
+    const trigger = await screen.findByText('Context compacted (threshold)')
+    const details = trigger.closest('details')
+    expect(details).not.toBeNull()
+    expect(details).not.toHaveAttribute('open')
+    expect(details?.querySelector('[data-slot="bubble"]')).toBeNull()
+  })
+
+  it('shows a committed assistant error above its answer', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => reply({ messages: [], nextCursor: null })))
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    await waitFor(() => expect(stream()).toBeDefined())
+
+    stream()?.emit(
+      STREAM_EVENT,
+      frame([
+        chatMessage(4, 'assistant', 'partial answer', {
+          stopReason: 'error',
+          errorMessage: 'provider disconnected',
+        }),
+      ]),
+    )
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('provider disconnected')
+    expect(screen.getByText('partial answer')).toBeInTheDocument()
+  })
+
+  it('marks an unresolved committed tool call when no run is active', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => reply({ messages: [], nextCursor: null })))
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    await waitFor(() => expect(stream()).toBeDefined())
+
+    stream()?.emit(
+      STREAM_EVENT,
+      frame(
+        [
+          chatMessage(4, 'assistant', '', {
+            blocks: [
+              { type: 'toolCall', callId: 'call_1', name: 'read', arguments: '{"path":"README.md"}' },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'call_1',
+            entryId: 4,
+            name: 'read',
+            arguments: '{"path":"README.md"}',
+            status: 'running',
+            result: null,
+            durationMs: null,
+          },
+        ],
+      ),
+    )
+
+    expect(await screen.findByText('No result recorded')).toBeInTheDocument()
+    expect(screen.queryByText('Running…')).not.toBeInTheDocument()
   })
 
   it('shows reasoning, the partial answer and a running call while the run is in flight', async () => {
@@ -130,6 +266,7 @@ describe('ChatPane', () => {
           { type: 'thinking', text: 'weighing the two layouts', redacted: false },
           { type: 'text', text: 'the answer so far' },
           { type: 'toolCall', callId: 'call_9', name: 'grep', arguments: '{"pattern":"shimmer"}' },
+          { type: 'text', text: 'text after the call' },
         ],
         tools: [
           {
@@ -151,6 +288,8 @@ describe('ChatPane', () => {
     expect(await screen.findByText('weighing the two layouts')).toBeInTheDocument()
     expect(await screen.findByText('the answer so far')).toBeInTheDocument()
     expect(screen.getByText('styles hit: .shimmer')).toBeInTheDocument()
+    const transcript = screen.getByLabelText('Transcript').textContent ?? ''
+    expect(transcript.indexOf('styles hit: .shimmer')).toBeLessThan(transcript.indexOf('text after the call'))
   })
 
   it('shows a sent line immediately and replaces it with the stored entry', async () => {
@@ -172,7 +311,7 @@ describe('ChatPane', () => {
     expect(await screen.findByText('Sending')).toBeInTheDocument()
     expect(screen.getByText('hello there')).toBeInTheDocument()
 
-    stream()?.emit(STREAM_EVENT, frame([{ id: 11, role: 'user', text: 'hello there' }]))
+    stream()?.emit(STREAM_EVENT, frame([chatMessage(11, 'user', 'hello there')]))
 
     await waitFor(() => expect(screen.queryByText('Sending')).not.toBeInTheDocument())
     expect(screen.getByText('hello there')).toBeInTheDocument()
@@ -220,8 +359,8 @@ describe('ChatPane', () => {
     await waitFor(() => expect(stream()).toBeDefined())
 
     const sent = [
-      { id: 4, role: 'assistant', text: 'the first answer' },
-      { id: 5, role: 'user', text: 'a question' },
+      chatMessage(4, 'assistant', 'the first answer'),
+      chatMessage(5, 'user', 'a question'),
     ]
     stream()?.emit(STREAM_EVENT, frame(sent))
     await screen.findByText('a question')
@@ -230,7 +369,7 @@ describe('ChatPane', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
     expect(await screen.findByText('Not sent')).toBeInTheDocument()
 
-    stream()?.emit(STREAM_EVENT, frame([...sent, { id: 6, role: 'assistant', text: 'a later answer' }]))
+    stream()?.emit(STREAM_EVENT, frame([...sent, chatMessage(6, 'assistant', 'a later answer')]))
     await screen.findByText('a later answer')
 
     const transcript = screen.getByLabelText('Transcript').textContent ?? ''
