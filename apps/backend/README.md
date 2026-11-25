@@ -12,7 +12,8 @@ ownership is row data rather than a permission ([`docs/auth.md`](../../docs/auth
 request runs without signing in.
 
 ```text
-src/index.ts          bootstrap: load config, open the agent, build, listen, close
+src/index.ts          entry point: load config, open the agent, build, listen, close
+src/bootstrap-admin.ts one-off: give the seeded owner a username and password, turn accounts on
 src/server.ts         buildServer(config, { agent }) — the importable factory tests use
 src/config.ts         zod schema for process.env, loadConfig(), ConfigError
 src/errors.ts         AppError: statusCode + stable code for errors that cross HTTP

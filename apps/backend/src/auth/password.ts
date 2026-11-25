@@ -1,5 +1,7 @@
 import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
 
+import { AppError } from '../errors.js'
+
 /**
  * Passwords are hashed with scrypt from the standard library: a password hash is a maintenance contract, and Node ships
  * one that is memory-hard and does not rot. The parameters are stored with the hash, so raising the cost later verifies
@@ -34,12 +36,9 @@ const derive = (password: string, salt: Buffer, cost: number, blockSize: number,
     )
   })
 
-export class PasswordError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'PasswordError'
-  }
-}
+/** A password of the wrong length is the caller's mistake, so it answers 400 rather than reaching the 500 handler. */
+const invalidPassword = (message: string): AppError =>
+  new AppError(message, { statusCode: 400, code: 'auth.invalid_password' })
 
 /** `scrypt$cost$blockSize$parallelism$salt$key`, all base64url after the algorithm name. */
 export const hashPassword = async (password: string): Promise<string> => {
@@ -91,9 +90,9 @@ export const checkPassword = (password: string): void => {
 
 const checkLength = (password: string): void => {
   if (password.length < MIN_PASSWORD_LENGTH) {
-    throw new PasswordError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`)
+    throw invalidPassword(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`)
   }
   if (password.length > MAX_PASSWORD_LENGTH) {
-    throw new PasswordError(`Password must be at most ${MAX_PASSWORD_LENGTH} characters.`)
+    throw invalidPassword(`Password must be at most ${MAX_PASSWORD_LENGTH} characters.`)
   }
 }
