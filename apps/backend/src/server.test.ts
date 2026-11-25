@@ -5,6 +5,9 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
 import type { Agent, ArchiveQuery, ThreadQuery } from './agent.js'
+import type { Actor } from './auth/actor.js'
+import { ALL_PERMISSIONS } from './auth/permissions.js'
+import type { AuthService } from './auth/service.js'
 import type { CapabilityApi } from './capabilities/api.js'
 import type { AgentProfile } from './agents/agent-repository.js'
 import type { EnvironmentApi } from './environments/api.js'
@@ -19,7 +22,7 @@ import type { Workspace } from './workspaces/workspace-repository.js'
 // The server is built from a validated Config, so the URL only has to parse; no connection is opened in these tests.
 const DATABASE_URL = 'postgres://test:test@localhost:5432/tlabs_test'
 const PRODUCTION_DATABASE_URL = 'postgres://app:app@db.internal:5432/tlabs'
-const config = loadConfig({ NODE_ENV: 'test', DATABASE_URL })
+const config = loadConfig({ NODE_ENV: 'test', DATABASE_URL, SECRET_KEY: 'a-test-secret-key' })
 
 const THREAD_ID = '2f1c1f9e-3f6d-4b0a-9d1e-1a2b3c4d5e6f'
 const WORKSPACE_ID = '3b2c1d4e-5f6a-4b8c-9d0e-1f2a3b4c5d6e'
@@ -35,6 +38,7 @@ const workspaceOf = (overrides: Partial<Workspace> = {}): Workspace => ({
   isDefault: true,
   allowAll: true,
   archivedAt: null,
+  position: 0,
   createdAt: new Date(0),
   updatedAt: new Date(0),
   ...overrides,
@@ -97,6 +101,12 @@ const environmentsOf = (overrides: Partial<EnvironmentApi> = {}): EnvironmentApi
   detach: async () => false,
   connectAgent: async () => {},
   disconnectAgent: async () => false,
+  manifest: async () => undefined,
+  recordState: async () => false,
+  state: async () => undefined,
+  status: async () => 'missing',
+  metrics: async () => null,
+  ssh: async () => null,
   ...overrides,
 })
 
@@ -130,24 +140,47 @@ const capabilitiesOf = (): CapabilityApi => ({
     restore: unused,
     remove: unused,
   },
-  credentials: {
-    list: async () => [],
-    create: unused,
-    update: unused,
-    archive: unused,
-    restore: unused,
-    remove: unused,
-  },
   workspaceGrants: unused,
   setWorkspaceGrants: unused,
   agentGrants: unused,
   setAgentGrants: unused,
 })
 
+const actorOf = (overrides: Partial<Actor> = {}): Actor => ({
+  id: LOCAL_USER_ID,
+  displayName: 'Local user',
+  username: null,
+  permissions: new Set(ALL_PERMISSIONS),
+  pending: null,
+  sessionId: null,
+  singleUser: true,
+  ...overrides,
+})
+
+/** Only the calls the actor plugin and the settings routes make: a test that needs another route stubs that instead. */
+const authOf = (overrides: Partial<AuthService> = {}): AuthService =>
+  ({
+    resolve: async () => actorOf(),
+    currentSettings: async () => ({ singleUser: true, requireTwoFactor: false }),
+    ...overrides,
+  }) as unknown as AuthService
+
 function stubAgent(overrides: Partial<Agent> = {}): Agent {
   return {
+    auth: authOf(),
     capabilities: capabilitiesOf(),
     environments: environmentsOf(),
+    // Only the credential routes read a key; a test that needs another store stubs that one instead.
+    credentials: { list: async () => [], create: unused, remove: unused },
+    // Same rule for the provider routes: the stub answers only what registration needs.
+    providers: {
+      logins: async () => [],
+      createLogin: unused,
+      models: async () => [],
+      workspaceProviders: unused,
+      setWorkspaceProviders: unused,
+      usage: unused,
+    },
     updateStatus: () => ({
       channel: 'production',
       current: null,
@@ -166,10 +199,10 @@ function stubAgent(overrides: Partial<Agent> = {}): Agent {
       checkedAt: null,
       error: null,
     }),
-    me: async () => ({ id: LOCAL_USER_ID, name: 'Local user' }),
     workspaces: async () => [],
     workspace: async () => undefined,
     createWorkspace: async (input) => workspaceOf({ name: input.name, isDefault: false }),
+    reorderWorkspaces: async () => [],
     updateWorkspace: async () => undefined,
     archiveWorkspace: async () => undefined,
     restoreWorkspace: async () => undefined,
@@ -194,6 +227,14 @@ function stubAgent(overrides: Partial<Agent> = {}): Agent {
       updatedAt: new Date(0),
     }),
     messages: async () => ({ messages: [], nextCursor: null }),
+    contextUsage: async () => ({
+      provider: null,
+      modelId: null,
+      contextWindow: null,
+      used: 0,
+      remaining: null,
+      categories: [],
+    }),
     renameThread: async () => undefined,
     submit: async () => SUBMISSION_ID,
     watch: async () => async () => {},
@@ -223,14 +264,36 @@ describe('GET /health', () => {
 })
 
 describe('GET /me', () => {
-  it('answers with the identity the sessions belong to', async () => {
+  it('answers with the identity the session resolved to', async () => {
     const server = buildServer(config, { agent })
 
     try {
       const response = await server.inject({ method: 'GET', url: '/me' })
 
       expect(response.statusCode).toBe(200)
-      expect(response.json()).toEqual({ id: LOCAL_USER_ID, name: 'Local user' })
+      expect(response.json()).toMatchObject({
+        id: LOCAL_USER_ID,
+        name: 'Local user',
+        username: null,
+        pending: null,
+        singleUser: true,
+      })
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('asks for a session once the install has accounts', async () => {
+    const unauthenticated = stubAgent({ auth: authOf({ resolve: async () => undefined }) })
+    const server = buildServer(config, { agent: unauthenticated })
+
+    try {
+      const response = await server.inject({ method: 'GET', url: '/me' })
+
+      expect(response.statusCode).toBe(401)
+      expect(response.json()).toEqual({
+        error: { code: 'auth.unauthenticated', message: 'Sign in to continue.' },
+      })
     } finally {
       await server.close()
     }
@@ -273,7 +336,12 @@ describe('error handling', () => {
 
   it('hides unexpected error details in production', async () => {
     const productionServer = buildServer(
-      loadConfig({ NODE_ENV: 'production', LOG_LEVEL: 'silent', DATABASE_URL: PRODUCTION_DATABASE_URL }),
+      loadConfig({
+        NODE_ENV: 'production',
+        LOG_LEVEL: 'silent',
+        DATABASE_URL: PRODUCTION_DATABASE_URL,
+        SECRET_KEY: 'a-production-secret',
+      }),
       { agent },
     )
     productionServer.get('/boom', async () => {
@@ -388,6 +456,45 @@ describe('thread routes', () => {
       expect(response.json()).toEqual({
         messages: [{ id: 7, role: 'assistant', text: 'limit 7' }],
         nextCursor: 'next',
+      })
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('reports what the next request would carry, split by category', async () => {
+    const server = buildServer(config, {
+      agent: stubAgent({
+        contextUsage: async () => ({
+          provider: 'opencode-go',
+          modelId: 'deepseek-v4.1-flash',
+          contextWindow: 1000,
+          used: 250,
+          remaining: 750,
+          categories: [
+            { kind: 'messages', tokens: 100 },
+            { kind: 'systemPrompt', tokens: 140 },
+            { kind: 'systemTools', tokens: 10 },
+          ],
+        }),
+      }),
+    })
+
+    try {
+      const response = await server.inject({ method: 'GET', url: `/threads/${THREAD_ID}/context` })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual({
+        provider: 'opencode-go',
+        modelId: 'deepseek-v4.1-flash',
+        contextWindow: 1000,
+        used: 250,
+        remaining: 750,
+        categories: [
+          { kind: 'messages', tokens: 100 },
+          { kind: 'systemPrompt', tokens: 140 },
+          { kind: 'systemTools', tokens: 10 },
+        ],
       })
     } finally {
       await server.close()
@@ -559,11 +666,64 @@ describe('workspace routes', () => {
             isDefault: true,
             allowAll: true,
             archivedAt: null,
+            position: 0,
             createdAt: '1970-01-01T00:00:00.000Z',
             updatedAt: '1970-01-01T00:00:00.000Z',
           },
         ],
       })
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('rewrites the list order from the ids it is given', async () => {
+    const asked: string[][] = []
+    const server = buildServer(config, {
+      agent: stubAgent({
+        reorderWorkspaces: async (ids) => {
+          asked.push([...ids])
+
+          return ids.map((id, index) => workspaceOf({ id, isDefault: index === 0, position: index }))
+        },
+      }),
+    })
+
+    try {
+      const response = await server.inject({
+        method: 'PUT',
+        url: '/workspaces/order',
+        payload: { order: [AGENT_ID, WORKSPACE_ID] },
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(asked).toEqual([[AGENT_ID, WORKSPACE_ID]])
+      expect(response.json<{ workspaces: { id: string; position: number }[] }>().workspaces).toMatchObject([
+        { id: AGENT_ID, position: 0 },
+        { id: WORKSPACE_ID, position: 1 },
+      ])
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('rules out an order with a repeated id or one that is not an id at all', async () => {
+    const server = buildServer(config, { agent: stubAgent() })
+
+    try {
+      const repeated = await server.inject({
+        method: 'PUT',
+        url: '/workspaces/order',
+        payload: { order: [WORKSPACE_ID, WORKSPACE_ID] },
+      })
+      expect(repeated.statusCode).toBe(400)
+
+      const malformed = await server.inject({
+        method: 'PUT',
+        url: '/workspaces/order',
+        payload: { order: ['not-a-workspace'] },
+      })
+      expect(malformed.statusCode).toBe(400)
     } finally {
       await server.close()
     }
@@ -886,6 +1046,137 @@ describe('environment routes', () => {
     }
   })
 
+  it('answers what Docker says the container is doing, which the row alone cannot', async () => {
+    const server = buildServer(config, {
+      agent: stubAgent({
+        environments: environmentsOf({
+          find: async () => environmentOf({ containerId: 'abc123' }),
+          status: async () => 'stopped',
+        }),
+      }),
+    })
+
+    try {
+      const response = await server.inject({ method: 'GET', url: `/environments/${ENVIRONMENT_ID}` })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json<{ status: string }>().status).toBe('stopped')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('reports live usage of a running environment in bytes', async () => {
+    const metrics = {
+      cpuPercent: 12.5,
+      memoryUsedBytes: 1024,
+      memoryLimitBytes: 4096,
+      networkReceiveBytes: 1,
+      networkTransmitBytes: 2,
+      blockReadBytes: 3,
+      blockWriteBytes: 4,
+    }
+    const server = buildServer(config, {
+      agent: stubAgent({ environments: environmentsOf({ metrics: async () => metrics }) }),
+    })
+
+    try {
+      const response = await server.inject({ method: 'GET', url: `/environments/${ENVIRONMENT_ID}/metrics` })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual(metrics)
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('answers 409 rather than zeros for a stopped environment', async () => {
+    const server = buildServer(config, { agent: stubAgent() })
+
+    try {
+      const response = await server.inject({ method: 'GET', url: `/environments/${ENVIRONMENT_ID}/metrics` })
+
+      expect(response.statusCode).toBe(409)
+      expect(response.json<{ error: { code: string } }>().error.code).toBe('ENVIRONMENT_STOPPED')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('answers 404 for the metrics of an unknown environment', async () => {
+    const server = buildServer(config, {
+      agent: stubAgent({ environments: environmentsOf({ metrics: async () => undefined }) }),
+    })
+
+    try {
+      const response = await server.inject({ method: 'GET', url: `/environments/${ENVIRONMENT_ID}/metrics` })
+
+      expect(response.statusCode).toBe(404)
+      expect(response.json<{ error: { code: string } }>().error.code).toBe('ENVIRONMENT_NOT_FOUND')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('answers null for SSH when the container published no port, rather than an error', async () => {
+    const server = buildServer(config, { agent: stubAgent() })
+
+    try {
+      const response = await server.inject({ method: 'GET', url: `/environments/${ENVIRONMENT_ID}/ssh` })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toBeNull()
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('answers the SSH command when a port is published', async () => {
+    const access = { command: 'ssh -p 2222 dev@127.0.0.1', host: '127.0.0.1', port: 2222, user: 'dev' }
+    const server = buildServer(config, {
+      agent: stubAgent({ environments: environmentsOf({ ssh: async () => access }) }),
+    })
+
+    try {
+      const response = await server.inject({ method: 'GET', url: `/environments/${ENVIRONMENT_ID}/ssh` })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual(access)
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('answers 404 for the SSH access of an unknown environment', async () => {
+    const server = buildServer(config, {
+      agent: stubAgent({ environments: environmentsOf({ ssh: async () => undefined }) }),
+    })
+
+    try {
+      const response = await server.inject({ method: 'GET', url: `/environments/${ENVIRONMENT_ID}/ssh` })
+
+      expect(response.statusCode).toBe(404)
+      expect(response.json<{ error: { code: string } }>().error.code).toBe('ENVIRONMENT_NOT_FOUND')
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('answers an empty tunnel list until something forwards a port', async () => {
+    const server = buildServer(config, {
+      agent: stubAgent({ environments: environmentsOf({ find: async () => environmentOf() }) }),
+    })
+
+    try {
+      const response = await server.inject({ method: 'GET', url: `/environments/${ENVIRONMENT_ID}/ssh/tunnels` })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual({ tunnels: [] })
+    } finally {
+      await server.close()
+    }
+  })
+
   it('records the container a start produced', async () => {
     const server = buildServer(config, {
       agent: stubAgent({
@@ -979,6 +1270,111 @@ describe('environment routes', () => {
 
       expect(response.statusCode).toBe(404)
       expect(response.json<{ error: { code: string } }>().error.code).toBe('AGENT_NOT_FOUND')
+    } finally {
+      await server.close()
+    }
+  })
+  it('serves the documents a workspace bootstraps from', async () => {
+    const manifest = {
+      tooling: { schemaVersion: 1, tools: [{ id: 'node', version: '26.13.1' }] },
+      credentials: { schemaVersion: 1, credentials: [] },
+    } as const
+    const server = buildServer(config, {
+      agent: stubAgent({ environments: environmentsOf({ manifest: async () => manifest }) }),
+    })
+
+    try {
+      const response = await server.inject({
+        method: 'GET',
+        url: `/environments/${ENVIRONMENT_ID}/manifest`,
+      })
+
+      expect(response.statusCode).toBe(200)
+      // The whole document survives: no response schema strips a field the container needs.
+      expect(response.json()).toEqual(manifest)
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('answers 404 for a manifest of an unknown environment', async () => {
+    const server = buildServer(config, { agent: stubAgent() })
+
+    try {
+      const response = await server.inject({
+        method: 'GET',
+        url: `/environments/${ENVIRONMENT_ID}/manifest`,
+      })
+
+      expect(response.statusCode).toBe(404)
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('stores the report a container sends', async () => {
+    const recordState = vi.fn(async () => true)
+    const server = buildServer(config, {
+      agent: stubAgent({ environments: environmentsOf({ recordState }) }),
+    })
+    const state = {
+      schemaVersion: 1,
+      reportedAt: '2026-01-01T00:00:00.000Z',
+      tools: [{ id: 'node', version: '26.13.1', path: '/opt/node/bin/node', source: 'installed' }],
+    }
+
+    try {
+      const response = await server.inject({
+        method: 'PUT',
+        url: `/environments/${ENVIRONMENT_ID}/state`,
+        payload: state,
+      })
+
+      expect(response.statusCode).toBe(204)
+      expect(recordState).toHaveBeenCalledWith(ENVIRONMENT_ID, state)
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('rules out a report the contract does not allow', async () => {
+    const recordState = vi.fn(async () => true)
+    const server = buildServer(config, {
+      agent: stubAgent({ environments: environmentsOf({ recordState }) }),
+    })
+
+    try {
+      const response = await server.inject({
+        method: 'PUT',
+        url: `/environments/${ENVIRONMENT_ID}/state`,
+        payload: { schemaVersion: 1, reportedAt: 'yesterday' },
+      })
+
+      expect(response.statusCode).toBe(400)
+      expect(recordState).not.toHaveBeenCalled()
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('answers null for an environment that has never reported', async () => {
+    const server = buildServer(config, {
+      agent: stubAgent({
+        environments: environmentsOf({
+          find: async () => environmentOf(),
+          state: async () => undefined,
+        }),
+      }),
+    })
+
+    try {
+      const response = await server.inject({
+        method: 'GET',
+        url: `/environments/${ENVIRONMENT_ID}/state`,
+      })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual({ reportedAt: null, state: null })
     } finally {
       await server.close()
     }

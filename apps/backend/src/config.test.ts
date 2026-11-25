@@ -6,7 +6,7 @@ const DATABASE_URL = 'postgres://user:pass@localhost:5432/tlabs'
 
 describe('loadConfig', () => {
   it('applies defaults for the optional variables', () => {
-    expect(loadConfig({ DATABASE_URL })).toEqual({
+    expect(loadConfig({ DATABASE_URL })).toMatchObject({
       nodeEnv: 'development',
       host: '127.0.0.1',
       port: 8080,
@@ -15,11 +15,29 @@ describe('loadConfig', () => {
       databasePoolSize: 10,
       docker: { socketPath: '/var/run/docker.sock' },
       workspaceImage: 'tctcl/dev-env:dev',
+      workspaceBackendUrl: null,
+      workspaceNetwork: null,
       channel: 'production',
       version: undefined,
       updateCheckIntervalMs: 900_000,
       frontendDir: undefined,
+      trustProxy: false,
     })
+  })
+
+  it('derives a seal key in development and refuses to run without one in production', () => {
+    const development = loadConfig({ DATABASE_URL })
+    expect(development.secrets.open(development.secrets.seal('secret'))).toBe('secret')
+
+    expect(() => loadConfig({ NODE_ENV: 'production', DATABASE_URL })).toThrow(/SECRET_KEY/)
+    expect(() => loadConfig({ DATABASE_URL, SECRET_KEY: 'short' })).toThrow(/SECRET_KEY/)
+  })
+
+  it('reads TRUST_PROXY as text rather than as a truthy string', () => {
+    expect(loadConfig({ DATABASE_URL, TRUST_PROXY: 'true' }).trustProxy).toBe(true)
+    // Coercion would read every string as `true`, so the flag is compared rather than coerced.
+    expect(loadConfig({ DATABASE_URL, TRUST_PROXY: 'false' }).trustProxy).toBe(false)
+    expect(() => loadConfig({ DATABASE_URL, TRUST_PROXY: 'yes' })).toThrow(/TRUST_PROXY/)
   })
 
   it('requires the database URL', () => {
@@ -41,8 +59,9 @@ describe('loadConfig', () => {
         LOG_LEVEL: 'debug',
         DATABASE_URL: 'postgres://user:pass@db.internal:5432/tlabs',
         DATABASE_POOL_SIZE: '4',
+        SECRET_KEY: 'a-production-secret-key',
       }),
-    ).toEqual({
+    ).toMatchObject({
       nodeEnv: 'production',
       host: '0.0.0.0',
       port: 3000,
@@ -51,11 +70,32 @@ describe('loadConfig', () => {
       databasePoolSize: 4,
       docker: { socketPath: '/var/run/docker.sock' },
       workspaceImage: 'tctcl/dev-env:dev',
+      workspaceBackendUrl: null,
+      workspaceNetwork: null,
       channel: 'production',
       version: undefined,
       updateCheckIntervalMs: 900_000,
       frontendDir: undefined,
+      trustProxy: false,
     })
+  })
+
+  it('wires a workspace to the backend only when both halves are configured', () => {
+    const wired = loadConfig({
+      DATABASE_URL,
+      WORKSPACE_BACKEND_URL: 'http://backend:8080/',
+      WORKSPACE_NETWORK: 'tctcl-workspaces',
+    })
+
+    expect(wired.workspaceBackendUrl).toBe('http://backend:8080')
+    expect(wired.workspaceNetwork).toBe('tctcl-workspaces')
+
+    expect(() => loadConfig({ DATABASE_URL, WORKSPACE_BACKEND_URL: 'http://backend:8080' })).toThrow(
+      /WORKSPACE_NETWORK: required/,
+    )
+    expect(() => loadConfig({ DATABASE_URL, WORKSPACE_NETWORK: 'tctcl-workspaces' })).toThrow(
+      /WORKSPACE_BACKEND_URL: required/,
+    )
   })
 
   it('accepts both postgres URL schemes', () => {

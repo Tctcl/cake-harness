@@ -13,30 +13,40 @@ import type {
 
 import type { Config } from './config.js'
 import { AppError } from './errors.js'
+import type { ContextUsage } from './context-usage.js'
+import { measureContext } from './context-usage.js'
 import { clipped, liveActivity } from './live-activity.js'
 import type { LiveActivity } from './live-activity.js'
 import { AgentRepository } from './agents/agent-repository.js'
 import type { AgentInput, AgentPatch, AgentProfile } from './agents/agent-repository.js'
 import { createCapabilityApi } from './capabilities/api.js'
 import type { CapabilityApi } from './capabilities/api.js'
+import { createCredentialApi } from './credentials/api.js'
+import type { CredentialApi } from './credentials/api.js'
+import { CredentialRepository } from './credentials/credential-repository.js'
 import { createEnvironmentApi } from './environments/api.js'
 import type { EnvironmentApi } from './environments/api.js'
+import { noSecrets, createCipherGateSecrets } from './secrets/ciphergate.js'
 import { DockerContainers } from './environments/container-runtime.js'
 import { EnvironmentRepository } from './environments/environment-repository.js'
 import { CapabilityLinks } from './capabilities/capability-links.js'
-import { McpCredentialRepository, McpServerRepository } from './capabilities/mcp-repository.js'
+import { WorkspaceMcpServerRepository } from './capabilities/mcp-repository.js'
 import { PromptRepository, SkillRepository } from './capabilities/text-repository.js'
+import { createProviderApi } from './providers/api.js'
+import type { ProviderApi } from './providers/api.js'
+import { checkKey, fetchModels } from './providers/provider-client.js'
+import { ProviderRepository } from './providers/provider-repository.js'
+import { AuthService } from './auth/service.js'
 import { ToolRepository } from './capabilities/tool-repository.js'
 import { idFromNumber } from './storage/postgres/ids.js'
 import { openPostgresStorage } from './storage/postgres/index.js'
 import { retryingStorage } from './storage/postgres/resilient.js'
 import { sharedStorage } from './storage/postgres/shared.js'
 import { isConnectFailure, withRetryUntil } from './storage/postgres/retry.js'
-import { ensureLocalUser, readLocalUser } from './threads/local-user.js'
+import { ensureLocalUser } from './threads/local-user.js'
 import { createUpdateChecker } from './updates/checker.js'
 import type { UpdateStatus } from './updates/checker.js'
 import { createGithubReleases } from './updates/releases.js'
-import type { LocalUser } from './threads/local-user.js'
 import type { ChatThread, ThreadTarget } from './threads/thread-repository.js'
 import { ThreadRepository } from './threads/thread-repository.js'
 import { WorkspaceRepository } from './workspaces/workspace-repository.js'
@@ -140,13 +150,15 @@ export interface ThreadQuery extends ArchiveQuery {
 }
 
 export interface Agent {
-  /** The identity the client shows: who the sessions belong to, read from the seeded row. */
-  me(): Promise<LocalUser>
-  /** Every workspace of the local user, most recently changed first. */
+  /** Sessions, permissions and the settings that decide whether there are accounts at all. */
+  readonly auth: AuthService
+  /** Every workspace of the local user, in the order the user arranges them. */
   workspaces(query?: ArchiveQuery): Promise<Workspace[]>
   /** One workspace, or `undefined` when the id is unknown. */
   workspace(id: string): Promise<Workspace | undefined>
   createWorkspace(input: WorkspaceInput): Promise<Workspace>
+  /** Rewrite the list order, top first: the ids must be exactly the live workspaces. */
+  reorderWorkspaces(ids: readonly string[]): Promise<Workspace[]>
   updateWorkspace(id: string, patch: WorkspacePatch): Promise<Workspace | undefined>
   archiveWorkspace(id: string): Promise<Workspace | undefined>
   restoreWorkspace(id: string): Promise<Workspace | undefined>
@@ -162,6 +174,10 @@ export interface Agent {
   capabilities: CapabilityApi
   /** The containers a workspace can run in, and which of them an agent works in. */
   environments: EnvironmentApi
+  /** The keys this user owns: provider accounts and MCP credentials, listed without their secrets. */
+  credentials: CredentialApi
+  /** The provider keys this user stored, the models they reach, and what each workspace may spend. */
+  providers: ProviderApi
   /** What this install runs and whether a newer release exists, as of the last check. */
   updateStatus(): UpdateStatus
   /** Ask now rather than waiting for the interval. */
@@ -174,6 +190,8 @@ export interface Agent {
   restoreThread(id: string): Promise<ChatThread | undefined>
   /** One page of the thread's transcript, newest page first when no cursor is given. */
   messages(threadId: string, query: MessageQuery): Promise<MessagePage>
+  /** What the thread's next request would carry, split by where its tokens go. */
+  contextUsage(threadId: string): Promise<ContextUsage>
   /** Set a thread's title, or answer `undefined` when the id is unknown. */
   renameThread(id: string, title: string | null): Promise<ChatThread | undefined>
   /** Admit one input and return at once: the answer arrives through `watch`. */
@@ -510,10 +528,24 @@ export async function createAgent(config: Config): Promise<Agent> {
   const tools = new ToolRepository(postgres.pool, postgres.schema)
   const prompts = new PromptRepository(postgres.pool, postgres.schema)
   const skills = new SkillRepository(postgres.pool, postgres.schema)
-  const servers = new McpServerRepository(postgres.pool, postgres.schema)
-  const credentials = new McpCredentialRepository(postgres.pool, postgres.schema)
+  const servers = new WorkspaceMcpServerRepository(postgres.pool, postgres.schema)
   const links = new CapabilityLinks(postgres.pool, postgres.schema)
   const ownerId = await ensureLocalUser(postgres.pool, postgres.schema)
+  // The user's own keys, apart from the MCP credentials a server definition carries: a key outlives the server it serves.
+  const userCredentials = createCredentialApi({
+    ownerId,
+    credentials: new CredentialRepository(postgres.pool, postgres.schema),
+  })
+  // Provider keys are credentials of one kind, so they live in the same table and are read through their own api.
+  const providers = createProviderApi({
+    ownerId,
+    providers: new ProviderRepository(postgres.pool, postgres.schema, config.secrets),
+    client: { checkKey, fetchModels },
+  })
+  // Every workspace except the default one runs in a container. The image is configuration, so the row is written here
+  // rather than by a migration; on an install that already satisfies the rule this writes nothing.
+  await workspaces.ensureEnvironments(ownerId, config.workspaceImage)
+  const auth = new AuthService({ pool: postgres.pool, schema: postgres.schema, secrets: config.secrets })
 
   // Harnesses come and go as Sessions fail; the storage outlives them and only the process closes it.
   const storage: Storage = sharedStorage(retryingStorage(postgres))
@@ -525,12 +557,15 @@ export async function createAgent(config: Config): Promise<Agent> {
     Harness.open(storage, { models, registry }, CONTEXT),
   )
 
-  const environments = createEnvironmentApi({
-    ownerId,
+  const environments = createEnvironmentApi({    ownerId,
     environments: new EnvironmentRepository(postgres.pool, postgres.schema),
     // The runtime is the only thing that talks to Docker; the routes decide nothing about it.
     containers: new DockerContainers(config.docker),
     image: config.workspaceImage,
+    backendUrl: config.workspaceBackendUrl,
+    network: config.workspaceNetwork,
+    // No configured store is a reader that knows nothing: the manifest still serves tooling, and no credential.
+    secrets: config.ciphergate === undefined ? noSecrets : createCipherGateSecrets(config.ciphergate),
   })
 
   const updates = createUpdateChecker({
@@ -547,7 +582,6 @@ export async function createAgent(config: Config): Promise<Agent> {
     prompts,
     skills,
     servers,
-    credentials,
     links,
     readWorkspace: async (id) => {
       const workspace = await workspaces.find(id)
@@ -572,8 +606,11 @@ export async function createAgent(config: Config): Promise<Agent> {
   })
 
   return {
+    auth,
     capabilities,
     environments,
+    credentials: userCredentials,
+    providers,
 
     updateStatus() {
       return updates.status()
@@ -581,10 +618,6 @@ export async function createAgent(config: Config): Promise<Agent> {
 
     checkForUpdates() {
       return updates.check()
-    },
-
-    me() {
-      return readLocalUser(postgres.pool, postgres.schema)
     },
 
     workspaces(query) {
@@ -596,7 +629,12 @@ export async function createAgent(config: Config): Promise<Agent> {
     },
 
     createWorkspace(input) {
-      return workspaces.create(ownerId, input)
+      // The environment is created with the workspace, from the platform image: the two are one state transition.
+      return workspaces.create(ownerId, input, config.workspaceImage)
+    },
+
+    reorderWorkspaces(ids) {
+      return workspaces.reorder(ownerId, ids)
     },
 
     updateWorkspace(id, patch) {
@@ -691,6 +729,27 @@ export async function createAgent(config: Config): Promise<Agent> {
         const conversation = await conversationFor(supervisor, threads, threadId)
 
         return await readMessages(conversation, query)
+      } catch (error) {
+        if (error instanceof SessionFailed) supervisor.discard()
+
+        throw error instanceof AppError ? error : unavailable(error)
+      }
+    },
+
+    async contextUsage(threadId) {
+      try {
+        const conversation = await conversationFor(supervisor, threads, threadId)
+        // One read of the active range: the harness resolves head markers, edits and compaction for us.
+        const view = await conversation.context(CONTEXT)
+        const run = runInfoOf(view.entries)
+        // A model that left the catalog still has a window worth reporting; without one, the share is unknown.
+        const contextWindow = run === null ? null : (models.getModel(run.provider, run.model)?.contextWindow ?? null)
+
+        return measureContext(
+          view,
+          run === null ? null : { provider: run.provider, modelId: run.model },
+          contextWindow,
+        )
       } catch (error) {
         if (error instanceof SessionFailed) supervisor.discard()
 
