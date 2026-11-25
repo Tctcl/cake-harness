@@ -17,6 +17,28 @@ jobs:
     name: gates
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    # The repository and storage suites skip themselves without DATABASE_URL. Without this service they never ran
+    # anywhere, so the whole Postgres layer went unchecked. The database is disposable: every case creates its own
+    # table prefix, so the suites can share it while they run in parallel.
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: tlabs_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d tlabs_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://test:test@localhost:5432/tlabs_test
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
