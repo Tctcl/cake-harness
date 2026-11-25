@@ -62,14 +62,51 @@ const renameThreadBody = {
   additionalProperties: false,
 } as const
 
+const textBlockSchema = {
+  type: 'object',
+  properties: { type: { type: 'string', const: 'text' }, text: { type: 'string' } },
+  required: ['type', 'text'],
+  additionalProperties: false,
+} as const
+
+const thinkingBlockSchema = {
+  type: 'object',
+  properties: {
+    type: { type: 'string', const: 'thinking' },
+    text: { type: 'string' },
+    redacted: { type: 'boolean' },
+  },
+  required: ['type', 'text', 'redacted'],
+  additionalProperties: false,
+} as const
+
+const toolCallBlockSchema = {
+  type: 'object',
+  properties: {
+    type: { type: 'string', const: 'toolCall' },
+    callId: { type: 'string' },
+    name: { type: 'string' },
+    arguments: { type: 'string' },
+  },
+  required: ['type', 'callId', 'name', 'arguments'],
+  additionalProperties: false,
+} as const
+
 const messageSchema = {
   type: 'object',
   properties: {
     id: { type: 'number' },
-    role: { type: 'string', enum: ['user', 'assistant'] },
+    role: { type: 'string', enum: ['user', 'assistant', 'compaction', 'reset'] },
     text: { type: 'string' },
+    blocks: {
+      type: 'array',
+      items: { oneOf: [textBlockSchema, thinkingBlockSchema, toolCallBlockSchema] },
+    },
+    stopReason: { type: ['string', 'null'] },
+    errorMessage: { type: ['string', 'null'] },
+    reason: { type: ['string', 'null'] },
   },
-  required: ['id', 'role', 'text'],
+  required: ['id', 'role', 'text', 'blocks', 'stopReason', 'errorMessage', 'reason'],
 } as const
 
 const messageListSchema = {

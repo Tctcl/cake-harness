@@ -125,6 +125,27 @@ export function mergeMessages(
   return [...merged.values()].sort((left, right) => left.id - right.id)
 }
 
+/** Tool calls outlive the stream window just like their chat lines; a newer result replaces the same call id. */
+export function mergeTools(
+  current: readonly ChatToolCall[],
+  incoming: readonly ChatToolCall[],
+): ChatToolCall[] {
+  const merged = new Map<string, ChatToolCall>()
+  for (const call of current) merged.set(call.id, call)
+  for (const call of incoming) {
+    const known = merged.get(call.id)
+    // A frame whose window lost the calling entry knows only the result: keep the arguments and turn seen earlier.
+    merged.set(
+      call.id,
+      known !== undefined && call.arguments === null
+        ? { ...call, arguments: known.arguments, entryId: known.entryId }
+        : call,
+    )
+  }
+
+  return [...merged.values()].sort((left, right) => left.entryId - right.entryId)
+}
+
 /** Drops one optimistic line once the stream carries the entry the backend actually stored for it. */
 function reconcilePending(pending: readonly PendingInput[], incoming: readonly ChatMessage[]): PendingInput[] {
   if (pending.length === 0) return [...pending]
@@ -156,7 +177,7 @@ function openStream(threadId: string): void {
       ...snapshot,
       messages: mergeMessages(snapshot.messages, payload.messages),
       pending: reconcilePending(snapshot.pending, payload.messages),
-      tools: payload.tools,
+      tools: mergeTools(snapshot.tools, payload.tools),
       run: payload.run,
       usage: payload.usage,
       live: payload.live ?? NO_LIVE,

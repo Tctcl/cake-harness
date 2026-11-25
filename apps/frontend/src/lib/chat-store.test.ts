@@ -4,6 +4,7 @@ import type { ChatMessage } from './chat-api.ts'
 import {
   loadOlder,
   mergeMessages,
+  mergeTools,
   openThread,
   resetThreads,
   retry,
@@ -46,6 +47,16 @@ class FakeStream {
 const reply = (body: unknown, ok = true) =>
   Promise.resolve({ ok, json: () => Promise.resolve(body) })
 
+const chatMessage = (id: number, role: ChatMessage['role'], text: string): ChatMessage => ({
+  id,
+  role,
+  text,
+  blocks: text === '' ? [] : [{ type: 'text', text }],
+  stopReason: null,
+  errorMessage: null,
+  reason: null,
+})
+
 const page = (messages: ChatMessage[], nextCursor: string | null = null) => ({ messages, nextCursor })
 
 function stubBackend(pages: Record<string, { messages: ChatMessage[]; nextCursor: string | null }>) {
@@ -70,9 +81,9 @@ afterEach(() => {
 
 describe('mergeMessages', () => {
   it('keeps older pages and lets the streamed window replace its own ids', () => {
-    const older: ChatMessage = { id: 1, role: 'user', text: 'first' }
-    const partial: ChatMessage = { id: 9, role: 'assistant', text: 'an' }
-    const grown: ChatMessage = { id: 9, role: 'assistant', text: 'an answer' }
+    const older = chatMessage(1, 'user', 'first')
+    const partial = chatMessage(9, 'assistant', 'an')
+    const grown = chatMessage(9, 'assistant', 'an answer')
 
     const withOlder = mergeMessages([older], [partial])
     expect(withOlder.map((message) => message.id)).toEqual([1, 9])
@@ -82,9 +93,28 @@ describe('mergeMessages', () => {
   })
 
   it('ignores an empty window so a quiet stream does not clear the pane', () => {
-    const messages: ChatMessage[] = [{ id: 3, role: 'user', text: 'kept' }]
+    const messages = [chatMessage(3, 'user', 'kept')]
 
     expect(mergeMessages(messages, [])).toEqual(messages)
+  })
+})
+
+describe('mergeTools', () => {
+  it('keeps calls outside the stream window and settles an existing call by id', () => {
+    const running = {
+      id: 'call-1',
+      entryId: 8,
+      name: 'read',
+      arguments: '{"path":"README.md"}',
+      status: 'running' as const,
+      result: null,
+      durationMs: null,
+    }
+    const settled = { ...running, status: 'ok' as const, result: '# tlabs', durationMs: 12 }
+    const other = { ...running, id: 'call-2', entryId: 4, name: 'grep' }
+
+    expect(mergeTools([running], [settled, other])).toEqual([other, settled])
+    expect(mergeTools([running, other], [])).toEqual([other, running])
   })
 })
 
@@ -100,8 +130,8 @@ describe('chat store', () => {
 
   it('loads the newest page, then the page above it', async () => {
     const fetchStub = stubBackend({
-      first: page([{ id: 8, role: 'user', text: 'newest' }], 'above'),
-      above: page([{ id: 4, role: 'user', text: 'older' }], 'start'),
+      first: page([chatMessage(8, 'user', 'newest')], 'above'),
+      above: page([chatMessage(4, 'user', 'older')], 'start'),
     })
     vi.stubGlobal('fetch', fetchStub)
 
@@ -132,11 +162,32 @@ describe('chat store', () => {
 
     const stream = FakeStream.opened[0]
     stream?.emit(STREAM_EVENT, {
-      messages: [{ id: 12, role: 'user', text: 'hello' }],
+      messages: [chatMessage(12, 'user', 'hello')],
+      tools: [],
     })
 
     expect(snapshotOf(THREAD_ID).pending).toHaveLength(0)
-    expect(snapshotOf(THREAD_ID).messages).toEqual([{ id: 12, role: 'user', text: 'hello' }])
+    expect(snapshotOf(THREAD_ID).messages).toEqual([chatMessage(12, 'user', 'hello')])
+  })
+
+  it('keeps a streamed tool when a later window no longer contains it', () => {
+    vi.stubGlobal('fetch', stubBackend({ first: page([]) }))
+    openThread(THREAD_ID)
+    const stream = FakeStream.opened[0]
+    const call = {
+      id: 'call-1',
+      entryId: 8,
+      name: 'read',
+      arguments: '{"path":"README.md"}',
+      status: 'ok',
+      result: '# tlabs',
+      durationMs: 12,
+    }
+
+    stream?.emit(STREAM_EVENT, { messages: [], tools: [call] })
+    stream?.emit(STREAM_EVENT, { messages: [], tools: [] })
+
+    expect(snapshotOf(THREAD_ID).tools).toEqual([call])
   })
 
   it('marks a failed send and re-sends the same line on retry', async () => {

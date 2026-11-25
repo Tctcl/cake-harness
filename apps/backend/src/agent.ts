@@ -1,7 +1,15 @@
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { opencodeGoProvider } from '@earendil-works/pi-ai/providers/opencode-go'
-import { Harness, LiveDoc, SessionFailed, UsageDoc, createRegistry } from '@earendil-works/pi-durable'
+import {
+  CompactionEntry,
+  Harness,
+  LiveDoc,
+  ResetEntry,
+  SessionFailed,
+  UsageDoc,
+  createRegistry,
+} from '@earendil-works/pi-durable'
 import type {
   Conversation,
   ConversationId,
@@ -69,12 +77,29 @@ const REOPEN_RETRY = { baseDelayMs: 100, maxDelayMs: 1000 }
 /** How many entries a stream's window holds, as the minimum; it doubles that before dropping its oldest. */
 const STREAM_WINDOW = 40
 
-/** One line of the transcript a chat pane renders. Bookkeeping entries are left out; tool traffic is its own frame. */
+/** One part of a chat line, in the same order as the model produced or received it. */
+export type ChatBlock =
+  | { readonly type: 'text'; readonly text: string }
+  | { readonly type: 'thinking'; readonly text: string; readonly redacted: boolean }
+  | {
+      readonly type: 'toolCall'
+      readonly callId: string
+      readonly name: string
+      readonly arguments: string
+    }
+
+/** One line of the transcript a chat pane renders, including context bookkeeping that must stay visible. */
 export interface ChatMessage {
   /** Entry id, stable within the conversation and the handle a client keys and merges on. */
   readonly id: number
-  readonly role: 'user' | 'assistant'
+  readonly role: 'user' | 'assistant' | 'compaction' | 'reset'
+  /** Concatenated text blocks, kept for callers that only render plain text. */
   readonly text: string
+  readonly blocks: ChatBlock[]
+  readonly stopReason: string | null
+  readonly errorMessage: string | null
+  /** Why context was compacted; null for every other line kind. */
+  readonly reason: string | null
 }
 
 /**
@@ -83,6 +108,8 @@ export interface ChatMessage {
  */
 export interface ToolCallView {
   readonly id: string
+  /** The assistant entry that made the call, or the result entry when no call entry is in the window. */
+  readonly entryId: number
   readonly name: string
   /** The call's arguments as JSON text, or null when only the result was logged. */
   readonly arguments: string | null
@@ -214,25 +241,101 @@ const messageText = (message: EntryMessage): string => {
     .join('')
 }
 
-/**
- * The transcript as chat lines. An entry carries the messages it contributes to model context, so the user's inputs and the
- * assistant's answers are exactly the entries whose first message has one of those two roles.
- */
-const chatMessages = (entries: readonly EntryRecord[]): ChatMessage[] =>
+const chatBlocks = (message: EntryMessage): ChatBlock[] => {
+  if (typeof message.content === 'string') return [{ type: 'text', text: message.content }]
+
+  return message.content.flatMap((block): ChatBlock[] => {
+    if (block.type === 'text') return [{ type: 'text', text: block.text }]
+    if (block.type === 'thinking') {
+      return [{ type: 'thinking', text: block.thinking, redacted: block.redacted ?? false }]
+    }
+    if (block.type === 'toolCall') {
+      return [
+        {
+          type: 'toolCall',
+          callId: block.id,
+          name: block.name,
+          arguments: JSON.stringify(block.arguments),
+        },
+      ]
+    }
+
+    return []
+  })
+}
+
+const compactionReason = (entry: EntryRecord): string | null => {
+  const data: unknown = entry.data
+  if (typeof data !== 'object' || data === null || Array.isArray(data) || !('reason' in data)) return null
+
+  return typeof data.reason === 'string' ? data.reason : null
+}
+
+const textLine = (entry: EntryRecord, role: 'compaction' | 'reset'): ChatMessage => {
+  const message = entry.model?.[0]
+  const text = message?.role === 'user' ? messageText(message) : ''
+  const blocks = message?.role === 'user' ? chatBlocks(message) : []
+
+  return {
+    id: entry.id,
+    role,
+    text,
+    blocks,
+    stopReason: null,
+    errorMessage: null,
+    reason: role === 'compaction' ? compactionReason(entry) : null,
+  }
+}
+
+/** The transcript as chat lines, with compaction and reset entries kept distinct from user input. */
+export const chatMessages = (entries: readonly EntryRecord[]): ChatMessage[] =>
   entries.flatMap((entry): ChatMessage[] => {
+    if (entry.kind === CompactionEntry.kind) return [textLine(entry, 'compaction')]
+    if (entry.kind === ResetEntry.kind) return [textLine(entry, 'reset')]
+
     const message = entry.model?.[0]
     if (message?.role !== 'user' && message?.role !== 'assistant') return []
 
     const text = messageText(message)
+    const blocks = chatBlocks(message)
+    if (message.role === 'user') {
+      return text === ''
+        ? []
+        : [
+            {
+              id: entry.id,
+              role: 'user',
+              text,
+              blocks,
+              stopReason: null,
+              errorMessage: null,
+              reason: null,
+            },
+          ]
+    }
 
-    return text === '' ? [] : [{ id: entry.id, role: message.role, text }]
+    const stopReason = message.stopReason
+    const errorMessage = message.errorMessage ?? null
+    if (blocks.length === 0 && stopReason !== 'error' && errorMessage === null) return []
+
+    return [
+      {
+        id: entry.id,
+        role: 'assistant',
+        text,
+        blocks,
+        stopReason,
+        errorMessage,
+        reason: null,
+      },
+    ]
   })
 
 /**
  * Tool traffic in order of appearance. An assistant entry carries the calls and a tool result entry answers one by its
  * provider call id, so walking the window in order always sees a call before the result that settles it.
  */
-const toolCalls = (entries: readonly EntryRecord[]): ToolCallView[] => {
+export const toolCalls = (entries: readonly EntryRecord[]): ToolCallView[] => {
   const calls = new Map<string, ToolCallView>()
 
   for (const entry of entries) {
@@ -243,6 +346,7 @@ const toolCalls = (entries: readonly EntryRecord[]): ToolCallView[] => {
 
           calls.set(block.id, {
             id: block.id,
+            entryId: entry.id,
             name: block.name,
             arguments: clipped(JSON.stringify(block.arguments)),
             status: 'running',
@@ -263,7 +367,13 @@ const toolCalls = (entries: readonly EntryRecord[]): ToolCallView[] => {
       calls.set(
         message.toolCallId,
         call === undefined
-          ? { id: message.toolCallId, name: message.toolName, arguments: null, ...settled }
+          ? {
+              id: message.toolCallId,
+              entryId: entry.id,
+              name: message.toolName,
+              arguments: null,
+              ...settled,
+            }
           : { ...call, ...settled },
       )
     }

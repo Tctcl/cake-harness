@@ -6,16 +6,33 @@ export interface CurrentUser {
   readonly name: string
 }
 
+/** One part of a chat line, in the order the provider produced it or the user supplied it. */
+export type ChatBlock =
+  | { readonly type: 'text'; readonly text: string }
+  /** `redacted` reasoning has no text on purpose: the provider only lets its signature travel back. */
+  | { readonly type: 'thinking'; readonly text: string; readonly redacted: boolean }
+  | {
+      readonly type: 'toolCall'
+      readonly callId: string
+      readonly name: string
+      readonly arguments: string
+    }
+
 /** One line of a thread's transcript, as the backend renders it. `id` is the durable entry id and the merge key. */
 export interface ChatMessage {
   readonly id: number
-  readonly role: 'user' | 'assistant'
+  readonly role: 'user' | 'assistant' | 'compaction' | 'reset'
   readonly text: string
+  readonly blocks: readonly ChatBlock[]
+  readonly stopReason: string | null
+  readonly errorMessage: string | null
+  readonly reason: string | null
 }
 
 /** One tool call from the run, joined with the result that answered it. */
 export interface ChatToolCall {
   readonly id: string
+  readonly entryId: number
   readonly name: string
   readonly arguments: string | null
   readonly status: 'running' | 'ok' | 'error'
@@ -41,17 +58,7 @@ export interface ChatUsage {
 }
 
 /** One block of the answer still being written, in the order the provider produced it. */
-export type ChatLiveBlock =
-  | { readonly type: 'text'; readonly text: string }
-  /** `redacted` reasoning has no text on purpose: the provider only lets its signature travel back. */
-  | { readonly type: 'thinking'; readonly text: string; readonly redacted: boolean }
-  /** A call whose arguments are still arriving, as the JSON text so far. */
-  | {
-      readonly type: 'toolCall'
-      readonly callId: string
-      readonly name: string
-      readonly arguments: string
-    }
+export type ChatLiveBlock = ChatBlock
 
 /** A tool call as the run holds it now: the live slot, before the entry that will record it exists. */
 export interface ChatLiveTool {

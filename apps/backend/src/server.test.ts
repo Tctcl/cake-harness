@@ -458,7 +458,17 @@ describe('thread routes', () => {
     const server = buildServer(config, {
       agent: stubAgent({
         messages: async (_threadId, query) => ({
-          messages: [{ id: 7, role: 'assistant', text: `limit ${query.limit}` }],
+          messages: [
+            {
+              id: 7,
+              role: 'assistant',
+              text: `limit ${query.limit}`,
+              blocks: [{ type: 'text', text: `limit ${query.limit}` }],
+              stopReason: 'stop',
+              errorMessage: null,
+              reason: null,
+            },
+          ],
           nextCursor: query.cursor ?? 'first-page',
         }),
       }),
@@ -472,7 +482,17 @@ describe('thread routes', () => {
 
       expect(response.statusCode).toBe(200)
       expect(response.json()).toEqual({
-        messages: [{ id: 7, role: 'assistant', text: 'limit 7' }],
+        messages: [
+          {
+            id: 7,
+            role: 'assistant',
+            text: 'limit 7',
+            blocks: [{ type: 'text', text: 'limit 7' }],
+            stopReason: 'stop',
+            errorMessage: null,
+            reason: null,
+          },
+        ],
         nextCursor: 'next',
       })
     } finally {
