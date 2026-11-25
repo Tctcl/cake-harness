@@ -59,6 +59,8 @@ backend state and agent state, and a control protocol we would have to invent.
   cover webhooks and human input, `api.memo` / `requestId` give idempotency.
 - **Single writer per storage, no cross-process locking.** SQLite (WAL) or JSONL,
   one file per session. Two backend processes must never point at the same storage.
+  The Postgres backend enforces this: the newest open becomes the only writer and an
+  older process's commits fail with `WriterReplacedError` (`docs/postgres-adapter.md`).
 
 ## What we still write
 

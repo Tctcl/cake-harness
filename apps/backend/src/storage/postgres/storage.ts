@@ -31,6 +31,7 @@ import type {
   TaskRecord,
 } from '@earendil-works/pi-durable'
 import { StorageRequestError } from '@earendil-works/pi-durable'
+import { randomUUID } from 'node:crypto'
 import type { Pool } from 'pg'
 import type { DocumentAction } from './commit.js'
 import { claimOf, CommitState, PendingWrites, prepareDocumentActions } from './commit.js'
@@ -41,6 +42,7 @@ import { addressParts, encodeIndexedString, isCurrentOnly, scopeColumns } from '
 import type { PostgresSchema } from './schema.js'
 import { createSchema, migrate } from './schema.js'
 import { nextCursor, scanStart } from './scan.js'
+import { WriterReplacedError } from './writer-replaced-error.js'
 
 type EntryLookup = { readonly entry: EntryRecord; readonly commitSeq: Seq }
 type HeadMarker = EntryRecord & { readonly head: EntryId }
@@ -81,15 +83,18 @@ const page = <T extends { readonly id: number }>(
 export class PostgresStorage implements Storage {
   readonly #pool: Pool
   readonly #schema: PostgresSchema
+  /** The token this open stamped into the metadata row; a commit that finds another one was replaced. */
+  readonly #writer: string
   #nextId: number
   #closed = false
   #closing: Promise<void> | undefined
   #admittedReads = 0
   #readsDrained: (() => void) | undefined
 
-  constructor(pool: Pool, schema: PostgresSchema, nextId: number) {
+  constructor(pool: Pool, schema: PostgresSchema, writer: string, nextId: number) {
     this.#pool = pool
     this.#schema = schema
+    this.#writer = writer
     this.#nextId = nextId
   }
 
@@ -105,8 +110,9 @@ export class PostgresStorage implements Storage {
     try {
       const schema = options.schema ?? createSchema(options.prefix ?? '')
       await migrate(pool, schema)
-      const metadata = await withClient(pool, (client) => readMetadata(client, schema))
-      return new PostgresStorage(pool, schema, metadata.nextId)
+      const writer = randomUUID()
+      const nextId = await withClient(pool, (client) => claimWriter(client, schema, writer))
+      return new PostgresStorage(pool, schema, writer, nextId)
     } catch (error) {
       try {
         await pool.end()
@@ -146,7 +152,8 @@ export class PostgresStorage implements Storage {
     let refused: unknown
     let candidateNextId = this.#nextId
     await withTransaction(this.#pool, async (client) => {
-      const metadata = await readMetadata(client, this.#schema)
+      const metadata = await lockMetadata(client, this.#schema)
+      if (metadata.writer !== this.#writer) throw new WriterReplacedError()
       let next = metadata.nextSeq
       // A failure of the database rejects the call and rolls back the batches before it with the transaction.
       const state = await CommitState.read(client, tables, batches)
@@ -695,16 +702,33 @@ const candidateNextIdOf = (writes: readonly StorageWrite[], current: number): nu
   return nextId
 }
 
-const readMetadata = async (
-  client: Queryable,
-  schema: PostgresSchema,
-): Promise<{ nextId: number; nextSeq: number }> => {
-  // Identifiers come from `createSchema`; the singleton is the only value this query needs.
-  const text = `SELECT next_id, next_seq FROM ${schema.tables.durableMetadata} WHERE singleton = 1`
-  const rows = await rowsOf<{ next_id: string; next_seq: string }>(client, text)
+/**
+ * Makes this open the storage's only writer and returns the next ID to mint. The `UPDATE` waits for a commit that holds
+ * the row, so the ID it reads already counts that commit, and every commit after it from an older open is refused.
+ */
+const claimWriter = async (client: Queryable, schema: PostgresSchema, writer: string): Promise<number> => {
+  // Identifiers come from `createSchema`; the token is bound.
+  const text = `UPDATE ${schema.tables.durableMetadata} SET writer = $1 WHERE singleton = 1 RETURNING next_id`
+  const rows = await rowsOf<{ next_id: string }>(client, text, [writer])
   const row = rows[0]
   if (row === undefined) throw new Error('Durable Postgres metadata is missing')
-  return { nextId: Number(row.next_id), nextSeq: Number(row.next_seq) }
+  return Number(row.next_id)
+}
+
+/**
+ * Reads the metadata row and holds it until the transaction ends, so commits are serialized against each other and
+ * against a later open claiming the writer.
+ */
+const lockMetadata = async (
+  client: Queryable,
+  schema: PostgresSchema,
+): Promise<{ nextId: number; nextSeq: number; writer: string | null }> => {
+  // Identifiers come from `createSchema`; the singleton is the only value this query needs.
+  const text = `SELECT next_id, next_seq, writer FROM ${schema.tables.durableMetadata} WHERE singleton = 1 FOR UPDATE`
+  const rows = await rowsOf<{ next_id: string; next_seq: string; writer: string | null }>(client, text)
+  const row = rows[0]
+  if (row === undefined) throw new Error('Durable Postgres metadata is missing')
+  return { nextId: Number(row.next_id), nextSeq: Number(row.next_seq), writer: row.writer }
 }
 
 const writeMetadata = async (

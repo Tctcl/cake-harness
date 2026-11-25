@@ -29,15 +29,20 @@ const neverConnected = new Set([
   'ECONNREFUSED',
   'ENOTFOUND',
   'EAI_AGAIN',
-  'ETIMEDOUT',
   '08001',
   '08004',
   '57P03',
   '53300',
 ])
 
-/** The connection was lost with a statement possibly in flight: only a read may be replayed. */
-const connectionLost = new Set(['ECONNRESET', 'EPIPE', '08003', '08006', '57P01'])
+/**
+ * The connection was lost with a statement possibly in flight: only a read may be replayed.
+ *
+ * `ETIMEDOUT` belongs here, not above: a socket that was already open reports it when the server stops answering
+ * mid-statement, so a commit may have landed. Replaying it would find its own IDs claimed and report a stored batch as
+ * refused.
+ */
+const connectionLost = new Set(['ECONNRESET', 'EPIPE', 'ETIMEDOUT', '08003', '08006', '57P01'])
 
 /** Nothing ran, so a write may be retried. */
 export const isConnectFailure = (error: unknown): boolean => {
