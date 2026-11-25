@@ -1,5 +1,5 @@
 import { ArrowLeftIcon, FolderPlusIcon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { WorkspaceSummary } from '../../lib/chat-api.ts'
 import { createWorkspace, listWorkspaces } from '../../lib/chat-api.ts'
@@ -35,6 +35,8 @@ export function WorkspacesPage({
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Where an empty submit sends the focus: the button is never disabled, so a click that does nothing would look broken.
+  const nameInput = useRef<HTMLInputElement>(null)
   // Every change here is a change to the list, so the server's copy of it is read again rather than patched in place.
   const [nonce, setNonce] = useState(0)
 
@@ -64,7 +66,11 @@ export function WorkspacesPage({
   async function add(event: React.FormEvent) {
     event.preventDefault()
     const trimmed = name.trim()
-    if (trimmed === '') return
+    if (trimmed === '') {
+      setError('Name the workspace first')
+      nameInput.current?.focus()
+      return
+    }
 
     setBusy(true)
     try {
@@ -123,12 +129,13 @@ export function WorkspacesPage({
 
         <form className="flex flex-col gap-2 border-t pt-2" onSubmit={(event) => void add(event)}>
           <Input
+            ref={nameInput}
             aria-label="New workspace name"
             placeholder="New workspace…"
             value={name}
             onChange={(event) => setName(event.target.value)}
           />
-          <Button type="submit" size="sm" variant="outline" disabled={busy || name.trim() === ''}>
+          <Button type="submit" size="sm" variant="outline" disabled={busy}>
             <FolderPlusIcon className="size-4" aria-hidden />
             Add workspace
           </Button>

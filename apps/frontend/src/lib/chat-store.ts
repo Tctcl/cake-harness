@@ -14,6 +14,11 @@ export interface PendingInput {
   readonly localId: number
   readonly text: string
   readonly state: PendingState
+  /**
+   * The newest stored entry when this line was sent, so a line that failed stays where it was typed instead of sinking to
+   * the bottom of the transcript. Null when nothing was stored yet, and it never moves: a retry keeps the same row.
+   */
+  readonly afterId: number | null
 }
 
 /** `connecting` until the first frame, `live` while the stream delivers, `error` while it is reconnecting. */
@@ -256,7 +261,10 @@ export function send(threadId: string, text: string): void {
 
   update(threadId, (snapshot) => ({
     ...snapshot,
-    pending: [...snapshot.pending, { localId, text, state: 'sending' }],
+    pending: [
+      ...snapshot.pending,
+      { localId, text, state: 'sending', afterId: snapshot.messages.at(-1)?.id ?? null },
+    ],
     error: null,
     errorCode: null,
   }))

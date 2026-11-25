@@ -1,8 +1,8 @@
 import { ArrowDownIcon } from 'lucide-react'
-import { useCallback, useEffect, useSyncExternalStore, useState } from 'react'
+import { Fragment, useCallback, useEffect, useSyncExternalStore, useState } from 'react'
 
-import type { ChatMessage } from '../../lib/chat-api.ts'
-import type { ThreadSnapshot } from '../../lib/chat-store.ts'
+import type { ChatLive, ChatMessage } from '../../lib/chat-api.ts'
+import type { PendingInput, ThreadSnapshot } from '../../lib/chat-store.ts'
 import {
   KEY_PROBLEMS,
   loadOlder,
@@ -60,11 +60,7 @@ export function ChatPane({
   if (threadId === null) return <NoConversation />
 
   // A live frame is proof of a run in flight even before its first entry commits, so the view keeps saying so.
-  const liveWorking =
-    state.live.blocks.length > 0 ||
-    state.live.tools.some((tool) => tool.status !== 'done') ||
-    state.live.compacting > 0
-  const streaming = lastIsUnanswered(state) || liveWorking
+  const streaming = runIsActive(state.live)
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 py-4">
@@ -136,37 +132,29 @@ function Transcript({
         }}
       >
         <MessageScrollerContent className="mx-auto w-full max-w-3xl pb-2">
-          {state.messages.map((message) => (
-            <MessageScrollerItem key={message.id} messageId={String(message.id)}>
-              <Line message={message} />
-            </MessageScrollerItem>
+          {/* A pending line sits after the entry that was newest when it was sent, and before every line if there was
+              none: a failure belongs where the person typed it, not under whatever arrived since. */}
+          {leadingPending(state.pending).map((item) => (
+            <PendingLine key={item.localId} item={item} threadId={threadId} />
           ))}
 
-          {state.pending.map((item) => (
-            <MessageScrollerItem key={item.localId} messageId={String(item.localId)}>
-              <Message align="end">
-                <MessageContent>
-                  <Bubble align="end">
-                    <BubbleContent>{item.text}</BubbleContent>
-                  </Bubble>
-                  <div className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
-                    {item.state === 'sending' ? (
-                      <>
-                        <Spinner className="size-3" />
-                        <span>Sending</span>
-                      </>
-                    ) : (
-                      <>
-                        <span role="alert">Not sent</span>
-                        <Button variant="ghost" size="sm" onClick={() => retry(threadId, item.localId)}>
-                          Retry
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </MessageContent>
-              </Message>
-            </MessageScrollerItem>
+          {state.messages.map((message) => (
+            <Fragment key={message.id}>
+              <MessageScrollerItem messageId={String(message.id)}>
+                <Line message={message} />
+              </MessageScrollerItem>
+
+              {state.pending
+                .filter((item) => item.afterId === message.id)
+                .map((item) => (
+                  <PendingLine key={item.localId} item={item} threadId={threadId} />
+                ))}
+            </Fragment>
+          ))}
+
+          {/* A line whose anchor is not loaded (a long thread keeps only its newest window) still has to show somewhere. */}
+          {unanchoredPending(state).map((item) => (
+            <PendingLine key={item.localId} item={item} threadId={threadId} />
           ))}
 
           {state.tools.length === 0 ? null : (
@@ -232,15 +220,59 @@ function Line({ message }: { message: ChatMessage }) {
   )
 }
 
-/** True while the newest line is a question with no answer yet: a submitted input, or a user entry the run has not
- * answered. */
-function lastIsUnanswered(state: ThreadSnapshot): boolean {
-  if (state.pending.length > 0) return true
+/** The optimistic lines sent before anything was stored: they precede every message. */
+function leadingPending(pending: readonly PendingInput[]): readonly PendingInput[] {
+  return pending.filter((item) => item.afterId === null)
+}
 
-  const last = state.messages.at(-1)
-  if (last === undefined || last.role !== 'user') return false
+/** Optimistic lines anchored to an entry that is not among the loaded messages: they go after everything. */
+function unanchoredPending(state: ThreadSnapshot): readonly PendingInput[] {
+  const loaded = new Set(state.messages.map((message) => message.id))
 
-  return state.status !== 'error'
+  return state.pending.filter((item) => item.afterId !== null && !loaded.has(item.afterId))
+}
+
+/** One line still on its way, or one that failed and offers the retry. Retry reuses this row, so it does not move. */
+function PendingLine({ threadId, item }: { threadId: string; item: PendingInput }) {
+  return (
+    <MessageScrollerItem messageId={String(item.localId)}>
+      <Message align="end">
+        <MessageContent>
+          <Bubble align="end">
+            <BubbleContent>{item.text}</BubbleContent>
+          </Bubble>
+          <div className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
+            {item.state === 'sending' ? (
+              <>
+                <Spinner className="size-3" />
+                <span>Sending</span>
+              </>
+            ) : (
+              <>
+                <span role="alert">Not sent</span>
+                <Button variant="ghost" size="sm" onClick={() => retry(threadId, item.localId)}>
+                  Retry
+                </Button>
+              </>
+            )}
+          </div>
+        </MessageContent>
+      </Message>
+    </MessageScrollerItem>
+  )
+}
+
+/**
+ * Whether the live state says a run is in flight: a partial answer, a tool round, a compaction, or a run that exists.
+ * An optimistic line is not a run — one still sending only says so itself, and one that failed never becomes a run.
+ */
+function runIsActive(live: ChatLive): boolean {
+  return (
+    live.blocks.length > 0 ||
+    live.tools.some((tool) => tool.status !== 'done') ||
+    live.turns > 0 ||
+    live.compacting > 0
+  )
 }
 
 function NoConversation() {

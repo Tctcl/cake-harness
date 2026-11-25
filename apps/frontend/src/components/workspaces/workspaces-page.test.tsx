@@ -67,6 +67,18 @@ describe('WorkspacesPage', () => {
     expect(screen.getByRole('tab', { name: 'Providers' }).getAttribute('aria-selected')).toBe('false')
   })
 
+  it('keeps Add workspace usable and points at the name when it is empty', async () => {
+    render(<WorkspacesPage onClose={() => {}} onOpenCredentials={() => {}} />)
+
+    const add = await screen.findByRole('button', { name: /add workspace/i })
+    expect(add).toBeEnabled()
+
+    fireEvent.click(add)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Name the workspace first')
+    expect(screen.getByLabelText('New workspace name')).toHaveFocus()
+  })
+
   it('leaves the screen through one control', async () => {
     const onClose = vi.fn()
     render(<WorkspacesPage onClose={onClose} onOpenCredentials={() => {}} />)

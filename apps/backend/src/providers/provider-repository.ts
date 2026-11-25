@@ -143,12 +143,17 @@ const statements = (schema: PostgresSchema) => {
         supports_tools = EXCLUDED.supports_tools,
         fetched_at = now()`,
     // Grouped on the workspace, not counted over a join: a workspace that is unknown or another's yields no row, which
-    // is how "not found" and "no logins" stay two different answers.
-    usage: `SELECT count(l.credential_id)::text AS login_count
+    // is how "not found" and "no logins" stay two different answers. A workspace that reaches everything uses every key
+    // its owner stored, whether or not it linked one, so those count instead of the links.
+    usage: `SELECT (CASE
+        WHEN w.allow_all THEN (SELECT count(*) FROM ${tables.userCredentials} c
+          WHERE c.owner_id = w.owner_id AND c.kind = 'opencode-go')
+        ELSE count(l.credential_id)
+      END)::text AS login_count
       FROM ${tables.workspaces} w
       LEFT JOIN ${tables.workspaceProviderLogins} l ON l.workspace_id = w.id
       WHERE w.id = $1 AND w.owner_id = $2
-      GROUP BY w.id`,
+      GROUP BY w.id, w.allow_all`,
   }
 }
 

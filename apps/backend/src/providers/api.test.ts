@@ -205,6 +205,21 @@ if (url === undefined) {
         ])
       })
     })
+
+    it('counts every key the owner stored for a workspace that reaches everything', async () => {
+      await withApi(async ({ api, addKey, workspaces, ownerId }) => {
+        const workspace = await workspaces.create(ownerId, { name: 'General' }, IMAGE)
+        await workspaces.update(workspace.id, { allowAll: true })
+
+        await addKey('personal', 'sk-one')
+        await addKey('work', 'sk-two')
+
+        // Nothing is linked on the workspace; reaching everything is what makes the owner's keys count.
+        await expect(api.usage(workspace.id)).resolves.toEqual([
+          { provider: 'opencode-go', loginCount: 2, requests: 0, inputTokens: 0, outputTokens: 0, costUsd: 0 },
+        ])
+      })
+    })
   })
 
   afterAll(async () => {
