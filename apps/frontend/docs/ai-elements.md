@@ -20,12 +20,11 @@ they are not mistaken for features.
 | `CodeBlock` | `src/components/chat/markdown.tsx` | Wraps fenced code in a reply with its language label and copy button. |
 | `Spinner` | `src/components/chat/chat-pane.tsx` | First-page load and the "Sending" row of an optimistic line. |
 | `Reasoning` (`Reasoning`, `ReasoningTrigger`, `ReasoningContent`) | `src/components/chat/live-run.tsx` | The model's own reasoning while it works: open while it streams, collapsed a second after it lands, with the measured duration in the trigger. Text arrives redacted from some providers; the block says so instead of showing nothing. |
-| `Empty` (`Empty`, `EmptyHeader`, `EmptyTitle`, `EmptyDescription`, `EmptyContent`, `EmptyMedia`) | `src/components/chat/chat-pane.tsx`, `conversation-sidebar.tsx` | Placeholder states: no conversation selected, a workspace with no conversations. |
-| `Tooltip` (`TooltipProvider`, `Tooltip`, `TooltipTrigger`, `TooltipContent`) | `src/App.tsx` (provider), `sidebar.tsx`, `conversation-sidebar.tsx`, `theme-picker.tsx` | Collapse and expand hints on the sidebar buttons, the new-conversation button, the theme control, and the full title of a truncated thread. |
+| `Empty` (`Empty`, `EmptyHeader`, `EmptyTitle`, `EmptyDescription`, `EmptyContent`, `EmptyMedia`) | `src/components/chat/chat-pane.tsx`, `session-list.tsx` | Placeholder states: no conversation selected, no workspaces yet. |
+| `Tooltip` (`TooltipProvider`, `Tooltip`, `TooltipTrigger`, `TooltipContent`) | `src/App.tsx` (provider), `sidebar.tsx`, `session-list.tsx`, `theme-picker.tsx` | Collapse and expand hints on the sidebar buttons, the new-conversation button, the theme control, and the full title of a truncated workspace name or thread. |
 | `ScrollArea` | `src/components/layout/sidebar.tsx` | Scrolls each sidebar's content inside its fixed width, so the list never grows the shell. |
-| `Collapsible` (`Collapsible`, `CollapsibleTrigger`, `CollapsibleContent`) | `src/components/layout/conversation-sidebar.tsx` | The "All conversations (n)" section that folds the thread list away. |
-| `Separator` | `src/components/layout/conversation-sidebar.tsx`, `thread-info.tsx`, `workspace-picker.tsx`, `workspace-dialogs.tsx` | Divider under the sidebar header and between the sections of the conversation info. |
-| `Badge` | `src/components/layout/thread-info.tsx`, `workspace-dialogs.tsx` | Capability chips (tools, MCP servers, skills) and the "Default" marker on the workspace that cannot be edited. |
+| `Separator` | `src/components/layout/thread-info.tsx` | Divider between the sections of the conversation info. |
+| `Badge` | `src/components/layout/thread-info.tsx`, `src/components/settings/workspaces-section.tsx` | Capability chips (tools, MCP servers, skills) and the "Default" marker on the workspace that cannot be edited. |
 | `Trace` (`Trace`, `TraceCollapsible`, `TraceCollapsibleTrigger`, `TraceCollapsibleContent`, `TraceLine`, `TraceIcon`, `TraceTitle`, `TraceDescription`) | `src/components/chat/tool-trace.tsx` | The run's tool calls under the reply: one collapsed line per call with its status and duration, arguments and result opening underneath. |
 | `Button`, `Textarea`, `Input` | throughout | shadcn/ui primitives the AI Elements and the composer build on. |
 

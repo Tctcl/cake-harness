@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "pnpm run build && pnpm run start",
+    "dev": "pnpm run build && docker compose -f compose.dev.yml up --build",
     "build": "tsc -p tsconfig.json",
     "lint": "oxlint",
     "test": "vitest run",

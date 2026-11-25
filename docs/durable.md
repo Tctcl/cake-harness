@@ -9,7 +9,8 @@ one conversation per row of `chat_threads`, and serves it through
 `/threads/:threadId/messages` with `opencode-go`/`deepseek-v4.1-flash`. A thread is
 filed under a `workspaces` row and an `agents` row, but the selection is still
 bookkeeping: the harness runs with no tools and no MCP either way. There are no
-tools and no streaming, and `apps/agent` still prints `Hello, World!`.
+tools and no streaming, and `apps/agent` runs a workspace bootstrap, not the
+harness.
 
 Sources (read 2026-11-22):
 

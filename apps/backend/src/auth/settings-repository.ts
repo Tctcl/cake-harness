@@ -1,0 +1,64 @@
+import type { Pool } from 'pg'
+
+import { withClient } from '../storage/postgres/db.js'
+import type { PostgresSchema } from '../storage/postgres/schema.js'
+
+/**
+ * The two switches that decide how the install treats people. Both live in the database rather than in the environment:
+ * an admin changes them from the settings screen, and a restart must not be the way to turn single-user mode off.
+ */
+export interface Settings {
+  /** No sign-in at all: every request is the owner, holding every permission. What this install was until now. */
+  readonly singleUser: boolean
+  /** A second factor is enrolled before a password is enough. Applying it to existing accounts forces enrolment. */
+  readonly requireTwoFactor: boolean
+}
+
+export const DEFAULT_SETTINGS: Settings = { singleUser: true, requireTwoFactor: false }
+
+const SINGLE_USER = 'single_user'
+const REQUIRE_TWO_FACTOR = 'require_two_factor'
+
+interface SettingRow {
+  readonly key: string
+  readonly value: unknown
+}
+
+export class SettingsRepository {
+  readonly #pool: Pool
+  readonly #select: string
+  readonly #upsert: string
+
+  constructor(pool: Pool, schema: PostgresSchema) {
+    const { appSettings } = schema.tables
+    this.#pool = pool
+    this.#select = `SELECT key, value FROM ${appSettings}`
+    this.#upsert = `INSERT INTO ${appSettings} (key, value, updated_at) VALUES ($1, $2::jsonb, now())
+      ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = now()`
+  }
+
+  /** A row that is missing or of the wrong type falls back to the default, so a hand-edited table cannot crash a boot. */
+  async read(): Promise<Settings> {
+    const rows = await withClient(this.#pool, (client) => client.query<SettingRow>(this.#select))
+    const values = new Map(rows.rows.map((row) => [row.key, row.value]))
+
+    return {
+      singleUser: booleanOr(values.get(SINGLE_USER), DEFAULT_SETTINGS.singleUser),
+      requireTwoFactor: booleanOr(values.get(REQUIRE_TWO_FACTOR), DEFAULT_SETTINGS.requireTwoFactor),
+    }
+  }
+
+  async write(patch: Partial<Settings>): Promise<Settings> {
+    const entries: [string, boolean][] = []
+    if (patch.singleUser !== undefined) entries.push([SINGLE_USER, patch.singleUser])
+    if (patch.requireTwoFactor !== undefined) entries.push([REQUIRE_TWO_FACTOR, patch.requireTwoFactor])
+
+    for (const [key, value] of entries) {
+      await withClient(this.#pool, (client) => client.query(this.#upsert, [key, JSON.stringify(value)]))
+    }
+
+    return this.read()
+  }
+}
+
+const booleanOr = (value: unknown, fallback: boolean): boolean => (typeof value === 'boolean' ? value : fallback)

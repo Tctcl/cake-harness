@@ -3,9 +3,9 @@
 Instructions for anyone — human or AI agent — working in this repository.
 
 This file describes how the codebase is expected to be built, not what has been
-built. Most of it is currently aspirational for a scaffold that has no product
-features yet; treat it as the constraint set that new code must satisfy from day
-one, so conventions do not have to be retrofitted later.
+built. Most of it is currently aspirational for a project whose shape is still
+moving; treat it as the constraint set that new code must satisfy from day one, so
+conventions do not have to be retrofitted later.
 
 ## The project
 
@@ -13,10 +13,20 @@ one, so conventions do not have to be retrofitted later.
 React frontend and a long-running agent process, plus shared TypeScript and lint
 configuration. It is MIT licensed and intended to be developed in public.
 
-**Current state:** scaffolding only. `apps/agent` prints `Hello, World!`,
-`apps/backend` serves `GET /health`, `apps/frontend` is the stock Vite starter
-screen, `docs/` and `infrastructure/` are empty. Do not describe these as
-features anywhere, and do not assume an API here is stable.
+**Current state:** early, and every API here is expected to change. `apps/agent`
+holds the workspace development image and its bootstrap
+(`docs/remote-development.md`). `apps/backend` serves the slice: sign-in and roles
+(`docs/auth.md`), workspaces, agents and their capability grants
+(`docs/workspaces.md`), the containers those agents run in, terminals attached to
+one (`docs/terminals.md`), the LLM providers a workspace may spend
+(`docs/providers.md`), and the durable chat itself (`docs/durable.md`).
+`apps/frontend` renders the chat, the workspace settings and the terminal over
+those routes. `deploy/` holds the production stack and the installer
+(`docs/deployment.md`), and `infrastructure/` holds the host-side systemd units
+for the update socket. The root `Dockerfile` builds the product image — Fastify
+serving the compiled SPA — and `.github/workflows/images.yml` publishes it on two
+channels, `latest` from a release tag and `staging` from every push to `main`. Do
+not describe these as features anywhere, and do not assume an API here is stable.
 
 ## Non-negotiables
 
@@ -50,9 +60,11 @@ apps/frontend     frontend           React 19 + Vite 8, vite build
 packages/typescript-config           shared tsconfig presets (JSON only)
 packages/oxlint-config               shared oxlint presets (JSON only)
 packages/vitest-config               shared Vitest presets (base + react)
+deploy/                              production compose stack and installer
 docs/                                cross-cutting notes (architecture, ADRs)
-infrastructure/                       deployment assets (empty for now)
-.github/workflows/                   gates, commits (PR title), release
+Dockerfile                           product image: Fastify + the compiled SPA
+infrastructure/                      host-side systemd units for the update socket
+.github/workflows/                   gates, commits (PR title), release, images, bundle
 .github/ISSUE_TEMPLATE/, PULL_REQUEST_TEMPLATE.md, dependabot.yml
 CONTRIBUTING.md                      workflow, commit convention, releases
 CODE_OF_CONDUCT.md                   Contributor Covenant 3.0
@@ -69,7 +81,7 @@ the other.
 
 ```bash
 pnpm install                       # after any package.json change
-pnpm dev                           # all apps (turbo, persistent)
+pnpm dev                           # backend + frontend (turbo, persistent); not the agent
 pnpm dev:backend                   # one app
 pnpm build
 pnpm typecheck

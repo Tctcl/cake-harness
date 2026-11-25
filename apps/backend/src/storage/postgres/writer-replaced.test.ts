@@ -27,7 +27,8 @@ if (url === undefined) {
     try {
       for (const table of [...Object.values(createSchema(prefix).tables), ...Object.values(createSchema(racePrefix).tables)]) {
         // Table names come from `createSchema` over this file's own prefixes.
-        await client.query(`DROP TABLE IF EXISTS ${table} CASCADE`)
+        const drop = `DROP TABLE IF EXISTS ${table} CASCADE`
+        await client.query(drop)
       }
     } finally {
       await client.end()

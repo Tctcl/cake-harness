@@ -60,8 +60,11 @@ opens with the registry's default tool set and never asks for a grant.
 
 Credentials are never stored here: an `mcp_credentials` row names a CipherGate
 consumer and the secrets that fill a server's `env_schema`, and the value is
-fetched when a run starts. No CipherGate client exists in this repository yet — no
-dependency, no config key, no request — so nothing resolves them.
+fetched when a run starts. The client that fetches them exists now, but only one
+caller uses it: `apps/backend/src/secrets/ciphergate.ts` reads a secret by name on
+behalf of `apps/backend/src/environments/manifest.ts`, which serves workspace
+credentials. Resolving a run's MCP credentials is still unimplemented — the
+`mcp_credentials` rows are read by the capability routes and by nothing else.
 
 ## 3. Workspaces do not get a container or a filesystem
 
@@ -98,8 +101,8 @@ Elements model selector in the composer. This is the natural companion to item 9
 nothing generates a title.
 
 **Where it stands:** `PATCH /threads/:threadId` now exists
-(`apps/backend/src/routes/threads.ts`) and the right sidebar edits the title in
-place (`apps/frontend/src/components/layout/thread-info.tsx`), over
+(`apps/backend/src/routes/threads.ts`) and the topbar edits the title in
+place (`apps/frontend/src/components/layout/topbar.tsx`), over
 `ThreadRepository.rename` (`apps/backend/src/threads/thread-repository.ts:131`).
 `remove` (line 153) is still unrouted: the repository keeps the "archive first,
 or it is not settled" guard, so a live thread can never be removed by one
@@ -127,7 +130,7 @@ create), `/workspaces/:id` (read, patch, delete),
 `listWorkspaces`, `createWorkspace`, `renameWorkspace`, `archiveWorkspace`,
 `listAgents`, `listThreads`, `createThread` and `renameThread`
 (`apps/frontend/src/lib/chat-api.ts`) — the picker and its manage dialog cover
-workspace create/rename/archive, and the right sidebar reads an agent's
+workspace create/rename/archive, and the info panel reads an agent's
 capabilities without editing them. The default workspace and its default agent
 stay immutable; the backend already refuses those edits.
 
@@ -135,24 +138,30 @@ stay immutable; the backend already refuses those edits.
 capability editor (multi-select over the workspace's allowed tools, MCP servers
 and skills) for the workspace, plus a thread delete action.
 
-## 7. No authentication, one local user
+## 7. Accounts exist, but the routes still answer as one owner
 
-**Missing:** anyone who reaches the port is the same user.
+**Missing:** per-request ownership, so a second account can be created and
+actually used.
 
-**Where it stands:** `ensureLocalUser` (`apps/backend/src/threads/local-user.ts`)
-seeds a single row and every query filters on that owner id. There is no session,
-token, login route or per-request identity, and the dev proxy is the only thing
-standing between the browser and the port.
+**Where it stands:** sessions, roles, permissions, TOTP and the settings that
+switch between single-user mode and accounts are in place
+(`docs/auth.md`). What is not: `apps/backend/src/agent.ts` closes over one
+`ownerId` from `ensureLocalUser`, so workspaces, agents, threads and
+environments all resolve to the seeded row whoever asks. `PUT /settings`
+refuses `{"singleUser": false}` with `409 auth.accounts_pending` rather than
+letting two people share one owner.
 
-**Where the UI stands:** the account menu at the foot of the left sidebar shows
-the name `GET /me` returns and offers Log out as a disabled item saying there is
-no sign-in yet, and Settings → User admin shows the same identity and says the
-same. Nothing pretends to end a session.
+**Where the UI stands:** there is no login screen yet, so the account menu still
+shows the name `GET /me` returns and offers Log out as a disabled item, and
+Settings → User admin shows the same identity. Both read the actor the backend
+resolves, so they are correct in single-user mode and become wrong the moment
+accounts are switched on.
 
-**What it would take:** an auth decision (session cookie versus bearer token),
-a plugin that resolves the caller before routes run, and replacing the seeded
-owner id with the authenticated one. Do not expose the port beyond loopback until
-this exists.
+**What it would take:** threading the actor's id through the `Agent` API in
+place of the captured `ownerId` (workspaces, agents, threads, environments and
+the capability links that hang off workspaces), the login and settings screens,
+an `install.sh` step that creates the first admin, and then deleting the
+`MULTI_USER_WIRED` guard in `apps/backend/src/auth/service.ts`.
 
 ## 8. A run's steps are a flat list, not a timeline
 
@@ -195,8 +204,9 @@ version, not accidentally so.
 **Missing:** the platform does not run the agent as a separate long-running
 process; the harness lives inside the backend.
 
-**Where it stands:** `apps/agent` prints `Hello, World!`. The durable harness, the
-repositories and the routes all run in `apps/backend`, which is fine for one
+**Where it stands:** `apps/agent` holds the workspace bootstrap and its image (see
+`docs/remote-development.md`); the harness, the repositories and the routes all
+run in `apps/backend`, which is fine for one
 process and one user, and is the thing that will need revisiting when runs must
 outlive a backend restart or move to another machine.
 
@@ -234,7 +244,39 @@ schema applied by the same bootstrap the tests use, and `DATABASE_URL` set for t
 test step. The suites already handle cleanup through a per-run table prefix, so
 nothing else has to change.
 
-## 13. Documentation debt
+## 13. No formatter
+
+**Missing:** nothing formats the codebase. Style is held only by `.editorconfig`
+and the warnings oxlint happens to raise.
+
+**Where it stands:** no workspace has a `format` or `format:check` script, no
+formatter is a dependency, and `.github/workflows/gates.yml` runs the four gates
+AGENTS.md names — typecheck, lint, test, build. Root `.editorconfig` enforces
+charset, LF, final newline, trailing whitespace and 2-space indent, which covers
+most of the risk while the codebase is small and written by one person. oxlint
+1.90 lints; it does not format.
+
+**Decision, so it does not have to be relitigated:** when a formatter is adopted
+it is `oxfmt`, not Biome and not Prettier. Biome also lints, which would put a
+second rule set beside `@tctcl/oxlint-config`; Prettier costs the most in a
+turbo/pnpm monorepo for no capability this repository needs. oxfmt keeps the
+vendor, the config lineage and the editor extension (`oxc.oxc-vscode`) already in
+use for lint.
+
+**What it would take:** a shared `@tctcl/oxfmt-config` package beside the other
+presets (AGENTS.md rule 5), `format` and `format:check` scripts per workspace,
+the initial repo-wide reformat as its own `chore:` commit so it never rides along
+with a behavioural change, and a deliberate fifth step in the gates workflow.
+Know two limits before committing to it: oxfmt does not support Prettier plugins,
+so `prettier-plugin-tailwindcss` class sorting is unavailable, and its default
+`printWidth` is 100 rather than Prettier's 80. The formatter is still pre-1.0
+(0.80 at the time of writing) and releases weekly, so expect occasional output
+changes rather than a frozen format.
+
+Revisit when a second regular contributor joins, or when formatting noise
+obscures a real diff. Until then the `.editorconfig` is the contract.
+
+## 14. Documentation debt
 
 - `docs/durable.md` opens with "There are no tools and no streaming" — the backend
   streams now (`/threads/:threadId/stream` plus the frontend store), so that status
@@ -243,3 +285,54 @@ nothing else has to change.
 - `docs/postgres-adapter.md` and `docs/durable.md` predate `workspaces`, `agents`
   and archiving; neither mentions the platform tables that now sit beside the
   durable ones in the same schema.
+
+## 15. The backend cannot update its own host
+
+**Missing:** the update socket works and nothing calls it.
+
+**Where it stands:** `infrastructure/systemd/tctcl-updater.socket` and
+`tctcl-updater@.service` are installed by `install.sh`, and
+`infrastructure/tctcl-updater.sh` implements the one-line protocol (`UPDATE 1.2.3`
+in, `START`/progress/`OK`/`ERR` out) documented in `docs/deployment.md`. No
+backend code opens `/run/tctcl/updater.sock`: there is no route, no progress
+stream and no container that mounts the directory.
+
+**What it would take:** the application container mounts `/run/tctcl` and runs
+with gid 1001; a backend client that writes one line and streams the reply; a
+route behind whatever authentication item 7 ends up with, since triggering an
+update is a privileged action; and a UI that shows the installer's output instead
+of a spinner.
+
+## 16. No backups, no restore
+
+**Missing:** nothing copies the database or the state directory, and there is no
+restore path to test.
+
+**Where it stands:** Postgres is the named volume `tctcl_postgres-data` and the
+rest of the state is bind-mounted under `/var/lib/tctcl-platform`. Both are
+described in `docs/deployment.md`; neither is copied anywhere.
+
+**What it would take:** the decision that the backend drives backups (it will
+need the state directory mounted, an exception to the "no unnecessary host
+mounts" rule that has to be written down), a `pg_dump` plus a tar of the bind
+mounts on a schedule with retention, and a restore command that is actually
+exercised. A bind-mounted data directory copied while Postgres runs is a torn
+snapshot, so the dump is the unit of restore — not `cp -a`.
+
+Related: an upgrade that ran a migration cannot be rolled back in place. Until a
+schema policy exists, the pre-upgrade dump is the only way back, which is another
+reason this lands before the first real deployment.
+
+## 17. The Docker API is still host root
+
+**Missing:** a real boundary between the backend and the host.
+
+**Where it stands:** both consumers talk to `tecnativa/docker-socket-proxy`
+instead of the socket, with the endpoint list in `deploy/compose.yaml` and the
+caveat spelled out in `docs/deployment.md`. The filter keeps unrelated API
+surface out of reach; it does not stop a privileged container create, and
+`CONTAINERS` plus `POST` are exactly what provisioning a workspace needs.
+
+**What it would take:** rootless Docker on the host, or a provisioning path that
+never creates privileged containers and is enforced somewhere the backend cannot
+edit. Both are architecture decisions, not follow-ups.

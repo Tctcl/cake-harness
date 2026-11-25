@@ -1,0 +1,19 @@
+[Unit]
+Description=tctcl-platform update requests
+Documentation=file:/opt/tctcl-platform/install.sh
+
+[Socket]
+# The backend container mounts this directory and writes one line: UPDATE 1.2.3.
+ListenStream=/run/tctcl/updater.sock
+# root writes; the backend runs with the tctcl-updater gid and is the only other
+# writer. Nothing else on the host can ask for an update.
+SocketMode=0660
+SocketUser=root
+SocketGroup=tctcl-updater
+DirectoryMode=0750
+# systemd accepts each connection and hands it to one instance of the service
+# below, so no listener process exists between updates.
+Accept=yes
+
+[Install]
+WantedBy=sockets.target

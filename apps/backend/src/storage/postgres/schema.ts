@@ -9,6 +9,15 @@ import {
   DEFAULT_WORKSPACE_ID,
   DEFAULT_WORKSPACE_NAME,
 } from '../../workspaces/defaults.js'
+import { MEMBER_PERMISSIONS } from '../../auth/permissions.js'
+import {
+  ADMIN_ROLE_DESCRIPTION,
+  ADMIN_ROLE_ID,
+  ADMIN_ROLE_NAME,
+  MEMBER_ROLE_DESCRIPTION,
+  MEMBER_ROLE_ID,
+  MEMBER_ROLE_NAME,
+} from '../../auth/roles.js'
 import type { Queryable } from './db.js'
 import { withTransaction } from './db.js'
 
@@ -32,6 +41,9 @@ export type PostgresSchema = {
     readonly chatThreads: string
     readonly workspaces: string
     readonly agents: string
+    readonly devEnvironments: string
+    readonly workspaceEnvironments: string
+    readonly agentEnvironments: string
     readonly tools: string
     readonly prompts: string
     readonly skills: string
@@ -46,6 +58,17 @@ export type PostgresSchema = {
     readonly agentPrompts: string
     readonly agentSkills: string
     readonly agentMcpServers: string
+    readonly roles: string
+    readonly rolePermissions: string
+    readonly userPermissionOverrides: string
+    readonly sessions: string
+    readonly appSettings: string
+    /** User-owned secrets: API keys and MCP credentials, kept apart from the capability catalog they serve. */
+    readonly userCredentials: string
+    /** What a provider serves, cached; and the two link tables that say what one workspace may spend. */
+    readonly providerModels: string
+    readonly workspaceProviderLogins: string
+    readonly workspaceProviderModels: string
   }
   readonly indexes: {
     readonly conversationsByOwnerConversation: string
@@ -65,15 +88,24 @@ export type PostgresSchema = {
     readonly chatThreadsByOwner: string
     readonly chatThreadsByWorkspace: string
     readonly workspacesByOwner: string
+    readonly workspacesByOwnerOrder: string
     readonly oneDefaultWorkspace: string
     readonly agentsByWorkspace: string
     readonly oneDefaultAgent: string
+    readonly devEnvironmentsByOwner: string
+    readonly agentEnvironmentsOnePerAgent: string
+    readonly workspaceEnvironmentsOnePerWorkspace: string
+    readonly userCredentialsByOwnerKind: string
+    readonly userCredentialsByOwnerMcp: string
     readonly toolsByName: string
     readonly promptsByName: string
     readonly skillsByName: string
     readonly mcpServersByName: string
     readonly mcpCredentialsByLabel: string
     readonly mcpCredentialsByIdServer: string
+    readonly workspaceMcpServersByName: string
+    readonly sessionsByUser: string
+    readonly usersByUsername: string
   }
 }
 
@@ -101,6 +133,9 @@ const PLATFORM_TABLE_NAMES = {
   chatThreads: 'chat_threads',
   workspaces: 'workspaces',
   agents: 'agents',
+  devEnvironments: 'dev_environments',
+  workspaceEnvironments: 'workspace_environments',
+  agentEnvironments: 'agent_environments',
   tools: 'tools',
   prompts: 'prompts',
   skills: 'skills',
@@ -115,6 +150,18 @@ const PLATFORM_TABLE_NAMES = {
   agentPrompts: 'agent_prompts',
   agentSkills: 'agent_skills',
   agentMcpServers: 'agent_mcp_servers',
+  roles: 'roles',
+  rolePermissions: 'role_permissions',
+  userPermissionOverrides: 'user_permission_overrides',
+  sessions: 'sessions',
+  // Key and value rather than a column per setting: what belongs here changes with the product, and a migration per
+  // checkbox is a migration nobody needs.
+  appSettings: 'app_settings',
+  userCredentials: 'user_credentials',
+  // The catalog of what a provider serves, cached because the upstream call is somebody else's rate limit.
+  providerModels: 'provider_models',
+  workspaceProviderLogins: 'workspace_provider_logins',
+  workspaceProviderModels: 'workspace_provider_models',
 } as const
 
 const DURABLE_INDEX_NAMES = {
@@ -138,9 +185,19 @@ const PLATFORM_INDEX_NAMES = {
   chatThreadsByOwner: 'chat_threads_by_owner',
   chatThreadsByWorkspace: 'chat_threads_by_workspace',
   workspacesByOwner: 'workspaces_by_owner',
+  // The list order the user arranges by dragging: one position per workspace, per owner.
+  workspacesByOwnerOrder: 'workspaces_by_owner_order',
   oneDefaultWorkspace: 'workspaces_one_default',
   agentsByWorkspace: 'agents_by_workspace',
   oneDefaultAgent: 'agents_one_default',
+  devEnvironmentsByOwner: 'dev_environments_by_owner',
+  // One environment per agent, for now: the index is the constraint, so lifting it later drops the index and
+  // nothing else. The model beneath it is already many-to-many, which is what the composite primary key says.
+  agentEnvironmentsOnePerAgent: 'agent_environments_one_per_agent',
+  workspaceEnvironmentsOnePerWorkspace: 'workspace_environments_one_per_workspace',
+  // The credentials page reads one kind at a time, and the MCP form looks them up by the server they answer for.
+  userCredentialsByOwnerKind: 'user_credentials_by_owner_kind',
+  userCredentialsByOwnerMcp: 'user_credentials_by_owner_mcp',
   toolsByName: 'tools_by_owner_name',
   promptsByName: 'prompts_by_owner_name',
   skillsByName: 'skills_by_owner_name',
@@ -148,6 +205,9 @@ const PLATFORM_INDEX_NAMES = {
   mcpCredentialsByLabel: 'mcp_credentials_by_server_label',
   // Lets a link name a credential together with its server, so the database refuses a credential bound to the wrong one.
   mcpCredentialsByIdServer: 'mcp_credentials_by_id_server',
+  workspaceMcpServersByName: 'workspace_mcp_servers_by_workspace_name',
+  sessionsByUser: 'sessions_by_user',
+  usersByUsername: 'users_by_username',
 } as const
 
 const PREFIX = /^[a-z0-9_]*$/
@@ -598,6 +658,314 @@ const capabilityLinkMigration = (schema: PostgresSchema): readonly string[] => {
 }
 
 /**
+ * Development environments as rows of their own, instead of a JSON column on the workspace that held one image name.
+ *
+ * A workspace may have several environments (one per repository, in a polyrepo) and an environment may serve several
+ * workspaces, so both relations are link tables. An agent points at one environment for now: the composite primary key
+ * of `agent_environments` is the general many-to-many shape, while a unique index on `agent_id` narrows it to one until
+ * the product needs otherwise. Dropping that index is the whole change when it does.
+ */
+const environmentMigration = (schema: PostgresSchema): readonly string[] => {
+  const { tables, indexes } = schema
+  const hasImage = `jsonb_typeof(container) = 'object' AND container->>'image' <> ''`
+  // The workspace's own id, laid out as a uuid: a stable value that needs no extension and lets the backfill link the
+  // rows it just created without reading them back.
+  const derived = `(substr(md5(w.id::text), 1, 8) || '-' || substr(md5(w.id::text), 9, 4) || '-' ||
+    substr(md5(w.id::text), 13, 4) || '-' || substr(md5(w.id::text), 17, 4) || '-' ||
+    substr(md5(w.id::text), 21, 12))::uuid`
+
+  return [
+    `CREATE TABLE ${tables.devEnvironments} (
+      id uuid PRIMARY KEY,
+      owner_id uuid NOT NULL REFERENCES ${tables.users} (id),
+      name text NOT NULL,
+      image text NOT NULL,
+      -- The container this environment runs as, or NULL until it is first started.
+      container_id text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+    `CREATE INDEX ${indexes.devEnvironmentsByOwner}
+      ON ${tables.devEnvironments} (owner_id, updated_at DESC)`,
+    `CREATE TABLE ${tables.workspaceEnvironments} (
+      workspace_id uuid NOT NULL REFERENCES ${tables.workspaces} (id) ON DELETE CASCADE,
+      environment_id uuid NOT NULL REFERENCES ${tables.devEnvironments} (id) ON DELETE CASCADE,
+      PRIMARY KEY (workspace_id, environment_id)
+    )`,
+    `CREATE TABLE ${tables.agentEnvironments} (
+      agent_id uuid NOT NULL REFERENCES ${tables.agents} (id) ON DELETE CASCADE,
+      environment_id uuid NOT NULL REFERENCES ${tables.devEnvironments} (id) ON DELETE CASCADE,
+      PRIMARY KEY (agent_id, environment_id)
+    )`,
+    `CREATE UNIQUE INDEX ${indexes.agentEnvironmentsOnePerAgent} ON ${tables.agentEnvironments} (agent_id)`,
+
+    // One environment per workspace that named a container, keeping the image it named: an install that is upgraded
+    // keeps the environment it had instead of starting without one.
+    `INSERT INTO ${tables.devEnvironments} (id, owner_id, name, image)
+      SELECT ${derived}, w.owner_id, w.name, w.container->>'image'
+      FROM ${tables.workspaces} w WHERE ${hasImage}`,
+    `INSERT INTO ${tables.workspaceEnvironments} (workspace_id, environment_id)
+      SELECT w.id, ${derived} FROM ${tables.workspaces} w WHERE ${hasImage}`,
+
+    `ALTER TABLE ${tables.workspaces} DROP COLUMN container`,
+  ]
+}
+
+/**
+ * What the container reported about itself. Beside the environment rather than in a table of its own: there is one report
+ * per environment, each boot replaces it, and nothing reads it by anything but the environment id. `reported_at` is the
+ * report's own instant, so it survives being stored in a different timezone than it was produced in.
+ */
+const reportedStateMigration = (schema: PostgresSchema): readonly string[] => [
+  `ALTER TABLE ${schema.tables.devEnvironments} ADD COLUMN reported_state jsonb`,
+  `ALTER TABLE ${schema.tables.devEnvironments} ADD COLUMN reported_at timestamptz`,
+]
+
+/**
+ * Identity: who may sign in, what a role lets them do, and which sessions are live.
+ *
+ * Roles carry permissions through a table rather than an array column, matching how capabilities are linked everywhere
+ * else here. Overrides are a grant or a deny per user per permission, because that is the whole feature: someone who
+ * needs one more thing than their role allows, or one thing less.
+ *
+ * `sessions.authenticated_at` is the half-signed-in state. A password on its own opens a session that may only finish
+ * the second factor or the forced password change, so "2FA is required and not set up yet" needs no second table.
+ */
+const authMigration = (schema: PostgresSchema): readonly string[] => {
+  const { tables, indexes } = schema
+  const memberGrants = MEMBER_PERMISSIONS.map((permission) => `('${MEMBER_ROLE_ID}', '${permission}')`).join(', ')
+
+  return [
+    `CREATE TABLE ${tables.roles} (
+      id uuid PRIMARY KEY,
+      name text NOT NULL UNIQUE,
+      description text NOT NULL DEFAULT '',
+      -- The seeded admin: every permission, including ones that do not exist yet. Enumerating them would mean editing
+      -- this row every time a route gains a check.
+      grants_all boolean NOT NULL DEFAULT false,
+      is_builtin boolean NOT NULL DEFAULT false,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE ${tables.rolePermissions} (
+      role_id uuid NOT NULL REFERENCES ${tables.roles} (id) ON DELETE CASCADE,
+      permission text NOT NULL,
+      PRIMARY KEY (role_id, permission)
+    )`,
+    `CREATE TABLE ${tables.userPermissionOverrides} (
+      user_id uuid NOT NULL REFERENCES ${tables.users} (id) ON DELETE CASCADE,
+      permission text NOT NULL,
+      -- false is a deny, and a deny beats the role: "less than the role" has to be expressible to be useful.
+      allowed boolean NOT NULL,
+      PRIMARY KEY (user_id, permission)
+    )`,
+    `CREATE TABLE ${tables.sessions} (
+      id uuid PRIMARY KEY,
+      user_id uuid NOT NULL REFERENCES ${tables.users} (id) ON DELETE CASCADE,
+      token_hash text NOT NULL UNIQUE,
+      -- NULL until the second factor and any forced password change are done.
+      authenticated_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      last_seen_at timestamptz NOT NULL DEFAULT now(),
+      expires_at timestamptz NOT NULL
+    )`,
+    `CREATE INDEX ${indexes.sessionsByUser} ON ${tables.sessions} (user_id)`,
+    `CREATE TABLE ${tables.appSettings} (
+      key text PRIMARY KEY,
+      value jsonb NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )`,
+
+    // Nullable because the seeded row owns every existing workspace, thread and agent before anyone signs in: the
+    // installer gives it a name and a password, and the id — the whole identity of the owner — never changes.
+    `ALTER TABLE ${tables.users}
+      ADD COLUMN username text,
+      ADD COLUMN password_hash text,
+      ADD COLUMN role_id uuid REFERENCES ${tables.roles} (id),
+      ADD COLUMN disabled boolean NOT NULL DEFAULT false,
+      ADD COLUMN totp_secret text,
+      ADD COLUMN totp_confirmed_at timestamptz,
+      ADD COLUMN must_change_password boolean NOT NULL DEFAULT false`,
+    `CREATE UNIQUE INDEX ${indexes.usersByUsername} ON ${tables.users} (username) WHERE username IS NOT NULL`,
+
+    `INSERT INTO ${tables.roles} (id, name, description, grants_all, is_builtin) VALUES
+      ('${ADMIN_ROLE_ID}', '${ADMIN_ROLE_NAME}', '${ADMIN_ROLE_DESCRIPTION}', true, true),
+      ('${MEMBER_ROLE_ID}', '${MEMBER_ROLE_NAME}', '${MEMBER_ROLE_DESCRIPTION}', false, true)`,
+    `INSERT INTO ${tables.rolePermissions} (role_id, permission) VALUES ${memberGrants}`,
+
+    // The owner of everything that already exists becomes the admin: an install that upgrades signs in without losing
+    // access to what it made.
+    `UPDATE ${tables.users} SET role_id = '${ADMIN_ROLE_ID}' WHERE role_id IS NULL`,
+
+    // Single-user is what this install was until now — no sign-in, one identity — so an existing database keeps
+    // behaving exactly as it did, and enabling accounts is the change an admin makes deliberately.
+    `INSERT INTO ${tables.appSettings} (key, value) VALUES
+      ('single_user', 'true'::jsonb),
+      ('require_two_factor', 'false'::jsonb)`,
+  ]
+}
+
+/**
+ * The order the workspaces are listed in. A position, not `updated_at`: the list is the user's arrangement, and it must
+ * not reshuffle because a workspace was renamed. Existing rows backfill newest-first, which is the order the list showed
+ * before anyone could drag one.
+ */
+const workspaceOrderMigration = (schema: PostgresSchema): readonly string[] => {
+  const { tables, indexes } = schema
+
+  return [
+    `ALTER TABLE ${tables.workspaces} ADD COLUMN position integer NOT NULL DEFAULT 0`,
+    `UPDATE ${tables.workspaces} AS w SET position = ranked.rn
+      FROM (
+        SELECT id, (row_number() OVER (PARTITION BY owner_id ORDER BY created_at DESC, id) - 1)::integer AS rn
+        FROM ${tables.workspaces}
+      ) AS ranked
+      WHERE w.id = ranked.id`,
+    `CREATE INDEX ${indexes.workspacesByOwnerOrder} ON ${tables.workspaces} (owner_id, position)`,
+  ]
+}
+
+/**
+ * At most one environment per workspace, in the database rather than only in the routes: a workspace is a container to
+ * work in, with no picker to choose among several, so a second link would be a state nothing can read or undo. The
+ * index is the rule; the repository creates the one row and `ensureEnvironments` seeds it for what predates this.
+ */
+const oneEnvironmentPerWorkspaceMigration = (schema: PostgresSchema): readonly string[] => [
+  `CREATE UNIQUE INDEX ${schema.indexes.workspaceEnvironmentsOnePerWorkspace}
+    ON ${schema.tables.workspaceEnvironments} (workspace_id)`,
+]
+
+/**
+ * A credential the user owns, independent of the catalog it unlocks: `kind` decides which fields apply, and the check
+ * makes that a row nobody can half-write. `expires_at` is nullable because "never" is a real choice; `value` is the
+ * secret and is never read back over HTTP.
+ */
+const credentialsMigration = (schema: PostgresSchema): readonly string[] => {
+  const { tables, indexes } = schema
+
+  return [
+    `CREATE TABLE ${tables.userCredentials} (
+      id uuid PRIMARY KEY,
+      owner_id uuid NOT NULL REFERENCES ${tables.users} (id) ON DELETE CASCADE,
+      kind text NOT NULL CHECK (kind IN ('opencode-go', 'mcp')),
+      name text NOT NULL,
+      value text NOT NULL,
+      expires_at timestamptz,
+      email text,
+      note text,
+      mcp_id text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      CONSTRAINT user_credentials_fields CHECK (
+        (kind = 'opencode-go' AND email IS NOT NULL AND mcp_id IS NULL)
+        OR (kind = 'mcp' AND mcp_id IS NOT NULL AND email IS NULL)
+      )
+    )`,
+    `CREATE INDEX ${indexes.userCredentialsByOwnerKind} ON ${tables.userCredentials} (owner_id, kind)`,
+    // Not unique: several credentials may answer for one server, which is the point of keeping them apart from it.
+    `CREATE INDEX ${indexes.userCredentialsByOwnerMcp} ON ${tables.userCredentials} (owner_id, mcp_id)`,
+  ]
+}
+
+/**
+ * MCP servers belong to the workspace whose container runs them, so the catalog-wide definition and its separate
+ * credential rows are gone. `cwd` and `env` only mean anything inside one workspace's container, and the credential a
+ * server authenticates with is now named on the server row itself. An agent keeps a selection, which is a list of ids
+ * and nothing more: the configuration it points at lives with the workspace that owns it.
+ *
+ * Dropped in foreign-key order — the links first, then the credentials they named, then the definitions.
+ */
+const workspaceMcpMigration = (schema: PostgresSchema): readonly string[] => {
+  const { tables, indexes } = schema
+
+  return [
+    `DROP TABLE ${tables.agentMcpServers}`,
+    `DROP TABLE ${tables.workspaceMcpServers}`,
+    `DROP TABLE ${tables.workspaceMcpCredentials}`,
+    `DROP TABLE ${tables.mcpCredentials}`,
+    `DROP TABLE ${tables.mcpServers}`,
+
+    `CREATE TABLE ${tables.workspaceMcpServers} (
+      id uuid PRIMARY KEY,
+      workspace_id uuid NOT NULL REFERENCES ${tables.workspaces} (id) ON DELETE CASCADE,
+      name text NOT NULL,
+      description text NOT NULL DEFAULT '',
+      transport text NOT NULL CHECK (transport IN ('stdio', 'http')),
+      command text,
+      args text[] NOT NULL DEFAULT '{}',
+      cwd text,
+      url text,
+      env jsonb NOT NULL DEFAULT '{}'::jsonb,
+      mcp_id text,
+      credential_id uuid REFERENCES ${tables.userCredentials} (id) ON DELETE SET NULL,
+      archived_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      CONSTRAINT workspace_mcp_servers_transport_target CHECK (
+        (transport = 'stdio' AND command IS NOT NULL AND url IS NULL)
+        OR (transport = 'http' AND url IS NOT NULL AND command IS NULL)
+      )
+    )`,
+    // Two workspaces may each run a server called `files`; one workspace may not have two.
+    `CREATE UNIQUE INDEX ${indexes.workspaceMcpServersByName}
+      ON ${tables.workspaceMcpServers} (workspace_id, name)`,
+    `CREATE TABLE ${tables.agentMcpServers} (
+      agent_id uuid NOT NULL REFERENCES ${tables.agents} (id) ON DELETE CASCADE,
+      mcp_server_id uuid NOT NULL REFERENCES ${tables.workspaceMcpServers} (id) ON DELETE CASCADE,
+      PRIMARY KEY (agent_id, mcp_server_id)
+    )`,
+  ]
+}
+
+/**
+ * Providers: a key is a `user_credentials` row, because that is where a user's keys already live, and a workspace names
+ * the ones it may spend. `provider_models` caches what upstream serves so a page load is not an upstream call, and the
+ * two link tables hold the workspace's selection for the same reason the capability links do.
+ *
+ * The `user_credentials` check is replaced rather than left alone: an `opencode-go` key was required to name an email,
+ * which was true when the only way to add one was the credentials page. A provider login is a label and a key, and the
+ * account behind it is something the provider knows, not something the user is asked to copy.
+ */
+const providerMigration = (schema: PostgresSchema): readonly string[] => {
+  const { tables } = schema
+
+  return [
+    `ALTER TABLE ${tables.userCredentials} DROP CONSTRAINT user_credentials_fields`,
+    `ALTER TABLE ${tables.userCredentials} ADD CONSTRAINT user_credentials_fields CHECK (
+      (kind = 'opencode-go' AND mcp_id IS NULL)
+      OR (kind = 'mcp' AND mcp_id IS NOT NULL AND email IS NULL)
+    )`,
+
+    `ALTER TABLE ${tables.workspaces} ADD COLUMN allow_all_models boolean NOT NULL DEFAULT false`,
+
+    `CREATE TABLE ${tables.providerModels} (
+      provider text NOT NULL,
+      model_id text NOT NULL,
+      name text NOT NULL,
+      context_window integer,
+      max_output integer,
+      input_usd_per_million numeric(12, 6),
+      output_usd_per_million numeric(12, 6),
+      supports_reasoning boolean NOT NULL DEFAULT false,
+      supports_tools boolean NOT NULL DEFAULT false,
+      fetched_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (provider, model_id)
+    )`,
+
+    `CREATE TABLE ${tables.workspaceProviderLogins} (
+      workspace_id uuid NOT NULL REFERENCES ${tables.workspaces} (id) ON DELETE CASCADE,
+      credential_id uuid NOT NULL REFERENCES ${tables.userCredentials} (id) ON DELETE CASCADE,
+      PRIMARY KEY (workspace_id, credential_id)
+    )`,
+
+    `CREATE TABLE ${tables.workspaceProviderModels} (
+      workspace_id uuid NOT NULL REFERENCES ${tables.workspaces} (id) ON DELETE CASCADE,
+      model_id text NOT NULL,
+      PRIMARY KEY (workspace_id, model_id)
+    )`,
+  ]
+}
+
+/**
  * Records which open of the storage may write. Durable assumes one writer, and the storage keeps its next ID in memory,
  * so a second process committing to the same log would mint the same IDs. Each open stamps a fresh token here and every
  * commit checks it, so the older process fails loudly instead of interleaving. Null until the first open stamps it.
@@ -616,6 +984,14 @@ export const MIGRATIONS: readonly { version: number; statements: (schema: Postgr
   { version: 6, statements: capabilityMigration },
   { version: 7, statements: capabilityLinkMigration },
   { version: 8, statements: writerMigration },
+  { version: 9, statements: environmentMigration },
+  { version: 10, statements: reportedStateMigration },
+  { version: 11, statements: authMigration },
+  { version: 12, statements: workspaceOrderMigration },
+  { version: 13, statements: oneEnvironmentPerWorkspaceMigration },
+  { version: 14, statements: credentialsMigration },
+  { version: 15, statements: workspaceMcpMigration },
+  { version: 16, statements: providerMigration },
 ]
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0

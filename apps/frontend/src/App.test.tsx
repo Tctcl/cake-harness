@@ -3,23 +3,32 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App.tsx'
 
+// xterm needs a real canvas and matchMedia, neither of which jsdom provides; the panel tests only the chrome.
+vi.mock('@xterm/xterm', () => ({
+  Terminal: class {
+    loadAddon() {}
+    open() {}
+    writeln() {}
+    dispose() {}
+  },
+}))
+vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit() {} } }))
+
 const GENERAL_ID = '3b2c1d4e-5f6a-4b8c-9d0e-1f2a3b4c5d6e'
 const OTHER_ID = '5d4e3f6a-7b8c-4d0e-9f1a-2b3c4d5e6f70'
 
-const workspace = (id: string, name: string, description: string, isDefault: boolean) => ({
+const workspace = (id: string, name: string, description: string, isDefault: boolean, position: number) => ({
   id,
   name,
   description,
   isDefault,
-  container: null,
-  allowedTools: [],
-  allowedMcpServers: [],
-  allowedSkills: [],
+  allowAll: true,
+  position,
 })
 
 const workspaces = [
-  workspace(GENERAL_ID, 'General', '', true),
-  workspace(OTHER_ID, 'Platform', 'This repository', false),
+  workspace(GENERAL_ID, 'General', '', true, 0),
+  workspace(OTHER_ID, 'Platform', 'This repository', false, 1),
 ]
 
 const agents = [
@@ -35,16 +44,30 @@ const agents = [
   },
 ]
 
-const threads = {
-  [GENERAL_ID]: [{ id: 'a1', title: 'General chat', workspaceId: GENERAL_ID, agentId: 'ag1' }],
-  [OTHER_ID]: [{ id: 'b1', title: 'Platform chat', workspaceId: OTHER_ID, agentId: 'ag2' }],
-}
+const threads = [
+  { id: 'a1', title: 'General chat', workspaceId: GENERAL_ID, agentId: 'ag1' },
+  { id: 'b1', title: 'Platform chat', workspaceId: OTHER_ID, agentId: 'ag2' },
+]
 
 const reply = (body: unknown) => Promise.resolve({ ok: true, json: () => Promise.resolve(body) })
 
 function stubBackend() {
   return vi.fn((path: string, init?: RequestInit) => {
     if (path === '/workspaces') return reply({ workspaces })
+    // The whole order at once, and the answer is the list as the server stored it.
+    if (path === '/workspaces/order') {
+      const body = JSON.parse(String(init?.body)) as { order: string[] }
+
+      return reply({
+        workspaces: body.order.map((id, position) => ({
+          ...workspaces.find((candidate) => candidate.id === id),
+          position,
+        })),
+      })
+    }
+    // The sidebar asks which environment the agent works in; this workspace offers none, which is a valid state.
+    if (path.endsWith('/environments')) return reply({ environments: [] })
+    if (path.endsWith('/environment')) return reply({ environment: null })
     // Grants before the agent list: both live under /agents, and the panel reads them separately.
     if (path.endsWith('/grants')) {
       return reply({ tools: ['t1', 't2'], prompts: [], skills: [], mcpServers: [] })
@@ -57,10 +80,7 @@ function stubBackend() {
       return reply({ id: 'a1', title: body.title, workspaceId: GENERAL_ID, agentId: 'ag1' })
     }
 
-    const workspaceId = new URL(path, 'http://localhost').searchParams.get('workspaceId')
-    const listed = threads[workspaceId as keyof typeof threads] ?? []
-
-    return reply({ threads: listed })
+    return reply({ threads })
   })
 }
 
@@ -69,46 +89,86 @@ afterEach(() => {
 })
 
 describe('App', () => {
-  it('puts conversations on the left and the conversation info on the right, with no top nav', async () => {
+  it('puts conversations on the left and the conversation info behind the topbar', async () => {
     vi.stubGlobal('fetch', stubBackend())
 
     render(<App />)
 
     expect(screen.getByRole('complementary', { name: 'Conversations' })).toBeInTheDocument()
-    expect(screen.getByRole('complementary', { name: 'Conversation' })).toBeInTheDocument()
     expect(screen.queryByText('topnav')).not.toBeInTheDocument()
+    // Nothing is shown on the right until the topbar asks for something.
+    expect(
+      screen.queryByRole('complementary', { name: 'Conversation info' }),
+    ).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Conversation info' }))
+    expect(
+      screen.getByRole('complementary', { name: 'Conversation info' }),
+    ).toBeInTheDocument()
 
     expect(await screen.findByText('General chat')).toBeInTheDocument()
-    // The workspace lives in the picker at the foot of the left sidebar, not in a sidebar of its own.
-    expect(screen.getByRole('button', { name: 'Workspace' })).toHaveTextContent('General')
+    // Both workspaces are headings over their own conversations; there is no separate workspace selector.
+    expect(screen.getByRole('button', { name: 'General' })).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: 'Platform' })).toHaveAttribute('aria-expanded', 'true')
   })
 
-  it('lists only the selected workspace conversations', async () => {
+  it('lists the conversations of every workspace under its own heading', async () => {
     vi.stubGlobal('fetch', stubBackend())
 
     render(<App />)
+
     expect(await screen.findByText('General chat')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Workspace' }))
-    const search = await screen.findByRole('textbox', { name: 'Find a workspace' })
-    fireEvent.change(search, { target: { value: 'plat' } })
-    fireEvent.keyDown(search, { key: 'Enter' })
-
-    expect(await screen.findByText('Platform chat')).toBeInTheDocument()
-    expect(screen.queryByText('General chat')).not.toBeInTheDocument()
+    expect(screen.getByText('Platform chat')).toBeInTheDocument()
   })
 
-  it('shows the search field as soon as the picker opens', async () => {
+  it('folds a workspace shut and leaves the other groups alone', async () => {
     vi.stubGlobal('fetch', stubBackend())
 
     render(<App />)
     await screen.findByText('General chat')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Workspace' }))
+    const general = screen.getByRole('button', { name: 'General' })
+    fireEvent.click(general)
 
-    await waitFor(() =>
-      expect(screen.getByRole('textbox', { name: 'Find a workspace' })).toHaveFocus(),
-    )
+    expect(general).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByText('General chat')).not.toBeInTheDocument()
+    expect(screen.getByText('Platform chat')).toBeInTheDocument()
+
+    fireEvent.click(general)
+    expect(await screen.findByText('General chat')).toBeInTheDocument()
+  })
+
+  it('saves the order a dragged workspace is dropped into', async () => {
+    const backend = stubBackend()
+    vi.stubGlobal('fetch', backend)
+
+    render(<App />)
+    await screen.findByText('General chat')
+
+    const headings = () =>
+      Array.from(document.querySelectorAll('[aria-controls^="sessions-of-"]')).map(
+        (heading) => heading.textContent ?? '',
+      )
+    expect(headings()[0]).toMatch(/^General$/)
+
+    const dataTransfer = { effectAllowed: '', dropEffect: '', setData: () => {} }
+    // Onto the top half of the first heading: above it, which is where the list opens a gap.
+    fireEvent.dragStart(screen.getByRole('button', { name: 'Platform' }).parentElement as Element, {
+      dataTransfer,
+    })
+    fireEvent.dragOver(screen.getByRole('button', { name: 'General' }).parentElement as Element, {
+      dataTransfer,
+      clientY: 0,
+    })
+    fireEvent.drop(screen.getByRole('button', { name: 'General' }).parentElement as Element, {
+      dataTransfer,
+      clientY: 0,
+    })
+
+    await waitFor(() => expect(headings()[0]).toMatch(/^Platform$/))
+
+    const put = backend.mock.calls.find((call) => call[1]?.method === 'PUT')
+    expect(JSON.parse(String(put?.[1]?.body))).toEqual({ order: [OTHER_ID, GENERAL_ID] })
   })
 
   it('opens a conversation in the main area', async () => {
@@ -129,7 +189,7 @@ describe('App', () => {
     )
   })
 
-  it('names the agent of the open conversation in the right sidebar', async () => {
+  it('names the agent of the open conversation in the info panel', async () => {
     vi.stubGlobal('fetch', stubBackend())
     vi.stubGlobal(
       'EventSource',
@@ -141,13 +201,14 @@ describe('App', () => {
 
     render(<App />)
     fireEvent.click(await screen.findByText('General chat'))
+    fireEvent.click(screen.getByRole('button', { name: 'Conversation info' }))
 
-    const sidebar = screen.getByRole('complementary', { name: 'Conversation' })
-    expect(await within(sidebar).findByText('Generalist')).toBeInTheDocument()
-    expect(await within(sidebar).findByText('2 tools')).toBeInTheDocument()
+    const panel = screen.getByRole('complementary', { name: 'Conversation info' })
+    expect(await within(panel).findByText('Generalist')).toBeInTheDocument()
+    expect(await within(panel).findByText('2 tools')).toBeInTheDocument()
   })
 
-  it('renames the open conversation from the right sidebar', async () => {
+  it('renames the open conversation from the topbar', async () => {
     vi.stubGlobal('fetch', stubBackend())
     vi.stubGlobal(
       'EventSource',
@@ -160,14 +221,34 @@ describe('App', () => {
     render(<App />)
     fireEvent.click(await screen.findByText('General chat'))
 
-    const sidebar = screen.getByRole('complementary', { name: 'Conversation' })
-    fireEvent.click(await within(sidebar).findByRole('button', { name: 'Rename conversation' }))
+    const topbar = screen.getByRole('banner')
+    fireEvent.click(await within(topbar).findByRole('button', { name: 'Rename conversation' }))
 
-    const input = within(sidebar).getByRole('textbox', { name: 'Conversation title' })
+    const input = within(topbar).getByRole('textbox', { name: 'Conversation title' })
     fireEvent.change(input, { target: { value: 'Renamed' } })
     fireEvent.submit(input)
 
-    await waitFor(() => expect(within(sidebar).getByText('Renamed')).toBeInTheDocument())
+    await waitFor(() => expect(within(topbar).getByText('Renamed')).toBeInTheDocument())
+  })
+
+  it('keeps one panel at a time and closes it again from the same toggle', async () => {
+    vi.stubGlobal('fetch', stubBackend())
+
+    render(<App />)
+    await screen.findByText('General chat')
+
+    const info = screen.getByRole('button', { name: 'Conversation info' })
+    fireEvent.click(info)
+    expect(
+      screen.getByRole('complementary', { name: 'Conversation info' }),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
+    expect(screen.queryByRole('complementary', { name: 'Conversation info' })).not.toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Terminal' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
+    expect(screen.queryByRole('complementary', { name: 'Terminal' })).not.toBeInTheDocument()
   })
 
   it('collapses a sidebar to a rail and restores it', async () => {

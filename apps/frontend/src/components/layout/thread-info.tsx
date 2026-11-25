@@ -1,18 +1,20 @@
-import { PencilIcon } from 'lucide-react'
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 
 import type { ChatAgent, ChatThread, WorkspaceSummary } from '../../lib/chat-api.ts'
-import { listAgents, renameThread } from '../../lib/chat-api.ts'
+import { listAgents } from '../../lib/chat-api.ts'
 import type { ChatAgentGrants } from '../../lib/capability-api.ts'
 import { getAgentGrants } from '../../lib/capability-api.ts'
 import { snapshotOf, subscribeToThread } from '../../lib/chat-store.ts'
-import { Input } from '../ui/input.tsx'
-import { Separator } from '../ui/separator.tsx'
+import type { DevEnvironment } from '../../lib/environment-api.ts'
+import { getAgentEnvironment } from '../../lib/environment-api.ts'
+import { AgentEnvironment } from './agent-environment.tsx'
+import { EnvironmentCard } from './environment-card.tsx'
+import { InfoSection, SectionRule } from './info-section.tsx'
+import { SshCard } from './ssh-card.tsx'
 
 type ThreadInfoSidebarProps = {
   thread: ChatThread | null
   workspace: WorkspaceSummary | null
-  onRenamed: (thread: ChatThread) => void
 }
 
 const count = (value: number) => value.toLocaleString('en-US')
@@ -42,11 +44,11 @@ function Counts({ grants }: { grants: ChatAgentGrants | null }) {
 }
 
 /**
- * Everything about the open conversation: its name, the agent answering it with the capabilities the agent actually
- * carries, the model and spend of the run. The transcript column stays free of this, which is why the header it used to
- * have is gone.
+ * Everything about the open conversation's surroundings: the workspace, the agent answering it with the capabilities
+ * the agent actually carries, the container it works in, the model and spend of the run. The conversation's own name
+ * lives in the topbar, so closing this panel never hides what is open.
  */
-export function ThreadInfoSidebar({ thread, workspace, onRenamed }: ThreadInfoSidebarProps) {
+export function ThreadInfoSidebar({ thread, workspace }: ThreadInfoSidebarProps) {
   const threadId = thread?.id ?? null
   const subscribe = useCallback(
     (listener: () => void) => (threadId === null ? () => {} : subscribeToThread(threadId, listener)),
@@ -57,9 +59,6 @@ export function ThreadInfoSidebar({ thread, workspace, onRenamed }: ThreadInfoSi
 
   const [agents, setAgents] = useState<ChatAgent[]>([])
   const [grants, setGrants] = useState<ChatAgentGrants | null>(null)
-  // The draft belongs to the conversation being renamed, so switching conversations closes the editor without an effect.
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [draft, setDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   const workspaceId = thread?.workspaceId ?? null
@@ -85,6 +84,28 @@ export function ThreadInfoSidebar({ thread, workspace, onRenamed }: ThreadInfoSi
   // Grants are ids on the agent; the panel only counts them, so a failure leaves the line blank rather than an error.
   const agentId = thread?.agentId ?? null
 
+  // The container the conversation runs in: the same one the picker offers, so the card below acts on that row.
+  const [environment, setEnvironment] = useState<DevEnvironment | null>(null)
+
+  useEffect(() => {
+    if (workspaceId === null || agentId === null) return
+
+    let cancelled = false
+    void getAgentEnvironment(workspaceId, agentId).then(
+      (loaded) => {
+        // The endpoint answers `null` for "no container"; a body without the key is the same state, not a missing one.
+        if (!cancelled) setEnvironment(loaded ?? null)
+      },
+      () => {
+        if (!cancelled) setEnvironment(null)
+      },
+    )
+
+    return () => {
+      cancelled = true
+    }
+  }, [workspaceId, agentId])
+
   useEffect(() => {
     if (agentId === null) return
 
@@ -107,97 +128,71 @@ export function ThreadInfoSidebar({ thread, workspace, onRenamed }: ThreadInfoSi
     return <p className="px-2 text-xs text-muted-foreground">No conversation selected.</p>
   }
 
-  const editing = editingId === thread.id
   const agent = agents.find((candidate) => candidate.id === thread.agentId) ?? null
-  const title = thread.title ?? 'Untitled conversation'
-
-  function save() {
-    if (thread === null) return
-
-    const next = draft.trim()
-    setEditingId(null)
-    void renameThread(thread.id, next === '' ? null : next).then(onRenamed, (failure: unknown) => {
-      setError(failure instanceof Error ? failure.message : 'the title could not be saved')
-    })
-  }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1">
-        {editing ? (
-          <form
-            onSubmit={(event) => {
-              event.preventDefault()
-              save()
-            }}
-          >
-            <Input
-              aria-label="Conversation title"
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onBlur={save}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') setEditingId(null)
-              }}
-            />
-          </form>
+    <div className="flex flex-col gap-3">
+      <InfoSection title="Conversation">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-sm font-medium break-words">{workspace?.name ?? 'Workspace'}</span>
+          <span className="text-xs text-muted-foreground">Workspace</span>
+        </div>
+
+        <dl className="flex flex-col gap-3">
+          <Field label="Agent">{agent?.name ?? 'Unknown agent'}</Field>
+          {agent === null || agent.description === '' ? null : (
+            <p className="text-xs text-muted-foreground">{agent.description}</p>
+          )}
+          {agent === null ? null : (
+            <>
+              <Field label="Access">
+                {agent.allowAll ? 'Everything the workspace allows' : 'A selection within the workspace'}
+              </Field>
+              <Field label="Granted">
+                <Counts grants={grants} />
+              </Field>
+            </>
+          )}
+          <Field label="Model">{state.run?.model ?? 'Not run yet'}</Field>
+          <Field label="Provider">{state.run?.provider ?? '—'}</Field>
+          <Field label="Thinking">{state.run?.thinkingLevel ?? 'Off'}</Field>
+        </dl>
+      </InfoSection>
+
+      <SectionRule />
+
+      <InfoSection title="Environment">
+        <AgentEnvironment workspaceId={thread.workspaceId} agentId={thread.agentId} />
+        {environment === null ? (
+          <p className="text-xs text-muted-foreground">This conversation runs in no container.</p>
         ) : (
-          <button
-            type="button"
-            className="group flex items-start gap-1 text-left"
-            aria-label="Rename conversation"
-            onClick={() => {
-              setDraft(thread.title ?? '')
-              setEditingId(thread.id)
-            }}
-          >
-            <span className="text-sm font-medium break-words">{title}</span>
-            <PencilIcon className="mt-0.5 size-3 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
-          </button>
+          <EnvironmentCard environment={environment} onChanged={setEnvironment} />
         )}
-        <span className="text-xs text-muted-foreground">{workspace?.name ?? 'Workspace'}</span>
-      </div>
+      </InfoSection>
 
-      <Separator />
+      <SectionRule />
 
-      <dl className="flex flex-col gap-3">
-        <Field label="Agent">{agent?.name ?? 'Unknown agent'}</Field>
-        {agent === null || agent.description === '' ? null : (
-          <p className="text-xs text-muted-foreground">{agent.description}</p>
-        )}
-        {agent === null ? null : (
-          <>
-            <Field label="Access">{agent.allowAll ? 'Everything the workspace allows' : 'A selection within the workspace'}</Field>
-            <Field label="Granted">
-              <Counts grants={grants} />
-            </Field>
-          </>
-        )}
+      <InfoSection title="Context">
+        <dl className="flex flex-col gap-3">
+          <Field label="Context">{count(state.usage.total)} tokens</Field>
+          <Field label="Input / output">
+            {count(state.usage.input)} / {count(state.usage.output)}
+          </Field>
+          <Field label="Cache read / write">
+            {count(state.usage.cacheRead)} / {count(state.usage.cacheWrite)}
+          </Field>
+          <Field label="Cost">{money(state.usage.cost)}</Field>
+        </dl>
+      </InfoSection>
 
-        <Separator />
-
-        <Field label="Model">{state.run?.model ?? 'Not run yet'}</Field>
-        <Field label="Provider">{state.run?.provider ?? '—'}</Field>
-        <Field label="Thinking">{state.run?.thinkingLevel ?? 'Off'}</Field>
-
-        <Separator />
-
-        <Field label="Context">{count(state.usage.total)} tokens</Field>
-        <Field label="Input / output">
-          {count(state.usage.input)} / {count(state.usage.output)}
-        </Field>
-        <Field label="Cache read / write">
-          {count(state.usage.cacheRead)} / {count(state.usage.cacheWrite)}
-        </Field>
-        <Field label="Cost">{money(state.usage.cost)}</Field>
-
-        {workspace === null || workspace.container === null ? null : (
-          <>
-            <Separator />
-            <Field label="Container">{workspace.container.image}</Field>
-          </>
-        )}
-      </dl>
+      {environment === null ? null : (
+        <>
+          <SectionRule />
+          <InfoSection title="SSH">
+            <SshCard environmentId={environment.id} />
+          </InfoSection>
+        </>
+      )}
 
       {error === null ? null : (
         <p role="alert" className="text-xs text-destructive">

@@ -1,0 +1,31 @@
+# Public-key-only SSH for the development user. The backend and the container are
+# the only things on this network; nothing here exposes the port beyond the host
+# mapping in compose.dev.yml.
+
+Port 22
+AddressFamily any
+ListenAddress 0.0.0.0
+
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_rsa_key
+PidFile /run/sshd.pid
+
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
+PermitEmptyPasswords no
+UsePAM no
+
+AllowTcpForwarding yes
+AllowAgentForwarding yes
+GatewayPorts no
+X11Forwarding no
+
+PrintMotd no
+LoginGraceTime 20
+MaxAuthTries 6
+ClientAliveInterval 60
+
+Subsystem sftp internal-sftp

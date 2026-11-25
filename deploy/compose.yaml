@@ -1,0 +1,205 @@
+# Production stack for one self-hosted install.
+#
+# Nothing here mounts the Docker socket except the two socket proxies: a
+# read-only one for Traefik, a read-write one for the backend. Neither proxy is
+# reachable from the edge network, so a workspace container cannot talk to the
+# Docker API. See docs/deployment.md for the install and upgrade flow.
+#
+# Paths that must exist come from /var/lib/tctcl-platform/.env, written by
+# install.sh. `${VAR:?}` makes a missing value a startup failure instead of a
+# stack that comes up half-configured.
+
+name: tctcl
+
+services:
+  traefik:
+    image: traefik:v3.5
+    restart: unless-stopped
+    depends_on:
+      socket-proxy-ro:
+        condition: service_started
+    command:
+      # Routing comes from labels on the containers Traefik is allowed to see.
+      - --providers.docker.endpoint=tcp://socket-proxy-ro:2375
+      - --providers.docker.exposedByDefault=false
+      - --providers.docker.network=edge
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --certificatesresolvers.le.acme.email=${ACME_EMAIL:?set ACME_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/acme/acme.json
+      # TLS-ALPN: issuance needs only 443, so a wrong port 80 forward cannot
+      # silently block certificates.
+      - --certificatesresolvers.le.acme.tlschallenge=true
+      - --accesslog=true
+      - --log.level=INFO
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Traefik writes acme.json itself at 0600 and refuses to start if the mode
+      # is wider, so mount the directory instead of pre-creating the file.
+      - ${STATE_DIR:?set STATE_DIR}/traefik:/acme
+    networks:
+      - edge
+      - api-ro
+
+  socket-proxy-ro:
+    image: tecnativa/docker-socket-proxy
+    restart: unless-stopped
+    environment:
+      # Everything the docker provider reads and nothing else. POST stays off,
+      # so this proxy cannot create or change anything.
+      CONTAINERS: "1"
+      NETWORKS: "1"
+      INFO: "1"
+      EVENTS: "1"
+      POST: "0"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - api-ro
+
+  socket-proxy-rw:
+    image: tecnativa/docker-socket-proxy
+    restart: unless-stopped
+    environment:
+      # Provisioning one workspace: create/remove containers, run execs, pull
+      # the pinned workspace image, keep volumes and networks.
+      CONTAINERS: "1"
+      EXEC: "1"
+      IMAGES: "1"
+      VOLUMES: "1"
+      NETWORKS: "1"
+      INFO: "1"
+      EVENTS: "1"
+      POST: "1"
+      ALLOW_START: "1"
+      ALLOW_STOP: "1"
+      ALLOW_RESTARTS: "1"
+      # Swarm, secrets, configs, plugins, nodes, session and system endpoints
+      # stay off: nothing in this stack uses them.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - api-rw
+
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tctcl}
+      POSTGRES_USER: ${POSTGRES_USER:-tctcl}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      # The one named volume. Nobody reads inside it, `pg_dump` is the copy of
+      # record, and Docker owns the uid and fsync details that a bind mount
+      # would push onto the installer.
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tctcl} -d ${POSTGRES_DB:-tctcl}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # The secrets store. Every credential the stack needs at run time lives here instead of in .env,
+  # which keeps Postgres, the backend and the workspaces to one bootstrap secret each. See
+  # docs/deployment.md, "Secrets".
+  ciphergate:
+    image: ${TCTCL_CIPHERGATE_IMAGE:?set TCTCL_CIPHERGATE_IMAGE}
+    restart: unless-stopped
+    # A bind mount keeps the host's ownership instead of inheriting the image's, so this runs as
+    # the uid install.sh chowns the data directory to. Change both or neither.
+    user: "1000:1000"
+    environment:
+      GATEWAY_DB_PATH: /data/gateway.db
+      GATEWAY_KEYFILE: /data/gateway.key
+      # The REST API on 8400 is the only surface this stack uses. The browser UI is a second
+      # listener on 8405 with its own password and TLS; leave it off until something routes it.
+      GATEWAY_UI_ENABLED: "false"
+      GATEWAY_LOG_LEVEL: info
+    volumes:
+      # The keyfile is the root of trust for every secret, so it stays a file a human can back up
+      # rather than something inside a named volume. Losing it loses every stored value.
+      - ${STATE_DIR:?set STATE_DIR}/ciphergate:/data
+    networks:
+      - secrets
+
+  # The product image: Fastify serving the built SPA on one origin, so the router
+  # needs one rule, not a path split between a web server and an API.
+  app:
+    image: ${TCTCL_IMAGE:?set TCTCL_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ciphergate:
+        condition: service_healthy
+      socket-proxy-rw:
+        condition: service_started
+    environment:
+      # NODE_ENV, HOST, PORT and FRONTEND_DIR come from the image. These are the values
+      # that differ per install, and neither password leaves .env.
+      DATABASE_URL: postgres://${POSTGRES_USER:-tctcl}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tctcl}
+      # Only the write proxy: a workspace container cannot reach this network.
+      DOCKER_HOST: tcp://socket-proxy-rw:2375
+      # What a new environment is created from, so provisioning pulls a released
+      # image instead of whatever tag happens to be on the host.
+      WORKSPACE_IMAGE: ${TCTCL_WORKSPACE_IMAGE:?set TCTCL_WORKSPACE_IMAGE}
+      # What the update check compares: the channel decides whether a comparison is meaningful at
+      # all, and the version is the half of it the image cannot know on its own.
+      TCTCL_CHANNEL: ${TCTCL_CHANNEL:?set TCTCL_CHANNEL}
+      TCTCL_VERSION: ${TCTCL_VERSION:?set TCTCL_VERSION}
+      UPDATE_CHECK_INTERVAL_MS: ${UPDATE_CHECK_INTERVAL_MS:-900000}
+      # Where credentials come from, and the reader key that says which install is asking.
+      # install.sh creates the consumer and writes the key once; the admin key is never stored.
+      CIPHERGATE_URL: http://ciphergate:8400
+      CIPHERGATE_TOKEN: ${CIPHERGATE_TOKEN:?set CIPHERGATE_TOKEN}
+      # Seals the second-factor secrets. install.sh generates it once and keeps it: a restart with a different key
+      # cannot open what it sealed, and an .env that leaks it hands out the second factor with the database.
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      # Traefik terminates TLS, so this is what makes the session cookie `Secure` and the client's protocol https.
+      TRUST_PROXY: "true"
+      # How a workspace container reaches this backend for its documents. Both or neither:
+      # without them an environment boots on the image's floor and is never told anything.
+      WORKSPACE_BACKEND_URL: http://app:8080
+      WORKSPACE_NETWORK: tctcl-workspaces
+    networks:
+      - edge
+      - db
+      - api-rw
+      - secrets
+      - workspaces
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.app.rule: Host(`${DOMAIN:?set DOMAIN}`)
+      traefik.http.routers.app.entrypoints: websecure
+      traefik.http.routers.app.tls.certresolver: le
+      traefik.http.services.app.loadbalancer.server.port: "8080"
+
+networks:
+  # Traefik and whatever it proxies.
+  edge: {}
+  # Postgres only; internal means it cannot reach the internet.
+  db:
+    internal: true
+  # Traefik to its read-only proxy. No other service joins this.
+  api-ro: {}
+  # The backend to its read-write proxy. No other service joins this.
+  api-rw: {}
+  # The backend and the environments it provisions. Named explicitly because the backend passes the
+  # name to Docker when it creates a container, so it has to be the same string from one run to the next.
+  # A workspace reaches `app` here and nothing else: no database, no Docker API, no store.
+  workspaces:
+    name: tctcl-workspaces
+  # The backend and the secrets store. Internal: nothing behind it has any business on the
+  # internet, and no workspace is on it, so a container cannot reach the store even if it
+  # learns the address.
+  secrets:
+    internal: true
+
+volumes:
+  postgres-data: {}

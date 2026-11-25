@@ -1,21 +1,12 @@
-import {
-  ArrowLeftIcon,
-  FileTextIcon,
-  PlugIcon,
-  SettingsIcon,
-  SparklesIcon,
-  UsersIcon,
-  WrenchIcon,
-} from 'lucide-react'
+import { ArrowLeftIcon, KeyRoundIcon, SettingsIcon, UsersIcon } from 'lucide-react'
 import type { ComponentType } from 'react'
 import { useState } from 'react'
 
 import type { CurrentUser } from '../../lib/chat-api.ts'
-import { promptApi, skillApi } from '../../lib/capability-api.ts'
-import { McpSection, TextCatalogSection, ToolsSection } from './capability-sections.tsx'
 import { ThemePicker } from '../layout/theme-picker.tsx'
+import { CredentialsPage } from './credentials-page.tsx'
 
-type SectionId = 'tools' | 'prompts' | 'skills' | 'mcps' | 'application' | 'user'
+type SectionId = 'application' | 'credentials' | 'user'
 
 interface Section {
   readonly id: SectionId
@@ -27,39 +18,18 @@ interface Section {
 
 const SECTIONS: readonly Section[] = [
   {
-    id: 'tools',
-    label: 'Tools',
-    icon: WrenchIcon,
-    title: 'Tools',
-    description: 'What an agent may call, per workspace and per agent.',
-  },
-  {
-    id: 'skills',
-    label: 'Skills',
-    icon: SparklesIcon,
-    title: 'Skills',
-    description: 'Instruction packs an agent can load while it works.',
-  },
-  {
-    id: 'prompts',
-    label: 'Prompts',
-    icon: FileTextIcon,
-    title: 'Prompts',
-    description: 'Reusable instruction text a workspace or an agent can be given.',
-  },
-  {
-    id: 'mcps',
-    label: 'MCPs',
-    icon: PlugIcon,
-    title: 'MCP servers',
-    description: 'Model Context Protocol servers a workspace makes available.',
-  },
-  {
     id: 'application',
     label: 'Application settings',
     icon: SettingsIcon,
     title: 'Application settings',
     description: 'How the app itself looks and behaves, for this browser.',
+  },
+  {
+    id: 'credentials',
+    label: 'Credentials',
+    icon: KeyRoundIcon,
+    title: 'Credentials',
+    description: 'The API keys and MCP keys that belong to you, and what each of them is for.',
   },
   {
     id: 'user',
@@ -72,26 +42,6 @@ const SECTIONS: readonly Section[] = [
 
 function SectionBody({ section, user }: { section: Section; user: CurrentUser | null }) {
   switch (section.id) {
-    case 'tools':
-      return <ToolsSection />
-    case 'prompts':
-      return (
-        <TextCatalogSection
-          api={promptApi}
-          noun="prompt"
-          hint="Text a workspace or an agent carries. Granting one is what puts it in front of a run; nothing is applied to a conversation yet."
-        />
-      )
-    case 'skills':
-      return (
-        <TextCatalogSection
-          api={skillApi}
-          noun="skill"
-          hint="An instruction pack with the name and text a run would load. Nothing loads skills yet; the rows are what a grant will point at."
-        />
-      )
-    case 'mcps':
-      return <McpSection />
     case 'application':
       return (
         <div className="flex max-w-prose flex-col gap-3 text-sm">
@@ -106,6 +56,8 @@ function SectionBody({ section, user }: { section: Section; user: CurrentUser | 
           </div>
         </div>
       )
+    case 'credentials':
+      return <CredentialsPage />
     case 'user':
       return (
         <div className="flex max-w-prose flex-col gap-3 text-sm">
@@ -128,8 +80,10 @@ function SectionBody({ section, user }: { section: Section; user: CurrentUser | 
 
 /**
  * The settings screen, replacing the whole app rather than the chat area: it owns the full width, its sections run down
- * the left, and the way back is a single control at the top. Only Application settings has something to change today; the
- * other sections say what they are waiting for instead of pretending to be controls.
+ * the left, and the way back is a single control at the top.
+ *
+ * What belongs to a workspace — its MCP servers, skills, prompts, tools, environment and providers — is not here. It
+ * lives behind the workspace manager, because it means nothing outside the workspace it belongs to.
  */
 export function SettingsPage({ user, onClose }: { user: CurrentUser | null; onClose: () => void }) {
   const [active, setActive] = useState<SectionId>('application')

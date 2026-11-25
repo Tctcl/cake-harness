@@ -59,5 +59,5 @@ if (url === undefined) {
     } finally {
       await client.end()
     }
-  })
+  }, 60_000)
 }

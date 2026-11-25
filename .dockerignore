@@ -1,0 +1,24 @@
+# Build inputs only. Anything the two compiled apps do not need stays out, and so does anything machine-local: the
+# agent's `dev/` directory holds generated SSH keys and credential fixtures.
+
+.git
+.github
+docs
+deploy
+infrastructure
+
+node_modules
+**/node_modules
+
+dist
+**/dist
+
+.turbo
+**/.turbo
+
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+.env
+.env.*
+apps/agent/dev

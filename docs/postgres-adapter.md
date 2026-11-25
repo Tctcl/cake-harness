@@ -298,10 +298,8 @@ connection's death on the pool, and an unhandled `'error'` event is fatal to Nod
    fails at startup with the other configuration problems rather than at connect time.
    `src/agent.ts` requires it: there is no `MemoryStorage` fallback left.
 5. **Schema ownership.** Answered by `MIGRATIONS` in `schema.ts` plus the
-   `durable_schema` version table, applied at open under an advisory lock taken before
-   the first statement (even `CREATE TABLE IF NOT EXISTS` races on a fresh database). A
-   release change appends a version; it never edits one. Version 8 adds
-   `durable_metadata.writer` for writer fencing (see *Single writer*).
+   `durable_schema` version table, applied at open under an advisory lock. A release
+   change appends a version; it never edits one.
    Version 2 adds the platform's own tables (`users`, `chat_threads`). They share this
    migration list because they share the pool and the database, but they are named
    without `DURABLE_PREFIX`: the log is namespaced because its table names are generic,

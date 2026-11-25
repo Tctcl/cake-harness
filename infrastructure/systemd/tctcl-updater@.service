@@ -1,0 +1,17 @@
+[Unit]
+Description=tctcl-platform update request %i
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/opt/tctcl-platform/updater.sh
+# stdin and stdout are the accepted connection; the request arrives on one, the
+# progress lines and the final OK/ERR leave on the other.
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+# A stuck pull must not leave an update running forever.
+RuntimeMaxSec=900
+# No CPU or memory reaper: the installer pulls images and runs compose, which is
+# IO and network bound and wants the host's full resources for those seconds.

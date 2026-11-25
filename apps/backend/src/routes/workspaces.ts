@@ -28,23 +28,14 @@ const archivedQuery = {
   additionalProperties: false,
 } as const
 
-// `image` names a tooling image the platform publishes, not any registry reference, so the shape is checked on write and
-// unknown keys are refused rather than stored unread.
-const containerSchema = {
-  type: ['object', 'null'],
-  properties: { image: { type: 'string', minLength: 1 } },
-  required: ['image'],
-  additionalProperties: false,
-} as const
-
 const workspaceProperties = {
   id: { type: 'string' },
   name: { type: 'string' },
   description: { type: 'string' },
   isDefault: { type: 'boolean' },
-  container: containerSchema,
   allowAll: { type: 'boolean' },
   archivedAt: { type: ['string', 'null'] },
+  position: { type: 'integer' },
   createdAt: { type: 'string' },
   updatedAt: { type: 'string' },
 } as const
@@ -57,9 +48,9 @@ const workspaceSchema = {
     'name',
     'description',
     'isDefault',
-    'container',
     'allowAll',
     'archivedAt',
+    'position',
     'createdAt',
     'updatedAt',
   ],
@@ -76,22 +67,30 @@ const createWorkspaceBody = {
   properties: {
     name: { type: 'string', minLength: 1 },
     description: { type: 'string' },
-    container: containerSchema,
     allowAll: { type: 'boolean' },
   },
   required: ['name'],
   additionalProperties: false,
 } as const
 
-// No `container: {}` escape hatch: a patch either names an image or clears the container with `null`.
 const updateWorkspaceBody = {
   type: 'object',
   properties: {
     name: { type: 'string', minLength: 1 },
     description: { type: 'string' },
-    container: containerSchema,
     allowAll: { type: 'boolean' },
   },
+  additionalProperties: false,
+} as const
+
+// The whole order at once, top first: a single moved row is a client-side notion, and sending it alone would let two
+// users' drags interleave into an order neither of them asked for.
+const reorderWorkspacesBody = {
+  type: 'object',
+  properties: {
+    order: { type: 'array', items: { type: 'string', pattern: uuid }, uniqueItems: true },
+  },
+  required: ['order'],
   additionalProperties: false,
 } as const
 
@@ -174,11 +173,12 @@ interface ArchivedQuery {
 type CreateWorkspaceBody = {
   name: string
   description?: string
-  container?: { image: string } | null
   allowAll?: boolean
 }
 
 type UpdateWorkspaceBody = WorkspacePatch
+
+type ReorderWorkspacesBody = { order: string[] }
 
 type CreateAgentBody = {
   name: string
@@ -221,9 +221,19 @@ export const workspaceRoutes: FastifyPluginAsync<{ agent: Agent }> = async (serv
 
   server.post<{ Body: CreateWorkspaceBody }>(
     '/workspaces',
-    { schema: { body: createWorkspaceBody, response: { 201: workspaceSchema } } },
+    { config: { permission: 'workspaces.create' }, schema: { body: createWorkspaceBody, response: { 201: workspaceSchema } } },
     async (request, reply) =>
       reply.code(201).send(toWorkspace(await options.agent.createWorkspace(request.body))),
+  )
+
+  // Before the `:workspaceId` routes on purpose: "order" is a word, not an id, and matching it as one would be a 404
+  // dressed as a workspace lookup.
+  server.put<{ Body: ReorderWorkspacesBody }>(
+    '/workspaces/order',
+    { schema: { body: reorderWorkspacesBody, response: { 200: workspaceListSchema } } },
+    async (request) => ({
+      workspaces: (await options.agent.reorderWorkspaces(request.body.order)).map(toWorkspace),
+    }),
   )
 
   server.get<{ Params: WorkspaceIdParams }>(
@@ -304,7 +314,7 @@ export const workspaceRoutes: FastifyPluginAsync<{ agent: Agent }> = async (serv
 
   server.post<{ Params: WorkspaceIdParams; Body: CreateAgentBody }>(
     '/workspaces/:workspaceId/agents',
-    { schema: { params: workspaceIdParams, body: createAgentBody, response: { 201: agentSchema } } },
+    { config: { permission: 'agents.create' }, schema: { params: workspaceIdParams, body: createAgentBody, response: { 201: agentSchema } } },
     async (request, reply) => {
       const created = await options.agent.createAgent(request.params.workspaceId, request.body)
 

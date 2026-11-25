@@ -6,10 +6,13 @@ import { ensureLocalUser } from '../threads/local-user.js'
 import { AgentRepository } from '../agents/agent-repository.js'
 import { WorkspaceRepository } from '../workspaces/workspace-repository.js'
 import { CapabilityLinks } from './capability-links.js'
-import { McpCredentialRepository, McpServerRepository } from './mcp-repository.js'
+import { WorkspaceMcpServerRepository } from './mcp-repository.js'
 import { ToolRepository } from './tool-repository.js'
 
 /** Live-server suite like its neighbours: `DATABASE_URL` names a disposable database, and every case gets a prefix. */
+/** The image a workspace records until its container is first started. */
+const IMAGE = 'tctcl/dev-env:dev'
+
 const url = process.env['DATABASE_URL']
 
 if (url === undefined) {
@@ -27,8 +30,7 @@ if (url === undefined) {
       tools: ToolRepository
       workspaces: WorkspaceRepository
       agents: AgentRepository
-      mcp: McpServerRepository
-      credentials: McpCredentialRepository
+      mcp: WorkspaceMcpServerRepository
       ownerId: string
     }) => Promise<void>,
   ): Promise<void> => {
@@ -43,8 +45,7 @@ if (url === undefined) {
         tools: new ToolRepository(storage.pool, schema),
         workspaces: new WorkspaceRepository(storage.pool, schema),
         agents: new AgentRepository(storage.pool, schema),
-        mcp: new McpServerRepository(storage.pool, schema),
-        credentials: new McpCredentialRepository(storage.pool, schema),
+        mcp: new WorkspaceMcpServerRepository(storage.pool, schema),
         ownerId,
       })
     } finally {
@@ -73,65 +74,56 @@ if (url === undefined) {
       })
     })
 
-    it('keeps one server with two credentials, and lets an agent pick the other one', async () => {
-      await withWorld(async ({ links, tools, workspaces, agents, mcp, credentials, ownerId }) => {
+    it('keeps the servers a workspace owns out of its grants, and lets an agent select one of them', async () => {
+      await withWorld(async ({ links, tools, workspaces, agents, mcp, ownerId }) => {
         const tool = await tools.sync(ownerId, [{ name: 'bash' }]).then(async () => {
           const all = await tools.list(ownerId)
           return all[0]
         })
-        const workspace = await workspaces.create(ownerId, { name: 'Platform' })
+        const workspace = await workspaces.create(ownerId, { name: 'Platform' }, IMAGE)
         const first = await agents.create(workspace.id, { name: 'first' })
         const second = await agents.create(workspace.id, { name: 'second' })
 
-        const server = await mcp.create(ownerId, {
+        const server = await mcp.create(workspace.id, {
           name: 'github',
           transport: 'stdio',
           command: 'github-mcp',
-          envSchema: { GITHUB_TOKEN: 'GITHUB_TOKEN' },
         })
-        const mine = await credentials.create(ownerId, server.id, { label: 'mine', consumer: 'alice' })
-        const theirs = await credentials.create(ownerId, server.id, { label: 'theirs', consumer: 'bob' })
-
-        expect(tool).toBeDefined()
 
         await links.replaceWorkspace(workspace.id, {
           tools: tool === undefined ? [] : [tool.id],
           prompts: [],
           skills: [],
-          mcpServers: [{ serverId: server.id, credentialId: mine.id }],
-          credentials: [mine.id, theirs.id],
         })
         await links.replaceAgent(first.id, { tools: [], prompts: [], skills: [], mcpServers: [] })
         await links.replaceAgent(second.id, {
           tools: [],
           prompts: [],
           skills: [],
-          mcpServers: [{ serverId: server.id, credentialId: theirs.id }],
+          mcpServers: [server.id],
         })
 
-        const workspaceGrants = await links.readWorkspace(workspace.id)
-        expect(workspaceGrants.credentials).toHaveLength(2)
-        expect(workspaceGrants.mcpServers).toEqual([{ serverId: server.id, credentialId: mine.id }])
+        // A server is owned by the workspace, not granted to it, so it never appears on the workspace ceiling.
+        expect(await links.readWorkspace(workspace.id)).toEqual({
+          tools: tool === undefined ? [] : [tool.id],
+          prompts: [],
+          skills: [],
+        })
 
-        // An agent that names no credential runs as the workspace's default for that server.
         expect((await links.readAgent(first.id)).mcpServers).toEqual([])
-        expect((await links.readAgent(second.id)).mcpServers).toEqual([
-          { serverId: server.id, credentialId: theirs.id },
-        ])
+        expect((await links.readAgent(second.id)).mcpServers).toEqual([server.id])
       })
     })
 
     it('refuses a grant of a row that does not exist', async () => {
       await withWorld(async ({ links, workspaces, ownerId }) => {
-        const workspace = await workspaces.create(ownerId, { name: 'Platform' })
+        const workspace = await workspaces.create(ownerId, { name: 'Platform' }, IMAGE)
 
         await expect(
           links.replaceWorkspace(workspace.id, {
             tools: ['00000000-0000-4000-8000-0000000000ff'],
             prompts: [],
             skills: [],
-            mcpServers: [],
-            credentials: [],
           }),
         ).rejects.toThrow(/foreign key/i)
       })

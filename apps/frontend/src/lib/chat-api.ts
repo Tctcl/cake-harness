@@ -1,3 +1,5 @@
+import { request } from './http.ts'
+
 /** The identity block above the workspace picker reads this: who the sessions belong to. */
 export interface CurrentUser {
   readonly id: string
@@ -94,15 +96,16 @@ export interface ChatThread {
   readonly agentId: string
 }
 
-/** A whole workspace row: the ceiling its agents narrow, and whether sessions need a dev container. */
+/** A whole workspace row: the ceiling its agents narrow. */
 export interface WorkspaceSummary {
   readonly id: string
   readonly name: string
   readonly description: string
   readonly isDefault: boolean
-  readonly container: { readonly image: string } | null
   /** Whether the workspace reaches every capability, including ones added later. */
   readonly allowAll: boolean
+  /** Where the workspace sits in the user's list, 0 at the top. The order is arranged by dragging, not by recency. */
+  readonly position: number
 }
 
 /** One profile inside a workspace: what a conversation gets, and the prompts that steer it. */
@@ -127,16 +130,6 @@ export interface TranscriptPage {
 export const MESSAGE_PAGE_SIZE = 40
 
 // The backend answers failures as `{ error: { code, message } }`, so a failed call can carry its reason to the pane.
-const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
-  const response = await fetch(path, init)
-  const body = (await response.json()) as T & { error?: { message?: string } }
-  if (!response.ok) {
-    throw new Error(body.error?.message ?? `request failed with status ${response.status}`)
-  }
-
-  return body
-}
-
 const send = (body: unknown): RequestInit => ({
   method: 'POST',
   headers: { 'content-type': 'application/json' },
@@ -168,6 +161,30 @@ export const renameWorkspace = async (id: string, name: string): Promise<Workspa
 /** Archived, not destroyed: a workspace that sessions still point at cannot be removed outright. */
 export const archiveWorkspace = async (id: string): Promise<WorkspaceSummary> =>
   await request<WorkspaceSummary>(`/workspaces/${id}/archive`, send({}))
+
+/** One partial edit of a workspace; the fields left out keep their value. */
+export const updateWorkspace = async (
+  id: string,
+  patch: { readonly name?: string; readonly description?: string; readonly allowAll?: boolean },
+): Promise<WorkspaceSummary> =>
+  await request<WorkspaceSummary>(`/workspaces/${id}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+
+/**
+ * Rewrite the whole list order, top first. The ids have to be exactly the live workspaces: the backend refuses anything
+ * else rather than renumbering a subset onto positions the remaining rows already hold.
+ */
+export const reorderWorkspaces = async (ids: readonly string[]): Promise<WorkspaceSummary[]> =>
+  (
+    await request<{ workspaces: WorkspaceSummary[] }>('/workspaces/order', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ order: ids }),
+    })
+  ).workspaces
 
 /** Set a conversation's title; null drops it back to the untitled default. */
 export const renameThread = async (id: string, title: string | null): Promise<ChatThread> =>
@@ -220,24 +237,6 @@ export interface ToolSummary {
   readonly source: string
 }
 
-export interface McpServerSummary {
-  readonly id: string
-  readonly name: string
-  readonly description: string
-  readonly transport: 'stdio' | 'http'
-  readonly command: string | null
-  readonly args: readonly string[]
-  readonly url: string | null
-}
-
-/** Where a server's variables come from in CipherGate. The secret itself never crosses this boundary. */
-export interface McpCredentialSummary {
-  readonly id: string
-  readonly serverId: string
-  readonly label: string
-  readonly consumer: string
-}
-
 export type TextCatalog = 'prompts' | 'skills'
 
 const textPath = (catalog: TextCatalog, id?: string): string => {
@@ -278,30 +277,3 @@ export const listTools = async (): Promise<ToolSummary[]> =>
 export const syncTools = async (): Promise<ToolSummary[]> =>
   (await request<{ tools: ToolSummary[] }>('/tools/sync', send({}))).tools
 
-export const listMcpServers = async (): Promise<McpServerSummary[]> =>
-  (await request<{ servers: McpServerSummary[] }>('/mcp/servers')).servers
-
-export const createMcpServer = async (input: {
-  name: string
-  description: string
-  transport: 'stdio' | 'http'
-  command?: string
-  url?: string
-}): Promise<McpServerSummary> => await request<McpServerSummary>('/mcp/servers', send(input))
-
-export const archiveMcpServer = async (id: string): Promise<void> => {
-  await request(`/mcp/servers/${id}/archive`, send({}))
-}
-
-export const listMcpCredentials = async (serverId: string): Promise<McpCredentialSummary[]> =>
-  (await request<{ credentials: McpCredentialSummary[] }>(`/mcp/servers/${serverId}/credentials`)).credentials
-
-export const createMcpCredential = async (
-  serverId: string,
-  input: { label: string; consumer: string },
-): Promise<McpCredentialSummary> =>
-  await request<McpCredentialSummary>(`/mcp/servers/${serverId}/credentials`, send(input))
-
-export const archiveMcpCredential = async (id: string): Promise<void> => {
-  await request(`/mcp/credentials/${id}/archive`, send({}))
-}

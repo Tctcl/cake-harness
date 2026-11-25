@@ -28,3 +28,27 @@ updates:
       day: monday
     commit-message:
       prefix: ci
+
+  # Base image of the workspace container (apps/agent/Dockerfile).
+  - package-ecosystem: docker
+    directory: /apps/agent
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: chore
+      include: scope
+
+  # Image tags in the production stack (deploy/compose.yaml). If this ecosystem
+  # never opens a pull request it does not recognise the `compose.yaml` name;
+  # bump those tags by hand then, rather than leaving a silent no-op here.
+  - package-ecosystem: docker-compose
+    directory: /deploy
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: chore
+      include: scope

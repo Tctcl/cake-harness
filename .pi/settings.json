@@ -8,10 +8,10 @@
   ],
   "packages": [
     "npm:billion-context-pi@0.1.83",
-    "npm:pi-lens@4.5.1",    "npm:@juicesharp/rpiv-ask-user-question@2.15.0",
+    "npm:pi-lens@4.5.1",
     "npm:pi-web-access@0.48.0",
-    "npm:@juicesharp/rpiv-todo@2.15.0",
     "npm:@getpipher/vision@0.5.3",
-    "npm:pi-open-tui@0.4.7"
+    "npm:pi-open-tui@0.4.7",
+    "npm:@eko24ive/pi-ask"
   ]
 }

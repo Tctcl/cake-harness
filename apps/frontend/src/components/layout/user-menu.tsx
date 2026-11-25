@@ -1,4 +1,4 @@
-import { ChevronsUpDownIcon, LogOutIcon, SettingsIcon } from 'lucide-react'
+import { BoxesIcon, ChevronsUpDownIcon, LogOutIcon, SettingsIcon } from 'lucide-react'
 
 import type { CurrentUser } from '../../lib/chat-api.ts'
 import {
@@ -21,17 +21,19 @@ const initialsOf = (name: string): string =>
 
 /**
  * Who the sessions belong to, at the foot of the left sidebar below the workspace picker. The menu holds the way into
- * settings and the sign-out that does not exist yet: it is shown disabled, with the reason, rather than hidden, so the
- * shape of the menu is settled and nothing pretends to end a session.
+ * settings, the way into the workspace manager and the sign-out that does not exist yet: it is shown disabled, with the
+ * reason, rather than hidden, so the shape of the menu is settled and nothing pretends to end a session.
  */
 export function UserMenu({
   user,
   loading,
   onOpenSettings,
+  onOpenWorkspaces,
 }: {
   user: CurrentUser | null
   loading: boolean
   onOpenSettings: () => void
+  onOpenWorkspaces: () => void
 }) {
   const name = user?.name ?? (loading ? 'Loading…' : 'Unknown user')
 
@@ -56,6 +58,10 @@ export function UserMenu({
       <DropdownMenuContent side="top" align="start" className="w-56">
         <DropdownMenuLabel className="truncate text-xs text-muted-foreground">{name}</DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={onOpenWorkspaces}>
+          <BoxesIcon />
+          Workspaces
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={onOpenSettings}>
           <SettingsIcon />
           Settings
