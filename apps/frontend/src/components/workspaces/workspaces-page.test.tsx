@@ -28,7 +28,7 @@ afterEach(() => {
 
 describe('WorkspacesPage', () => {
   it('lists the workspaces and holds a placeholder until one is picked', async () => {
-    render(<WorkspacesPage onClose={() => {}} />)
+    render(<WorkspacesPage onClose={() => {}} onOpenCredentials={() => {}} />)
 
     expect(await screen.findByRole('button', { name: /platform/i })).toBeDefined()
     expect(screen.getByText('No workspace selected')).toBeDefined()
@@ -36,7 +36,7 @@ describe('WorkspacesPage', () => {
   })
 
   it('opens the workspace on its overview tab and switches tabs from there', async () => {
-    render(<WorkspacesPage onClose={() => {}} />)
+    render(<WorkspacesPage onClose={() => {}} onOpenCredentials={() => {}} />)
 
     fireEvent.click(await screen.findByRole('button', { name: /platform/i }))
 
@@ -56,7 +56,7 @@ describe('WorkspacesPage', () => {
   it('starts the next workspace on its overview rather than on the previous one’s tab', async () => {
     const other = { id: 'workspace-2', name: 'Sandbox', description: '', isDefault: false, allowAll: true }
     stubFetch((url) => (url.includes('/workspaces') ? { workspaces: [workspace, other] } : {}))
-    render(<WorkspacesPage onClose={() => {}} />)
+    render(<WorkspacesPage onClose={() => {}} onOpenCredentials={() => {}} />)
 
     fireEvent.click(await screen.findByRole('button', { name: /platform/i }))
     fireEvent.click(screen.getByRole('tab', { name: 'Providers' }))
@@ -69,7 +69,7 @@ describe('WorkspacesPage', () => {
 
   it('leaves the screen through one control', async () => {
     const onClose = vi.fn()
-    render(<WorkspacesPage onClose={onClose} />)
+    render(<WorkspacesPage onClose={onClose} onOpenCredentials={() => {}} />)
 
     await screen.findByRole('button', { name: /platform/i })
     fireEvent.click(screen.getByRole('button', { name: /back to conversations/i }))

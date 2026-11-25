@@ -119,7 +119,19 @@ export interface ChatAgent {
   readonly allowAll: boolean
   readonly systemPrompt: string
   readonly instructions: string
+  /** The stored key it runs with, or `null` for the workspace's newest linked key. */
+  readonly credentialId: string | null
+  /** The model id, or `null` for the platform default. */
+  readonly modelId: string | null
+  readonly thinkingLevel: ThinkingLevel
 }
+
+/** How hard the model reasons, in pi-ai's names. */
+export const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number]
+
+/** The model an agent runs when it names none; mirrors `DEFAULT_MODEL_ID` in the backend. */
+export const DEFAULT_MODEL_ID = 'deepseek-v4.1-flash'
 
 /** One page of transcript: `nextCursor` asks for the lines above it, a null cursor means the start is reached. */
 export interface TranscriptPage {
