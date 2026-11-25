@@ -44,7 +44,10 @@ export function registerErrorHandling(
 
   server.setErrorHandler<FastifyError>((error, request, reply) => {
     if (error instanceof AppError) {
-      request.log.warn({ err: error }, 'request failed')
+      // A refusal (4xx) is the API working: one line with the code, no stack. A signed-out browser alone would otherwise
+      // write a warning with a full stack trace for every request it makes.
+      if (error.statusCode < 500) request.log.info({ code: error.code, statusCode: error.statusCode }, error.message)
+      else request.log.warn({ err: error }, 'request failed')
       reply.code(error.statusCode).send(errorBody(error.code, error.message))
       return
     }
