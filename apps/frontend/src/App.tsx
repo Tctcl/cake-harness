@@ -36,7 +36,7 @@ const SIDEBAR_WIDTHS = {
  * them unchanged. What belongs to a workspace is edited inside the workspace manager, so settings holds only the app and
  * the user.
  */
-function App() {
+function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
   const [view, setView] = useState<'chat' | 'settings' | 'workspaces'>('chat')
   const [me, setMe] = useState<CurrentUser | null>(null)
   const [loadingMe, setLoadingMe] = useState(true)
@@ -179,7 +179,6 @@ function App() {
   const leftSpace = leftCollapsed ? 0 : leftWidth
   const rightBounds = rightPanel === null ? SIDEBAR_WIDTHS.info : SIDEBAR_WIDTHS[rightPanel]
   const rightWidth = rightPanel === null ? 0 : rightWidths[rightPanel]
-  const rightSpace = rightWidth
 
   if (view === 'workspaces') {
     return (
@@ -225,7 +224,7 @@ function App() {
               title="Conversations"
               widths={SIDEBAR_WIDTHS.threads}
               width={leftWidth}
-              otherWidth={rightSpace}
+              otherWidth={rightWidth}
               onWidthChange={setLeftWidth}
               onCollapse={() => setLeftCollapsed(true)}
               action={<ThemePicker />}
@@ -237,6 +236,7 @@ function App() {
                     loading={loadingMe}
                     onOpenSettings={() => setView('settings')}
                     onOpenWorkspaces={() => setView('workspaces')}
+                    onSignOut={onSignOut}
                   />
                 </div>
               }
@@ -257,7 +257,7 @@ function App() {
               side="left"
               widths={SIDEBAR_WIDTHS.threads}
               width={leftWidth}
-              otherWidth={rightSpace}
+              otherWidth={rightWidth}
               onWidthChange={setLeftWidth}
               onCollapse={() => setLeftCollapsed(true)}
             />

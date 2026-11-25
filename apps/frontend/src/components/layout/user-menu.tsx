@@ -20,20 +20,23 @@ const initialsOf = (name: string): string =>
     .join('')
 
 /**
- * Who the sessions belong to, at the foot of the left sidebar below the workspace picker. The menu holds the way into
- * settings, the way into the workspace manager and the sign-out that does not exist yet: it is shown disabled, with the
- * reason, rather than hidden, so the shape of the menu is settled and nothing pretends to end a session.
+ * Who the sessions belong to, at the foot of the left sidebar. The menu holds the way into settings, the way into the
+ * workspace manager and signing out. A single-user install has no session to end, so the item is shown disabled with
+ * the reason rather than hidden.
  */
 export function UserMenu({
   user,
   loading,
   onOpenSettings,
   onOpenWorkspaces,
+  onSignOut,
 }: {
   user: CurrentUser | null
   loading: boolean
   onOpenSettings: () => void
   onOpenWorkspaces: () => void
+  /** Absent in single-user mode, where there is nobody to sign out. */
+  onSignOut?: (() => void) | undefined
 }) {
   const name = user?.name ?? (loading ? 'Loading…' : 'Unknown user')
 
@@ -66,13 +69,20 @@ export function UserMenu({
           <SettingsIcon />
           Settings
         </DropdownMenuItem>
-        <DropdownMenuItem disabled>
-          <LogOutIcon />
-          <span className="flex min-w-0 flex-col">
-            <span>Log out</span>
-            <span className="text-xs text-muted-foreground">No sign-in yet</span>
-          </span>
-        </DropdownMenuItem>
+        {onSignOut === undefined ? (
+          <DropdownMenuItem disabled>
+            <LogOutIcon />
+            <span className="flex min-w-0 flex-col">
+              <span>Sign out</span>
+              <span className="text-xs text-muted-foreground">Single-user install</span>
+            </span>
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem onSelect={onSignOut}>
+            <LogOutIcon />
+            Sign out
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )
