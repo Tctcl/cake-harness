@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { readMetrics } from './container-runtime.js'
+import type Docker from 'dockerode'
+
+import { DockerContainers, readMetrics } from './container-runtime.js'
+import type { StartRequest } from './container-runtime.js'
 
 /** The shape Docker answers for `stats?stream=false`, trimmed to the fields the reading uses. */
 const dockerSample = (overrides: Record<string, unknown> = {}) => ({
@@ -81,5 +84,66 @@ describe('readMetrics', () => {
     // Docker's answer for a container that is not running.
     expect(readMetrics({})).toBeNull()
     expect(readMetrics('not json')).toBeNull()
+  })
+})
+
+/** Docker's client rejects with the HTTP status on the error, the way dockerode's modem reports it. */
+const dockerError = (statusCode: number): Error => Object.assign(new Error(`HTTP ${statusCode}`), { statusCode })
+
+/**
+ * A stand-in daemon that knows one container and records what was asked of it. Only the calls `ensureRunning` makes are
+ * implemented; anything else would be a test asking about behaviour this suite does not cover.
+ */
+const fakeDaemon = (startFailure: Error | undefined) => {
+  const calls = { started: [] as string[], created: [] as string[] }
+  const daemon = {
+    getContainer: (id: string) => ({
+      start: async () => {
+        calls.started.push(id)
+        if (startFailure !== undefined) throw startFailure
+      },
+    }),
+    createContainer: async (options: { name: string }) => {
+      calls.created.push(options.name)
+      return { id: 'created-id', start: async () => undefined }
+    },
+  }
+
+  return { calls, docker: daemon as unknown as Docker }
+}
+
+const request: StartRequest = { id: 'env-1', image: 'tctcl/dev-env:dev', env: {}, network: null }
+const connection = { socketPath: '/var/run/docker.sock' } as const
+
+describe('DockerContainers.ensureRunning', () => {
+  it('starts the recorded container and keeps its id', async () => {
+    const { calls, docker } = fakeDaemon(undefined)
+
+    await expect(new DockerContainers(connection, docker).ensureRunning(request, 'abc')).resolves.toBe('abc')
+    expect(calls.created).toEqual([])
+  })
+
+  it('treats "already running" as success instead of creating a second container', async () => {
+    const { calls, docker } = fakeDaemon(dockerError(304))
+
+    await expect(new DockerContainers(connection, docker).ensureRunning(request, 'abc')).resolves.toBe('abc')
+    expect(calls.created).toEqual([])
+  })
+
+  it('replaces a recorded container that Docker no longer has', async () => {
+    const { calls, docker } = fakeDaemon(dockerError(404))
+
+    await expect(new DockerContainers(connection, docker).ensureRunning(request, 'gone')).resolves.toBe('created-id')
+    expect(calls.created).toEqual(['tctcl-env-env-1'])
+  })
+
+  it('reports any other refusal as unavailable rather than creating anything', async () => {
+    const { calls, docker } = fakeDaemon(dockerError(500))
+
+    await expect(new DockerContainers(connection, docker).ensureRunning(request, 'abc')).rejects.toMatchObject({
+      statusCode: 503,
+      code: 'ENVIRONMENT_UNAVAILABLE',
+    })
+    expect(calls.created).toEqual([])
   })
 })
