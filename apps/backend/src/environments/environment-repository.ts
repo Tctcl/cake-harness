@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import type { Pool } from 'pg'
+import type { Pool, QueryResultRow } from 'pg'
 
 import type { Value } from '../storage/postgres/db.js'
 import { rowsOf, withClient, withTransaction } from '../storage/postgres/db.js'
@@ -46,6 +46,17 @@ const toEnvironment = (row: EnvironmentRow): DevEnvironment => ({
 })
 
 const COLUMNS = `id, name, image, container_id, created_at, updated_at`
+
+/** One stored report: the document as the container sent it, and the instant the container said it was produced. */
+export interface ReportedState {
+  readonly state: unknown
+  readonly reportedAt: Date
+}
+
+interface ReportedStateRow {
+  readonly reported_state: unknown
+  readonly reported_at: Date
+}
 
 /**
  * Reads and writes `dev_environments` and the two link tables. The links carry no payload: a workspace offers an
@@ -139,6 +150,31 @@ export class EnvironmentRepository {
     return this.#one(text, [id, containerId])
   }
 
+  /**
+   * Store what the environment reported about itself. `updated_at` is deliberately untouched: a report is the container
+   * talking, not the user changing something, and the list orders by what the user changed.
+   */
+  async recordState(id: string, state: unknown): Promise<boolean> {
+    const text = `UPDATE ${this.#schema.tables.devEnvironments}
+      SET reported_state = $2, reported_at = now() WHERE id = $1`
+    const result = await withClient(this.#pool, (client) =>
+      client.query(text, [id, JSON.stringify(state)]),
+    )
+
+    return (result.rowCount ?? 0) > 0
+  }
+
+  /** The last report, or `undefined` when the environment is unknown or has never reported. */
+  async reportedState(id: string): Promise<ReportedState | undefined> {
+    const text = `SELECT reported_state, reported_at FROM ${this.#schema.tables.devEnvironments}
+      WHERE id = $1 AND reported_state IS NOT NULL`
+    const rows = await this.#select<ReportedStateRow>(text, [id])
+    const row = rows[0]
+    if (row === undefined || row.reported_at === null) return undefined
+
+    return { state: row.reported_state, reportedAt: row.reported_at }
+  }
+
   /** The links go with the row, so a deleted environment disappears from every workspace and agent that named it. */
   async remove(id: string): Promise<boolean> {
     const result = await withClient(this.#pool, (client) => client.query(this.#sql.remove, [id]))
@@ -207,7 +243,7 @@ export class EnvironmentRepository {
     return rows[0] === undefined ? undefined : toEnvironment(rows[0])
   }
 
-  async #select(text: string, values: readonly Value[]): Promise<EnvironmentRow[]> {
-    return withClient(this.#pool, (client) => rowsOf<EnvironmentRow>(client, text, values))
+  async #select<R extends QueryResultRow = EnvironmentRow>(text: string, values: readonly Value[]): Promise<R[]> {
+    return withClient(this.#pool, (client) => rowsOf<R>(client, text, values))
   }
 }
