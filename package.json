@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "prepare": "husky",
-    "dev": "turbo run dev",
+    "dev": "turbo run dev --filter=backend --filter=frontend",
     "dev:agent": "turbo run dev --filter=@tctcl/agent",
     "dev:backend": "turbo run dev --filter=backend",
     "dev:frontend": "turbo run dev --filter=frontend",
