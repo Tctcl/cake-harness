@@ -207,6 +207,9 @@ in CI or in a verification step.
 ## Testing
 
 Vitest is installed in every app and runs through `@tctcl/vitest-config`.
+The Postgres-backed suites in `apps/backend` skip themselves without `DATABASE_URL`;
+the `gates` workflow runs a `postgres:18-alpine` service so they always run in CI.
+Locally, point `DATABASE_URL` at a disposable database to run them.
 
 - Colocate tests: `src/**/*.test.ts` (Node packages) or `src/**/*.test.tsx`
   (React). No `__tests__` directories, no separate `test/` trees outside
