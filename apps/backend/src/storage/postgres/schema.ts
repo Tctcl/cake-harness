@@ -5,10 +5,12 @@ import {
   DEFAULT_AGENT_DESCRIPTION,
   DEFAULT_AGENT_ID,
   DEFAULT_AGENT_NAME,
+  DEFAULT_AGENT_PROMPTED_DESCRIPTION,
   DEFAULT_WORKSPACE_DESCRIPTION,
   DEFAULT_WORKSPACE_ID,
   DEFAULT_WORKSPACE_NAME,
 } from '../../workspaces/defaults.js'
+import { DEFAULT_SYSTEM_PROMPT } from '../../agents/default-prompt.js'
 import { MEMBER_PERMISSIONS } from '../../auth/permissions.js'
 import {
   ADMIN_ROLE_DESCRIPTION,
@@ -994,6 +996,18 @@ const agentRunSettingsMigration = (schema: PostgresSchema): readonly string[] =>
       CHECK (thinking_level IN ('off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'))`,
 ]
 
+/**
+ * Give every default agent that still has no system prompt the starter one, so a fresh conversation behaves like a
+ * working agent and a new agent's editor has something to start from. Prompts someone already wrote are left alone, and
+ * the General agent's description stops claiming it has no instructions only while it still says so.
+ */
+const defaultPromptMigration = (schema: PostgresSchema): readonly string[] => [
+  `UPDATE ${schema.tables.agents} SET system_prompt = ${literal(DEFAULT_SYSTEM_PROMPT)}, updated_at = now()
+    WHERE is_default AND system_prompt = ''`,
+  `UPDATE ${schema.tables.agents} SET description = ${literal(DEFAULT_AGENT_PROMPTED_DESCRIPTION)}
+    WHERE id = ${literal(DEFAULT_AGENT_ID)} AND description = ${literal(DEFAULT_AGENT_DESCRIPTION)}`,
+]
+
 /** Ordered schema history: a released version is never edited, a change appends one. */
 export const MIGRATIONS: readonly { version: number; statements: (schema: PostgresSchema) => readonly string[] }[] = [
   { version: 1, statements: migration },
@@ -1013,6 +1027,7 @@ export const MIGRATIONS: readonly { version: number; statements: (schema: Postgr
   { version: 15, statements: workspaceMcpMigration },
   { version: 16, statements: providerMigration },
   { version: 17, statements: agentRunSettingsMigration },
+  { version: 18, statements: defaultPromptMigration },
 ]
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0

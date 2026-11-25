@@ -6,6 +6,7 @@ import { AppError } from '../errors.js'
 import type { Value } from '../storage/postgres/db.js'
 import { rowsOf, withClient, withTransaction } from '../storage/postgres/db.js'
 import type { PostgresSchema } from '../storage/postgres/schema.js'
+import { DEFAULT_SYSTEM_PROMPT } from '../agents/default-prompt.js'
 import { WORKSPACE_AGENT_DESCRIPTION, WORKSPACE_AGENT_NAME } from './defaults.js'
 
 /**
@@ -130,8 +131,9 @@ export class WorkspaceRepository {
       attachEnvironment: `INSERT INTO ${tables.workspaceEnvironments} (workspace_id, environment_id)
         VALUES ($1, $2)`,
       // Every workspace starts with an agent, so a conversation can start there before anyone opens the Agents tab.
-      insertDefaultAgent: `INSERT INTO ${tables.agents} (id, workspace_id, name, description, is_default, allow_all)
-        VALUES ($1, $2, '${WORKSPACE_AGENT_NAME}', '${WORKSPACE_AGENT_DESCRIPTION}', true, true)`,
+      insertDefaultAgent: `INSERT INTO ${tables.agents}
+          (id, workspace_id, name, description, is_default, allow_all, system_prompt)
+        VALUES ($1, $2, '${WORKSPACE_AGENT_NAME}', '${WORKSPACE_AGENT_DESCRIPTION}', true, true, $3)`,
     }
   }
 
@@ -179,7 +181,7 @@ export class WorkspaceRepository {
       ])
       await client.query(this.#sql.insertEnvironment, [environmentId, ownerId, input.name, environmentImage])
       await client.query(this.#sql.attachEnvironment, [id, environmentId])
-      await client.query(this.#sql.insertDefaultAgent, [randomUUID(), id])
+      await client.query(this.#sql.insertDefaultAgent, [randomUUID(), id, DEFAULT_SYSTEM_PROMPT])
 
       return inserted
     })
@@ -239,7 +241,7 @@ export class WorkspaceRepository {
     if (missing.length === 0) return 0
 
     await withTransaction(this.#pool, async (client) => {
-      for (const row of missing) await client.query(this.#sql.insertDefaultAgent, [randomUUID(), row.id])
+      for (const row of missing) await client.query(this.#sql.insertDefaultAgent, [randomUUID(), row.id, DEFAULT_SYSTEM_PROMPT])
     })
 
     return missing.length

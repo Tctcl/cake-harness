@@ -18,7 +18,12 @@ export const DEFAULT_AGENT_NAME = 'General'
 export const DEFAULT_WORKSPACE_DESCRIPTION =
   'Every tool, MCP server and skill. Sessions here run on this host, not in an environment.'
 
+/** What migration 4 seeded; kept verbatim because a released migration is never edited. */
 export const DEFAULT_AGENT_DESCRIPTION = 'The default profile: everything enabled, no instructions.'
+
+/** The default agent's description once it carries the starter system prompt (migration 18). */
+export const DEFAULT_AGENT_PROMPTED_DESCRIPTION =
+  'The default profile: everything enabled, with a starter system prompt to build your own agents from.'
 
 /** The agent a workspace other than the default one starts with; it can be renamed and reconfigured, never archived. */
 export const WORKSPACE_AGENT_NAME = 'Assistant'

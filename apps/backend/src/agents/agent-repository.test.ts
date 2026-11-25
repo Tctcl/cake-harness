@@ -8,6 +8,7 @@ import { DEFAULT_AGENT_ID, DEFAULT_WORKSPACE_ID } from '../workspaces/defaults.j
 import type { Workspace } from '../workspaces/workspace-repository.js'
 import { WorkspaceRepository } from '../workspaces/workspace-repository.js'
 import { AgentRepository } from './agent-repository.js'
+import { DEFAULT_SYSTEM_PROMPT } from './default-prompt.js'
 
 /**
  * Runs against a real server like the other repository suites: `DATABASE_URL` must point at a disposable database, and
@@ -56,7 +57,7 @@ if (url === undefined) {
     workspaces.create(ownerId, { name: 'Platform' }, IMAGE)
 
   describe('AgentRepository', () => {
-    it('lists the seeded default agent with everything enabled', async () => {
+    it('lists the seeded default agent with everything enabled and the starter prompt', async () => {
       await withAgents(async ({ agents }) => {
         const all = await agents.list(DEFAULT_WORKSPACE_ID)
 
@@ -66,12 +67,20 @@ if (url === undefined) {
           workspaceId: DEFAULT_WORKSPACE_ID,
           isDefault: true,
           allowAll: true,
-          systemPrompt: '',
+          systemPrompt: DEFAULT_SYSTEM_PROMPT,
           instructions: '',
         })
         await expect(agents.default(DEFAULT_WORKSPACE_ID)).resolves.toMatchObject({
           id: DEFAULT_AGENT_ID,
         })
+      })
+    })
+
+    it('gives a new workspace a default agent with the starter prompt', async () => {
+      await withAgents(async ({ agents, workspaces, ownerId }) => {
+        const workspace = await otherWorkspace(workspaces, ownerId)
+
+        await expect(agents.default(workspace.id)).resolves.toMatchObject({ systemPrompt: DEFAULT_SYSTEM_PROMPT })
       })
     })
 

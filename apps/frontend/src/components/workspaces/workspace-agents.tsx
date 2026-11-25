@@ -128,6 +128,7 @@ export function WorkspaceAgents({
         key={editing}
         workspace={workspace}
         agent={current}
+        starterPrompt={agents.find((agent) => agent.isDefault)?.systemPrompt ?? ''}
         choices={choices}
         onOpenProviders={onOpenProviders}
         onDone={() => {
@@ -239,17 +240,22 @@ export function WorkspaceAgents({
 function AgentEditor({
   workspace,
   agent,
+  starterPrompt,
   choices,
   onOpenProviders,
   onDone,
 }: {
   workspace: WorkspaceSummary
   agent: ChatAgent | undefined
+  /** The default agent's system prompt: a new agent starts from a working prompt rather than from a blank box. */
+  starterPrompt: string
   choices: Choices
   onOpenProviders: () => void
   onDone: () => void
 }) {
-  const [draft, setDraft] = useState<AgentDraft>(agent === undefined ? emptyDraft : draftOf(agent))
+  const [draft, setDraft] = useState<AgentDraft>(
+    agent === undefined ? { ...emptyDraft, systemPrompt: starterPrompt } : draftOf(agent),
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
