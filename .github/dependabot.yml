@@ -39,6 +39,11 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    # The Node major follows the repository's pinned runtime (.node-version,
+    # devEngines), so it moves by hand together with that pin.
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
 
   # Image tags in the production stack (deploy/compose.yaml). If this ecosystem
   # never opens a pull request it does not recognise the `compose.yaml` name;
