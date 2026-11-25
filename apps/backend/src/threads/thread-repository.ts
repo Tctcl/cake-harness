@@ -112,6 +112,14 @@ export class ThreadRepository {
     return rows[0] === undefined ? undefined : toThread(rows[0])
   }
 
+  /** Reverse the durable id stored on a thread when the harness asks for that conversation's environment. */
+  async findByConversation(durableConversationId: number): Promise<ChatThread | undefined> {
+    const text = `SELECT ${COLUMNS} FROM ${this.#schema.tables.chatThreads} WHERE durable_conversation_id = $1`
+    const rows = await this.#select(text, [durableConversationId])
+
+    return rows[0] === undefined ? undefined : toThread(rows[0])
+  }
+
   /**
    * Record a thread for a conversation the durable log has already created. The id is minted here: the conversation is
    * what has to exist first, so its creator has nothing to name the row with until it returns.

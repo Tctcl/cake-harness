@@ -12,6 +12,12 @@ const UNIX_PREFIX = 'unix://'
 const TCP_PREFIX = 'tcp://'
 const DEFAULT_TCP_PORT = 2375
 
+/** The environment spelling dockerode expects in the stdio bridge process. */
+export const dockerConnectionString = (connection: DockerConnection): string =>
+  'socketPath' in connection
+    ? `${UNIX_PREFIX}${connection.socketPath}`
+    : `${TCP_PREFIX}${connection.host}:${connection.port}`
+
 /** Parses `DOCKER_HOST`, or answers `undefined` when the value names neither a unix socket nor a tcp endpoint. */
 export const parseDockerConnection = (value: string): DockerConnection | undefined => {
   if (value.startsWith(UNIX_PREFIX)) {

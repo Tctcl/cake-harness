@@ -3,12 +3,36 @@
 The entity model this platform is moving to, and the mechanism that keeps a
 conversation coherent when the agent running it changes.
 
-Status: **proposed.** Nothing here is built yet. Everything not listed under
-"What this deletes" describes the target, not the current code.
+Status: **mixed.** The tool-execution section and previously landed slices
+describe current code; the remaining lifecycle, switching and device sections
+are targets, not claims about current behavior.
 
-Scope: **backend and docs.** `apps/frontend` is being changed by the owner in
-parallel and is off limits to this work; where a step below names a frontend
-change, it is recorded so the two halves agree, not as an instruction to edit it.
+Scope: **backend and docs.** Parts of this document still describe proposed
+lifecycle work. The tool-execution behavior below is implemented; later idle-stop,
+reconciler and device sections remain proposals.
+
+## Tool execution now
+
+The harness stays in the backend. In a non-default workspace with an environment,
+granted `read`, `write`, `edit` and `bash` tools operate through a pi-env daemon in
+that workspace's container, as `dev` in `/home/dev/workspace`. The first run starts
+a stopped container through `EnvironmentApi.start()` and deploys the versioned
+daemon if needed. See [`docs/durable.md`](./durable.md) for the stdio bridge,
+handshake and connection lifecycle.
+
+The default General workspace has no container and never receives those
+environment-backed tools. `web_fetch` is env-free and can be granted in every
+workspace; it runs in the backend with public-address and redirect checks. Tool
+grants are effective at conversation creation and before every submission: the
+workspace is the ceiling, and an agent's selection is intersected with it. MCP,
+skills and prompt catalog grants remain unwired.
+
+A new non-default workspace defaults to `allowAll: false` with no grants. To let
+its default Assistant use coding tools, open **Tools**, click **Sync from
+registry**, select `read`, `write`, `edit`, `bash` (and `web_fetch` if wanted),
+then **Save selection**. Alternatively enable **Reach every capability** on
+**Overview** after syncing. The default agent's own `allowAll` then inherits that
+workspace ceiling; a restricted agent also needs the corresponding agent grants.
 
 ## Why
 
@@ -218,14 +242,13 @@ fingerprint is only ever a display hint.
    unique index on `workspace_environments.workspace_id` holds it to one, and the
    routes refuse a second attach (`409 ENVIRONMENT_ALREADY_ATTACHED`), a detach
    (`409 ENVIRONMENT_REQUIRED`) and the deletion of an environment a workspace
-   runs in (`409 ENVIRONMENT_IN_USE`). The default workspace is the exception and
-   keeps running on the host with no container. The fold itself — one table, one
+   runs in (`409 ENVIRONMENT_IN_USE`). The default workspace is the exception: it
+   has no container and can use only env-free tools. The fold itself — one table, one
    id — is still ahead, so `dev_environments` remains a separate table reached by
    `environment_id`.
-3. Lazy boot, idle stop and state streaming: the container starts on the first
-   message or an explicit start, stops after `n` idle minutes, and its state is
-   broadcast. Before this, a workspace's container is never running, so it has to
-   land with (or before) the first feature that needs one.
+3. Lazy boot and state streaming: the container starts on the first run that
+   resolves its execution environment or on an explicit start. Idle stopping and
+   broadcasting state are still ahead.
 4. Agent settings: `allowed_models`, `model` and `thinking_level` on `agents`,
    read at harness open, `discard()` on change.
 5. Conversations: `agent_id` becomes the active agent, the switch route, the

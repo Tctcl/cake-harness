@@ -34,20 +34,18 @@ part the model can read but the backend cannot store has nowhere to live.
 - A way to reference uploads from a message entry so the harness sees them, and
   the frontend's vendored `Attachment` element wired to the upload route.
 
-## 2. The agent profile does not yet drive the run
+## 2. MCP servers and text catalogs do not yet drive the run
 
-**Missing:** an agent's `tools`, `mcp_servers` and `skills` have no effect on
-what the harness may do.
+**Missing:** an agent's `mcp_servers`, `skills` and prompt grants have no effect
+on what the harness may do. Tool grants are wired.
 
-**Where it stands:** `instructionsOf` in `apps/backend/src/agent.ts` says so in a comment —
-the system prompt and instructions are composed into the conversation's system
-prompt when the conversation is created, and "only tools, MCP servers and skills
-stay declarative for now, unread by the harness". Editing an agent therefore does
-not change conversations that already exist.
+**Where it stands:** model, thinking level, instructions and the workspace/agent
+tool intersection are applied on every submission. Coding tools execute in the
+workspace container and `web_fetch` is env-free. MCP clients and prompt/skill
+sections are still absent.
 
-**What it would take:** passing the agent's grants into `Harness.open` (registry,
-tool allowlist, MCP clients), deciding what a mid-conversation profile edit means
-for an open conversation, and resolving credentials to values at launch.
+**What it would take:** MCP clients over pi-env `openProcess`, resolving MCP
+credentials at launch, and extension sections for granted text entries.
 
 The storage and the write path exist now. Migration 6 added the catalogs
 (`tools`, `prompts`, `skills`, `mcp_servers`, `mcp_credentials`) and the link
@@ -55,8 +53,8 @@ tables; migration 7 dropped the `text[]` columns they replaced, so the links are
 the only place a selection lives. `src/routes/capabilities.ts` reads and writes
 both the catalogs and the grants, the workspace manager's Tools, Skills, Prompts and MCP tabs draw
 them, and `createCapabilityApi().setAgentGrants()` enforces the ceiling with
-`400 CAPABILITY_NOT_ALLOWED`. What is still missing is the last hop: the harness
-opens with the registry's default tool set and never asks for a grant.
+`400 CAPABILITY_NOT_ALLOWED`. Tool grants reach the harness; the other grant kinds
+do not yet.
 
 Credentials are never stored here: an `mcp_credentials` row names a CipherGate
 consumer and the secrets that fill a server's `env_schema`, and the value is
@@ -65,22 +63,6 @@ caller uses it: `apps/backend/src/secrets/ciphergate.ts` reads a secret by name 
 behalf of `apps/backend/src/environments/manifest.ts`, which serves workspace
 credentials. Resolving a run's MCP credentials is still unimplemented — the
 `mcp_credentials` rows are read by the capability routes and by nothing else.
-
-## 3. Workspace containers do not run the agent
-
-**Missing:** a conversation's tools do not execute in its workspace's container.
-
-**Where it stands:** every workspace except the default one has an environment: a
-container from the workspace image, started, stopped and inspected through
-`apps/backend/src/environments/` and the read-write Docker proxy, with terminals
-attached over a websocket (`docs/terminals.md`). The container bootstraps itself
-from the backend's manifest (`apps/agent`, `docs/remote-development.md`). The
-harness still runs inside the backend with no tools, so nothing a conversation
-does reaches the container.
-
-**What it would take:** an execution environment per workspace that the harness's
-tools run in (see `docs/durable.md` for the two MCP paths and the container
-caveat), and the tool wiring from item 2.
 
 ## 4. One hardcoded model
 
@@ -202,7 +184,7 @@ outlive a backend restart or move to another machine.
 
 **What it would take:** an explicit architecture decision in `docs/` about what
 `apps/agent` is for — a worker consuming a queue, a supervisor for workspace
-containers (item 3), or nothing at all. Do not build it speculatively; decide
+containers, or nothing at all. Do not build it speculatively; decide
 first.
 
 ## 11. No coverage provider, no threshold

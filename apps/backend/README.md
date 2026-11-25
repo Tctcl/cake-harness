@@ -2,9 +2,10 @@
 
 Fastify HTTP service for the tctcl platform.
 
-**Status: chat slice with workspaces.** The service boots from a validated environment, logs
+**Status: chat and workspace tools.** The service boots from a validated environment, logs
 through Fastify's logger, answers `GET /health`, signs people in, serves chat threads over a
-pi-durable session in Postgres, files those threads under a workspace and an agent, and renders errors as
+pi-durable session in Postgres, files those threads under a workspace and an agent, executes granted
+coding tools through pi-env in the workspace container, and renders errors as
 `{ error: { code, message } }`. Sign-in is a username and password behind a session cookie,
 with an optional TOTP second factor; a role holds the permissions a route checks, and
 ownership is row data rather than a permission ([`docs/auth.md`](../../docs/auth.md)).
@@ -44,7 +45,7 @@ src/threads/          users/chat_threads rows: local-user bootstrap and reposito
 src/capabilities/     the catalogs (tools synced from the registry, prompts, skills, the MCP servers of a workspace), the
                       link tables that grant them, and the ceiling check
 src/providers/        the OpenCode Go client, the model cache and the keys a workspace may spend
-src/environments/     dev environment rows, the Docker runtime, the manifest a container reports
+src/environments/     dev environment rows, Docker runtime, pi-env daemon delivery and stdio bridge
 src/workspaces/       workspaces rows and the seeded defaults (fixed ids, `allow_all`, no container)
 src/agents/           agents rows, the container ceiling no longer lives here
 src/storage/postgres/ durable's `Storage` over Postgres, plus the schema history
@@ -73,10 +74,11 @@ and `createCapabilityApi().setAgentGrants()` refuses an id the agent's workspace
 does not own and, through `WorkspaceMcpServerRepository.delete()`, refuses to delete
 a server an agent still names.
 
-Not wired yet: the harness still opens with the registry's default tool set. The
-routes below write the links and `createCapabilityApi().setAgentGrants()` refuses a
-grant the workspace does not reach, but nothing reads a grant when a conversation
-starts, so a grant is a statement of intent a launch will honour later.
+Tool grants are read when a conversation is created and before every submission.
+The workspace grant set is the ceiling and the agent selection is intersected with
+it. `read`, `write`, `edit` and `bash` run only in a non-default workspace with an
+environment; the env-free `web_fetch` can run in General too. MCP, skill and prompt
+grants are still stored without a runtime consumer.
 
 Migration 7 dropped the `text[]` columns (`workspaces.allowed_*`, `agents.tools`,
 `mcp_servers`, `skills`) that used to hold the same information, so the link tables

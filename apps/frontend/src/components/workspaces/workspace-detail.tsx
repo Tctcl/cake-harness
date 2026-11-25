@@ -21,7 +21,7 @@ const TABS = [
 ] as const
 
 /** Tabs whose settings are stored and shown, but which no run reads yet (docs/deferred.md, item 2). */
-const NOT_WIRED: ReadonlySet<TabId> = new Set<TabId>(['mcp', 'skills', 'prompts', 'tools'])
+const NOT_WIRED: ReadonlySet<TabId> = new Set<TabId>(['mcp', 'skills', 'prompts'])
 
 export type WorkspaceTabId = (typeof TABS)[number]['id']
 type TabId = WorkspaceTabId
@@ -96,8 +96,8 @@ export function WorkspaceDetail({
       >
         {NOT_WIRED.has(tab) ? (
           <p className="mb-4 max-w-3xl rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground">
-            Stored and editable, but not used by agents yet: conversations currently run with no tools, MCP servers,
-            skills or prompt catalog entries. An agent&rsquo;s system prompt and instructions do apply.
+            Stored and editable, but not used by agents yet: MCP servers, skills and prompt catalog entries.
+            Tool grants, system prompts and instructions do apply.
           </p>
         ) : null}
         {tab === 'overview' ? <WorkspaceOverview workspace={workspace} onChanged={onChanged} /> : null}
