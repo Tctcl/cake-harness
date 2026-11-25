@@ -1,5 +1,9 @@
 import type { ChatLive, ChatMessage, ChatRun, ChatToolCall, ChatUpdate, ChatUsage } from './chat-api.ts'
 import { readMessages, sendMessage, streamPath } from './chat-api.ts'
+import { HttpError } from './http.ts'
+
+/** The server-sent event a thread's stream carries each frame in; it must match `frame('update', …)` in the backend. */
+export const STREAM_EVENT = 'update'
 
 /** Whether an optimistic line is still on its way to the backend, or gave up and offers a retry. */
 export type PendingState = 'sending' | 'failed'
@@ -24,6 +28,8 @@ export interface ThreadSnapshot {
   readonly status: StreamStatus
   readonly loadingOlder: boolean
   readonly error: string | null
+  /** The backend's stable code for `error`, so the pane can offer the fix for a refusal it recognises. */
+  readonly errorCode: string | null
   /** Tool calls of the run, newest last; the pane renders them between the lines. */
   readonly tools: readonly ChatToolCall[]
   /** The model the newest answer ran with, or null until the agent has answered once. */
@@ -49,6 +55,7 @@ const EMPTY: ThreadSnapshot = {
   status: 'connecting',
   loadingOlder: false,
   error: null,
+  errorCode: null,
   tools: [],
   run: null,
   usage: NO_USAGE,
@@ -136,7 +143,9 @@ function openStream(threadId: string): void {
   const source = new EventSource(streamPath(threadId))
   entry.source = source
 
-  source.addEventListener('messages', (event) => {
+  // `update` is the event name `routes/threads.ts` writes. This listened for `messages`, which nothing sends, so
+  // answers only ever appeared after a reload.
+  source.addEventListener(STREAM_EVENT, (event) => {
     const payload = JSON.parse((event as MessageEvent<string>).data) as ChatUpdate
     update(threadId, (snapshot) => ({
       ...snapshot,
@@ -148,6 +157,7 @@ function openStream(threadId: string): void {
       live: payload.live ?? NO_LIVE,
       status: 'live',
       error: null,
+      errorCode: null,
     }))
   })
 
@@ -181,6 +191,7 @@ export function openThread(threadId: string): void {
         ...snapshot,
         loadingOlder: false,
         error: failure instanceof Error ? failure.message : 'the transcript failed to load',
+        errorCode: null,
       }))
     },
   )
@@ -207,6 +218,7 @@ export function loadOlder(threadId: string): void {
         ...current,
         loadingOlder: false,
         error: failure instanceof Error ? failure.message : 'older messages failed to load',
+        errorCode: null,
       }))
     },
   )
@@ -219,6 +231,7 @@ function deliver(threadId: string, localId: number, text: string): void {
       item.localId === localId ? { ...item, state: 'sending' } : item,
     ),
     error: null,
+    errorCode: null,
   }))
 
   void sendMessage(threadId, text).then(
@@ -230,6 +243,7 @@ function deliver(threadId: string, localId: number, text: string): void {
           item.localId === localId ? { ...item, state: 'failed' } : item,
         ),
         error: failure instanceof Error ? failure.message : 'the message failed to send',
+        errorCode: failure instanceof HttpError ? (failure.code ?? null) : null,
       }))
     },
   )
@@ -244,6 +258,7 @@ export function send(threadId: string, text: string): void {
     ...snapshot,
     pending: [...snapshot.pending, { localId, text, state: 'sending' }],
     error: null,
+    errorCode: null,
   }))
   openStream(threadId)
   deliver(threadId, localId, text)
@@ -263,3 +278,6 @@ export function resetThreads(): void {
   threads.clear()
   nextLocalId = 1
 }
+
+/** Refusals whose fix is in the workspace manager: no usable key, or a model the workspace does not allow. */
+export const KEY_PROBLEMS: ReadonlySet<string> = new Set(['AGENT_NO_KEY', 'AGENT_MODEL_NOT_ALLOWED'])

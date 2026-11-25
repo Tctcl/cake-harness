@@ -1,4 +1,4 @@
-import { ChartColumnIcon, ListIcon, PencilIcon, TerminalIcon } from 'lucide-react'
+import { ChartColumnIcon, ListIcon, MenuIcon, PencilIcon, TerminalIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import type { ChatThread } from '../../lib/chat-api.ts'
@@ -15,6 +15,8 @@ type TopbarProps = {
   panel: PanelKind | null
   onToggle: (panel: PanelKind) => void
   onRenamed: (thread: ChatThread) => void
+  /** On a narrow screen, where the conversation list is a drawer: opens it. Absent when the list is a column. */
+  onOpenMenu?: (() => void) | undefined
 }
 
 /**
@@ -22,7 +24,7 @@ type TopbarProps = {
  * panel, so the panel can be closed without losing the context of what is open, and the two toggles choose what the
  * panel holds.
  */
-function Topbar({ thread, panel, onToggle, onRenamed }: TopbarProps) {
+function Topbar({ thread, panel, onToggle, onRenamed, onOpenMenu }: TopbarProps) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -41,7 +43,12 @@ function Topbar({ thread, panel, onToggle, onRenamed }: TopbarProps) {
   }
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2 sm:px-4">
+      {onOpenMenu === undefined ? null : (
+        <Button variant="ghost" size="icon" className="size-9 shrink-0" aria-label="Conversations" onClick={onOpenMenu}>
+          <MenuIcon />
+        </Button>
+      )}
       {thread === null ? (
         <span className="truncate text-sm text-muted-foreground">No conversation selected</span>
       ) : editing ? (

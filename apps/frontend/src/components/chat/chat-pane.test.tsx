@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ChatPane } from './chat-pane.tsx'
-import { resetThreads } from '../../lib/chat-store.ts'
+import { STREAM_EVENT, resetThreads } from '../../lib/chat-store.ts'
 
 const THREAD_ID = '2f1c1f9e-3f6d-4b0a-9d1e-1a2b3c4d5e6f'
 
@@ -72,7 +72,7 @@ describe('ChatPane', () => {
     expect(await screen.findByText('earlier answer')).toBeInTheDocument()
 
     stream()?.emit(
-      'messages',
+      STREAM_EVENT,
       frame([
         { id: 4, role: 'assistant', text: 'earlier answer' },
         { id: 5, role: 'user', text: 'a question' },
@@ -92,7 +92,7 @@ describe('ChatPane', () => {
     await screen.findByText('done')
 
     stream()?.emit(
-      'messages',
+      STREAM_EVENT,
       frame(
         [{ id: 4, role: 'assistant', text: 'done' }],
         [
@@ -120,7 +120,7 @@ describe('ChatPane', () => {
       expect(stream()).toBeDefined()
     })
 
-    stream()?.emit('messages', {
+    stream()?.emit(STREAM_EVENT, {
       messages: [],
       tools: [],
       run: null,
@@ -172,7 +172,7 @@ describe('ChatPane', () => {
     expect(await screen.findByText('Sending')).toBeInTheDocument()
     expect(screen.getByText('hello there')).toBeInTheDocument()
 
-    stream()?.emit('messages', frame([{ id: 11, role: 'user', text: 'hello there' }]))
+    stream()?.emit(STREAM_EVENT, frame([{ id: 11, role: 'user', text: 'hello there' }]))
 
     await waitFor(() => expect(screen.queryByText('Sending')).not.toBeInTheDocument())
     expect(screen.getByText('hello there')).toBeInTheDocument()
@@ -206,9 +206,31 @@ describe('ChatPane', () => {
     expect(posts).toBe(2)
   })
 
+  it('says why a message was refused for want of a key, and offers the fix', async () => {
+    const refusal = new Response(
+      JSON.stringify({ error: { code: 'AGENT_NO_KEY', message: 'No OpenCode Go key reaches this agent.' } }),
+      { status: 409, headers: { 'content-type': 'application/json' } },
+    )
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_path: string, init?: RequestInit) =>
+        init?.method === 'POST' ? Promise.resolve(refusal) : reply({ messages: [], nextCursor: null }),
+      ),
+    )
+    const onSetUpKeys = vi.fn()
+
+    render(<ChatPane threadId={THREAD_ID} onSetUpKeys={onSetUpKeys} />)
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'hello' } })
+    fireEvent.click(screen.getByRole('button', { name: /send/i }))
+
+    expect(await screen.findByText(/No OpenCode Go key reaches this agent/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Set up a key' }))
+    expect(onSetUpKeys).toHaveBeenCalledOnce()
+  })
+
   it('asks for no conversation when no thread is selected', () => {
     render(<ChatPane threadId={null} />)
 
-    expect(screen.getByText('No conversation yet')).toBeInTheDocument()
+    expect(screen.getByText('No conversation open')).toBeInTheDocument()
   })
 })

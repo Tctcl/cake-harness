@@ -9,6 +9,7 @@ import {
   retry,
   send,
   snapshotOf,
+  STREAM_EVENT,
 } from './chat-store.ts'
 
 const THREAD_ID = '2f1c1f9e-3f6d-4b0a-9d1e-1a2b3c4d5e6f'
@@ -130,7 +131,7 @@ describe('chat store', () => {
     expect(snapshotOf(THREAD_ID).pending).toHaveLength(1)
 
     const stream = FakeStream.opened[0]
-    stream?.emit('messages', {
+    stream?.emit(STREAM_EVENT, {
       messages: [{ id: 12, role: 'user', text: 'hello' }],
     })
 

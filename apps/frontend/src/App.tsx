@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
+import { AgentPicker } from './components/chat/agent-picker.tsx'
 import { ChatPane } from './components/chat/chat-pane.tsx'
 import { RightPanel } from './components/layout/right-panel.tsx'
 import { SessionList } from './components/layout/session-list.tsx'
@@ -10,10 +11,15 @@ import { UpdateNotice } from './components/layout/update-notice.tsx'
 import { UserMenu } from './components/layout/user-menu.tsx'
 import { SettingsPage } from './components/settings/settings-page.tsx'
 import type { SectionId } from './components/settings/settings-page.tsx'
-import { WorkspacesPage } from './components/workspaces/workspaces-page.tsx'
+import { Button } from './components/ui/button.tsx'
 import { TooltipProvider } from './components/ui/tooltip.tsx'
-import type { ChatThread, CurrentUser, WorkspaceSummary } from './lib/chat-api.ts'
-import { createThread, getMe, listThreads, listWorkspaces, reorderWorkspaces } from './lib/chat-api.ts'
+import type { WorkspaceTabId } from './components/workspaces/workspace-detail.tsx'
+import { WorkspacesPage } from './components/workspaces/workspaces-page.tsx'
+import type { ChatAgent, ChatThread, CurrentUser, WorkspaceSummary } from './lib/chat-api.ts'
+import { createThread, getMe, listAgents, listThreads, listWorkspaces, reorderWorkspaces } from './lib/chat-api.ts'
+import { KEY_PROBLEMS } from './lib/chat-store.ts'
+import { HttpError } from './lib/http.ts'
+import { useNarrowScreen } from './lib/use-narrow-screen.ts'
 import { readCollapsed, writeCollapsed } from './lib/workspace-groups.ts'
 
 /**
@@ -27,19 +33,44 @@ const SIDEBAR_WIDTHS = {
   usage: { min: 240, max: 460, open: 300 },
 } satisfies Record<string, SidebarWidths>
 
+/** What the full-screen panel is called on a narrow screen, where the topbar icon that opened it is covered. */
+const PANEL_TITLES: Record<PanelKind, string> = { info: 'Conversation info', terminal: 'Terminal', usage: 'Usage' }
+
+/** A failure the shell shows above the chat, with the backend's code when there is one so it can offer the fix. */
+interface Problem {
+  readonly message: string
+  readonly code: string | undefined
+}
+
+const problemOf = (failure: unknown, fallback: string): Problem => ({
+  message: failure instanceof Error ? failure.message : fallback,
+  code: failure instanceof HttpError ? failure.code : undefined,
+})
+
+/** Where the workspace manager opens: a workspace and one of its tabs, or its own list. */
+interface WorkspacesTarget {
+  readonly workspaceId: string | null
+  readonly tab: WorkspaceTabId
+}
+
 /**
  * Every conversation on the left, grouped under its workspace and arranged by dragging, a topbar over the chat, and a
  * right column the topbar fills with either the open conversation's surroundings or a terminal — and closes again,
  * giving the chat the whole width. Switching conversations or workspaces never closes a run: the stream belongs to the
  * thread store, not to the pane that happens to be mounted.
  *
- * Settings and the workspace manager are screens, not panes: each replaces the three columns wholesale and comes back to
- * them unchanged. What belongs to a workspace is edited inside the workspace manager, so settings holds only the app and
- * the user.
+ * On a narrow screen there is no room for columns: the conversation list is a drawer the topbar opens, and the right
+ * panel covers the chat until it is closed.
+ *
+ * Settings and the workspace manager are screens, not panes: each replaces the columns wholesale and comes back to them
+ * unchanged. What belongs to a workspace is edited inside the workspace manager, so settings holds only the app and the
+ * user.
  */
 function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
+  const narrow = useNarrowScreen()
   const [view, setView] = useState<'chat' | 'settings' | 'workspaces'>('chat')
   const [settingsSection, setSettingsSection] = useState<SectionId>('application')
+  const [workspacesTarget, setWorkspacesTarget] = useState<WorkspacesTarget>({ workspaceId: null, tab: 'overview' })
   const [me, setMe] = useState<CurrentUser | null>(null)
   const [loadingMe, setLoadingMe] = useState(true)
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([])
@@ -47,7 +78,7 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
   const [threadId, setThreadId] = useState<string | null>(null)
   const [loadingWorkspaces, setLoadingWorkspaces] = useState(true)
   const [loadingThreads, setLoadingThreads] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<Problem | null>(null)
   // Folded groups are how the list is read, not what it holds: they stay in this browser while the order is the server's.
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => readCollapsed())
 
@@ -59,8 +90,14 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
     usage: SIDEBAR_WIDTHS.usage.open,
   })
   const [leftCollapsed, setLeftCollapsed] = useState(false)
+  // The narrow screen's drawer: closed by default, because the chat is what a phone shows first.
+  const [drawerOpen, setDrawerOpen] = useState(false)
   // Nothing shown is the default: the right column is a place with content, not a fixture of the layout.
   const [rightPanel, setRightPanel] = useState<PanelKind | null>(null)
+  // A new conversation in a workspace with several agents waits here for the user to pick one.
+  const [picking, setPicking] = useState<{ readonly workspace: WorkspaceSummary; readonly agents: ChatAgent[] } | null>(
+    null,
+  )
 
   const loadWorkspaces = useCallback(() => {
     void listWorkspaces().then(
@@ -69,7 +106,7 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
         setLoadingWorkspaces(false)
       },
       (failure: unknown) => {
-        setError(failure instanceof Error ? failure.message : 'workspaces failed to load')
+        setError(problemOf(failure, 'workspaces failed to load'))
         setLoadingWorkspaces(false)
       },
     )
@@ -84,7 +121,7 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
         setLoadingThreads(false)
       },
       (failure: unknown) => {
-        setError(failure instanceof Error ? failure.message : 'conversations failed to load')
+        setError(problemOf(failure, 'conversations failed to load'))
         setLoadingThreads(false)
       },
     )
@@ -122,11 +159,48 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
     }
   }, [])
 
-  async function startThread(workspaceId: string) {
+  const selectedThread = threads.find((thread) => thread.id === threadId) ?? null
+  // The conversation names its workspace; there is no separate workspace selection to fall out of step with it.
+  const selectedWorkspace =
+    workspaces.find((workspace) => workspace.id === selectedThread?.workspaceId) ?? null
+
+  const openWorkspaces = (target: WorkspacesTarget): void => {
+    setWorkspacesTarget(target)
+    setView('workspaces')
+  }
+
+  const openSettings = (section: SectionId): void => {
+    setSettingsSection(section)
+    setView('settings')
+  }
+
+  /** The fix for a missing key or a disallowed model lives on the workspace's Providers tab. */
+  const setUpKeys = (workspaceId: string | null): void => openWorkspaces({ workspaceId, tab: 'providers' })
+
+  /** The "+" of a workspace: straight in when it has one agent, otherwise ask which one answers. */
+  async function newConversation(workspaceId: string) {
+    const workspace = workspaces.find((candidate) => candidate.id === workspaceId)
     try {
-      const created = await createThread(workspaceId)
+      const agents = await listAgents(workspaceId)
+      if (agents.length > 1 && workspace !== undefined) {
+        setPicking({ workspace, agents })
+        setDrawerOpen(false)
+        return
+      }
+    } catch (failure) {
+      setError(problemOf(failure, 'the agents failed to load'))
+      return
+    }
+    await startThread(workspaceId)
+  }
+
+  async function startThread(workspaceId: string, agentId?: string) {
+    setPicking(null)
+    try {
+      const created = await createThread(workspaceId, agentId)
       setThreads((current) => [created, ...current])
       setThreadId(created.id)
+      setDrawerOpen(false)
       // The + that started it may have been in a folded group; opening it is how the new conversation is reachable.
       setCollapsed((current) => {
         if (!current.has(workspaceId)) return current
@@ -137,7 +211,10 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
       })
       setError(null)
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'the conversation failed to start')
+      setError(problemOf(failure, 'the conversation failed to start'))
+      // Remembered so the banner's fix opens the workspace whose agent could not start.
+      setWorkspacesTarget({ workspaceId, tab: 'providers' })
+      setDrawerOpen(false)
     }
   }
 
@@ -170,31 +247,23 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
       setError(null)
     } catch (failure) {
       setWorkspaces(previous)
-      setError(failure instanceof Error ? failure.message : 'the new order was not saved')
+      setError(problemOf(failure, 'the new order was not saved'))
     }
   }
-
-  const selectedThread = threads.find((thread) => thread.id === threadId) ?? null
-  // The conversation names its workspace; there is no separate workspace selection to fall out of step with it.
-  const selectedWorkspace =
-    workspaces.find((workspace) => workspace.id === selectedThread?.workspaceId) ?? null
-  const leftSpace = leftCollapsed ? 0 : leftWidth
-  const rightBounds = rightPanel === null ? SIDEBAR_WIDTHS.info : SIDEBAR_WIDTHS[rightPanel]
-  const rightWidth = rightPanel === null ? 0 : rightWidths[rightPanel]
 
   if (view === 'workspaces') {
     return (
       <TooltipProvider>
         <div className="h-full min-h-0">
           <WorkspacesPage
-            onOpenCredentials={() => {
-              setSettingsSection('credentials')
-              setView('settings')
-            }}
+            initialWorkspaceId={workspacesTarget.workspaceId}
+            initialTab={workspacesTarget.tab}
+            onOpenCredentials={() => openSettings('credentials')}
             onClose={() => {
-              // Workspaces are added and archived there, so the list is re-read before the columns come back.
+              // Workspaces, agents and keys change there, so the lists are re-read before the chat comes back.
               loadWorkspaces()
               loadThreads()
+              setError(null)
               setView('chat')
             }}
           />
@@ -208,7 +277,6 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
       <TooltipProvider>
         <div className="h-full min-h-0">
           <SettingsPage
-            user={me}
             initialSection={settingsSection}
             onClose={() => {
               setView('chat')
@@ -218,6 +286,140 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
       </TooltipProvider>
     )
   }
+
+  const sidebarFooter = (
+    <div className="flex flex-col gap-2">
+      <UpdateNotice />
+      <UserMenu
+        user={me}
+        loading={loadingMe}
+        onOpenSettings={() => openSettings('application')}
+        onOpenWorkspaces={() => openWorkspaces({ workspaceId: null, tab: 'overview' })}
+        onSignOut={onSignOut}
+      />
+    </div>
+  )
+
+  const sessionList = (
+    <SessionList
+      workspaces={workspaces}
+      threads={threads}
+      selectedId={threadId}
+      loading={loadingWorkspaces || loadingThreads}
+      collapsed={collapsed}
+      onToggle={toggleWorkspace}
+      onCreate={(workspaceId) => void newConversation(workspaceId)}
+      onSelect={(id) => {
+        setThreadId(id)
+        setDrawerOpen(false)
+      }}
+      onReorder={(ids) => void reorder(ids)}
+    />
+  )
+
+  const topbar = (
+    <Topbar
+      thread={selectedThread}
+      panel={rightPanel}
+      onToggle={(next) => setRightPanel((current) => (current === next ? null : next))}
+      onRenamed={(renamed) =>
+        setThreads((current) => current.map((thread) => (thread.id === renamed.id ? renamed : thread)))
+      }
+      onOpenMenu={narrow ? () => setDrawerOpen(true) : undefined}
+    />
+  )
+
+  const banner =
+    error === null ? null : (
+      <p role="alert" className="px-4 py-2 text-sm text-destructive">
+        {error.message}
+        {error.code !== undefined && KEY_PROBLEMS.has(error.code) ? (
+          <>
+            {' '}
+            <button
+              type="button"
+              className="font-medium underline"
+              onClick={() => setUpKeys(workspacesTarget.workspaceId)}
+            >
+              Set up a key
+            </button>
+          </>
+        ) : null}
+      </p>
+    )
+
+  const picker =
+    picking === null ? null : (
+      <AgentPicker
+        workspaceName={picking.workspace.name}
+        agents={picking.agents}
+        onPick={(agentId) => void startThread(picking.workspace.id, agentId)}
+        onCancel={() => setPicking(null)}
+      />
+    )
+
+  const chat = (
+    <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      {picker}
+      {banner}
+      <div className="min-h-0 flex-1">
+        <ChatPane threadId={threadId} onSetUpKeys={() => setUpKeys(selectedWorkspace?.id ?? null)} />
+      </div>
+    </main>
+  )
+
+  if (narrow) {
+    return (
+      <TooltipProvider>
+        <div className="flex h-full min-h-0 flex-col overflow-hidden">
+          {topbar}
+          {chat}
+
+          {drawerOpen ? (
+            <div className="fixed inset-0 z-40 flex">
+              <Sidebar
+                side="left"
+                title="Conversations"
+                widths={SIDEBAR_WIDTHS.threads}
+                width={Math.min(340, window.innerWidth - 56)}
+                otherWidth={0}
+                onWidthChange={() => {}}
+                onCollapse={() => setDrawerOpen(false)}
+                action={<ThemePicker />}
+                footer={sidebarFooter}
+              >
+                {sessionList}
+              </Sidebar>
+              <button
+                type="button"
+                aria-label="Close conversations"
+                className="min-w-0 flex-1 bg-black/50"
+                onClick={() => setDrawerOpen(false)}
+              />
+            </div>
+          ) : null}
+
+          {rightPanel === null ? null : (
+            <div className="fixed inset-0 z-40 flex flex-col bg-background">
+              <div className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
+                <span className="text-sm font-medium">{PANEL_TITLES[rightPanel]}</span>
+                <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setRightPanel(null)}>
+                  Close
+                </Button>
+              </div>
+              <div className="flex min-h-0 flex-1">
+                <RightPanel kind={rightPanel} width={window.innerWidth} thread={selectedThread} workspace={selectedWorkspace} />
+              </div>
+            </div>
+          )}
+        </div>
+      </TooltipProvider>
+    )
+  }
+
+  const leftSpace = leftCollapsed ? 0 : leftWidth
+  const rightBounds = rightPanel === null ? SIDEBAR_WIDTHS.info : SIDEBAR_WIDTHS[rightPanel]
+  const rightWidth = rightPanel === null ? 0 : rightWidths[rightPanel]
 
   return (
     <TooltipProvider>
@@ -235,33 +437,9 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
               onWidthChange={setLeftWidth}
               onCollapse={() => setLeftCollapsed(true)}
               action={<ThemePicker />}
-              footer={
-                <div className="flex flex-col gap-2">
-                  <UpdateNotice />
-                  <UserMenu
-                    user={me}
-                    loading={loadingMe}
-                    onOpenSettings={() => {
-                      setSettingsSection('application')
-                      setView('settings')
-                    }}
-                    onOpenWorkspaces={() => setView('workspaces')}
-                    onSignOut={onSignOut}
-                  />
-                </div>
-              }
+              footer={sidebarFooter}
             >
-              <SessionList
-                workspaces={workspaces}
-                threads={threads}
-                selectedId={threadId}
-                loading={loadingWorkspaces || loadingThreads}
-                collapsed={collapsed}
-                onToggle={toggleWorkspace}
-                onCreate={(workspaceId) => void startThread(workspaceId)}
-                onSelect={setThreadId}
-                onReorder={(ids) => void reorder(ids)}
-              />
+              {sessionList}
             </Sidebar>
             <ResizeHandle
               side="left"
@@ -275,28 +453,10 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
         )}
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <Topbar
-            thread={selectedThread}
-            panel={rightPanel}
-            onToggle={(next) => setRightPanel((current) => (current === next ? null : next))}
-            onRenamed={(renamed) =>
-              setThreads((current) =>
-                current.map((thread) => (thread.id === renamed.id ? renamed : thread)),
-              )
-            }
-          />
+          {topbar}
 
           <div className="flex min-h-0 flex-1">
-            <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-              {error === null ? null : (
-                <p role="alert" className="px-4 py-2 text-sm text-destructive">
-                  {error}
-                </p>
-              )}
-              <div className="min-h-0 flex-1">
-                <ChatPane threadId={threadId} />
-              </div>
-            </main>
+            {chat}
 
             {rightPanel === null ? null : (
               <>

@@ -12,6 +12,11 @@ import { SUPPORTED_PROVIDER } from './provider-repository.js'
 export interface ProviderApiOptions {
   readonly ownerId: string
   readonly providers: ProviderRepository
+  /**
+   * Which upstream model ids the model runtime can actually chat with. OpenCode also lists embedding models; offering
+   * those for an agent would only produce a refusal on save. Every id when absent.
+   */
+  readonly runnable?: (modelId: string) => boolean
 }
 
 /**
@@ -49,7 +54,11 @@ export const createProviderApi = (options: ProviderApiOptions): ProviderApi => {
   return {
     logins: () => providers.logins(ownerId),
 
-    models: () => providers.models(SUPPORTED_PROVIDER),
+    models: async () => {
+      const all = await providers.models(SUPPORTED_PROVIDER)
+
+      return options.runnable === undefined ? all : all.filter((model) => options.runnable?.(model.id) === true)
+    },
 
     workspaceProviders: async (workspaceId: string) =>
       (await providers.workspaceProviders(ownerId, workspaceId)) ?? Promise.reject(notFound()),

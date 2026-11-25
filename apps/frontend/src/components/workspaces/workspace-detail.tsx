@@ -23,7 +23,8 @@ const TABS = [
 /** Tabs whose settings are stored and shown, but which no run reads yet (docs/deferred.md, item 2). */
 const NOT_WIRED: ReadonlySet<TabId> = new Set<TabId>(['mcp', 'skills', 'prompts', 'tools'])
 
-type TabId = (typeof TABS)[number]['id']
+export type WorkspaceTabId = (typeof TABS)[number]['id']
+type TabId = WorkspaceTabId
 
 /**
  * One workspace, everything about it: the tabs are the parts of its setup, and each panel loads only its own data. A tab
@@ -33,14 +34,17 @@ export function WorkspaceDetail({
   workspace,
   onChanged,
   onOpenCredentials,
+  initialTab = 'overview',
 }: {
   workspace: WorkspaceSummary
   /** Ask the shell to read the workspace list again after a rename, an archive or a change of reach. */
   onChanged: () => void
   /** Leave for Settings → Credentials, where keys are added. */
   onOpenCredentials: () => void
+  /** The tab to open on, so a "set up a key" link can land on Providers. */
+  initialTab?: TabId
 }) {
-  const [tab, setTab] = useState<TabId>('overview')
+  const [tab, setTab] = useState<TabId>(initialTab)
 
   return (
     <div className="flex flex-col">
