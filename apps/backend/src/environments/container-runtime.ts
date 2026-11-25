@@ -78,8 +78,9 @@ export class DockerContainers implements ContainerRuntime {
   readonly #docker: Docker
   readonly #host: string
 
-  constructor(connection: DockerConnection) {
-    this.#docker = new Docker(connection)
+  // The client is a parameter so a test can hand in a stand-in daemon; production always builds it from the connection.
+  constructor(connection: DockerConnection, docker: Docker = new Docker(connection)) {
+    this.#docker = docker
     // Derived once: the daemon's address does not change for the life of the process.
     this.#host = dockerHostOf(connection)
   }
@@ -90,9 +91,11 @@ export class DockerContainers implements ContainerRuntime {
         await this.#docker.getContainer(containerId).start()
         return containerId
       } catch (error) {
+        // 304 is Docker saying the container is already running, which is the state this call is for.
+        if (statusOf(error) === 304) return containerId
         // A recorded container that Docker no longer has (a pruned host, a reinstall) is replaced below; anything
         // else is the daemon refusing, which the caller has to see.
-        if (statusOf(error) !== 304 && statusOf(error) !== 404) throw unavailable('started', error)
+        if (statusOf(error) !== 404) throw unavailable('started', error)
       }
     }
 
