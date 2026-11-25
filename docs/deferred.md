@@ -39,7 +39,7 @@ part the model can read but the backend cannot store has nowhere to live.
 **Missing:** an agent's `tools`, `mcp_servers` and `skills` have no effect on
 what the harness may do.
 
-**Where it stands:** `apps/backend/src/agent.ts:336-340` says so in a comment —
+**Where it stands:** `instructionsOf` in `apps/backend/src/agent.ts` says so in a comment —
 the system prompt and instructions are composed into the conversation's system
 prompt when the conversation is created, and "only tools, MCP servers and skills
 stay declarative for now, unread by the harness". Editing an agent therefore does
@@ -53,7 +53,7 @@ The storage and the write path exist now. Migration 6 added the catalogs
 (`tools`, `prompts`, `skills`, `mcp_servers`, `mcp_credentials`) and the link
 tables; migration 7 dropped the `text[]` columns they replaced, so the links are
 the only place a selection lives. `src/routes/capabilities.ts` reads and writes
-both the catalogs and the grants, Settings → Tools, Skills, Prompts and MCPs draw
+both the catalogs and the grants, the workspace manager's Tools, Skills, Prompts and MCP tabs draw
 them, and `createCapabilityApi().setAgentGrants()` enforces the ceiling with
 `400 CAPABILITY_NOT_ALLOWED`. What is still missing is the last hop: the harness
 opens with the registry's default tool set and never asks for a grant.
@@ -66,27 +66,27 @@ behalf of `apps/backend/src/environments/manifest.ts`, which serves workspace
 credentials. Resolving a run's MCP credentials is still unimplemented — the
 `mcp_credentials` rows are read by the capability routes and by nothing else.
 
-## 3. Workspaces do not get a container or a filesystem
+## 3. Workspace containers do not run the agent
 
-**Missing:** `workspaces.container` records that a dev container is wanted and
-with what tooling; nothing provisions or runs one.
+**Missing:** a conversation's tools do not execute in its workspace's container.
 
-**Where it stands:** the column exists (`schema.ts`, `container jsonb`, nullable,
-`NULL` for the default workspace) and is read and written by
-`apps/backend/src/workspaces/workspace-repository.ts`. No process starts, no
-image is built, no `ExecutionEnv` is created, and the harness runs with no tools,
-so there is no filesystem to give it.
+**Where it stands:** every workspace except the default one has an environment: a
+container from the workspace image, started, stopped and inspected through
+`apps/backend/src/environments/` and the read-write Docker proxy, with terminals
+attached over a websocket (`docs/terminals.md`). The container bootstraps itself
+from the backend's manifest (`apps/agent`, `docs/remote-development.md`). The
+harness still runs inside the backend with no tools, so nothing a conversation
+does reaches the container.
 
-**What it would take:** an execution environment per workspace (see
-`docs/durable.md` for the two MCP paths and the container caveat), lifecycle
-management for that environment, and the tool wiring from item 2 to make the
-environment reachable.
+**What it would take:** an execution environment per workspace that the harness's
+tools run in (see `docs/durable.md` for the two MCP paths and the container
+caveat), and the tool wiring from item 2.
 
 ## 4. One hardcoded model
 
 **Missing:** model and thinking level are chosen by whoever edits the source.
 
-**Where it stands:** `apps/backend/src/agent.ts:31-32` —
+**Where it stands:** the constants at the top of `apps/backend/src/agent.ts` —
 `MODEL = { provider: 'opencode-go', modelId: 'deepseek-v4.1-flash' }` and
 `THINKING_LEVEL = 'low'`. Neither is configurable per agent, per workspace or per
 conversation, and the frontend has no selector.
@@ -116,52 +116,42 @@ method, an archived view in the left sidebar, and a title strategy (first line o
 the first message, or a generated one) so the rename route has something to
 correct.
 
-## 6. Agents are read-only in the UI, workspaces only partly editable
+## 6. Agents are read-only in the UI
 
 **Missing:** an agent cannot be created, edited, archived or deleted from the
-frontend, and a workspace's capabilities and container cannot be set — only its
-name and description, plus archive.
+frontend.
 
-**Where it stands:** the backend serves the whole surface — `/workspaces` (list,
-create), `/workspaces/:id` (read, patch, delete),
-`/workspaces/:id/archive|restore`, `/workspaces/:id/agents` (list, create), and
-`/workspaces/:id/agents/:agentId` (patch, archive, restore, delete), all in
-`apps/backend/src/routes/workspaces.ts`. The frontend now uses
-`listWorkspaces`, `createWorkspace`, `renameWorkspace`, `archiveWorkspace`,
-`listAgents`, `listThreads`, `createThread` and `renameThread`
-(`apps/frontend/src/lib/chat-api.ts`) — the picker and its manage dialog cover
-workspace create/rename/archive, and the info panel reads an agent's
-capabilities without editing them. The default workspace and its default agent
-stay immutable; the backend already refuses those edits.
+**Where it stands:** the backend serves the whole agent surface
+(`/workspaces/:id/agents` and `/workspaces/:id/agents/:agentId`, in
+`apps/backend/src/routes/workspaces.ts`). The workspace manager
+(`apps/frontend/src/components/workspaces/`) edits everything else a workspace
+has: name, description and `allowAll`, tool, prompt and skill grants, MCP servers,
+providers and the environment. Agents only appear as the profile a conversation
+runs with, read-only in the info panel. Threads still cannot be deleted from the UI
+(item 5).
 
-**What it would take:** an agent editor form over the agent routes and a
-capability editor (multi-select over the workspace's allowed tools, MCP servers
-and skills) for the workspace, plus a thread delete action.
+**What it would take:** an agent editor in the workspace manager over the existing
+routes, with the capability picker narrowed to what the workspace allows.
 
 ## 7. Accounts exist, but the routes still answer as one owner
 
 **Missing:** per-request ownership, so a second account can be created and
 actually used.
 
-**Where it stands:** sessions, roles, permissions, TOTP and the settings that
-switch between single-user mode and accounts are in place
-(`docs/auth.md`). What is not: `apps/backend/src/agent.ts` closes over one
-`ownerId` from `ensureLocalUser`, so workspaces, agents, threads and
-environments all resolve to the seeded row whoever asks. `PUT /settings`
-refuses `{"singleUser": false}` with `409 auth.accounts_pending` rather than
-letting two people share one owner.
+**Where it stands:** sessions, roles, permissions, TOTP, the sign-in screen
+(`apps/frontend/src/components/auth/auth-gate.tsx`) and the installer's
+first-admin step (`bootstrap-admin.js`, `docs/auth.md`) are in place. A deployed
+install has exactly one account, the seeded owner, and signs in. What is not in
+place: `apps/backend/src/agent.ts` closes over one `ownerId` from
+`ensureLocalUser`, so workspaces, agents, threads and environments all resolve to
+the seeded row whoever asks. Until that changes, `PUT /settings` refuses
+`{"singleUser": false}` and `POST /users` refuses every new account, both with
+`409 auth.accounts_pending`. Enrolling a second factor has no screen.
 
-**Where the UI stands:** there is no login screen yet, so the account menu still
-shows the name `GET /me` returns and offers Log out as a disabled item, and
-Settings → User admin shows the same identity. Both read the actor the backend
-resolves, so they are correct in single-user mode and become wrong the moment
-accounts are switched on.
-
-**What it would take:** threading the actor's id through the `Agent` API in
-place of the captured `ownerId` (workspaces, agents, threads, environments and
-the capability links that hang off workspaces), the login and settings screens,
-an `install.sh` step that creates the first admin, and then deleting the
-`MULTI_USER_WIRED` guard in `apps/backend/src/auth/service.ts`.
+**What it would take:** threading the actor's id through the `Agent` API in place
+of the captured `ownerId` (workspaces, agents, threads, environments and the
+capability links that hang off workspaces), a user-management screen, and then
+deleting the `MULTI_USER_WIRED` guard in `apps/backend/src/auth/service.ts`.
 
 ## 8. A run's steps are a flat list, not a timeline
 
@@ -226,25 +216,7 @@ decision (AGENTS.md: do not add it without deciding a threshold first).
 at the shared `packages/vitest-config` layer, and the gate in
 `.github/workflows/gates.yml` extended. Until then do not quote coverage numbers.
 
-## 12. The Postgres-backed suites skip in CI
-
-**Missing:** nothing in CI proves the Postgres storage adapter still works.
-
-**Where it stands:** `pnpm test` runs four files that need a live Postgres
-(`src/storage/postgres/storage.test.ts`, `src/threads/thread-repository.test.ts`,
-`src/workspaces/workspace-repository.test.ts`,
-`src/agents/agent-repository.test.ts`) and skip when `DATABASE_URL` is unset —
-that is 108 tests with it, 48 without. `turbo.json` now declares `DATABASE_URL` on the
-`test` task so the variable reaches the task and cannot be replayed from a cached
-run of the other mode, but `.github/workflows/gates.yml` has no Postgres service,
-so CI runs the skipped shape.
-
-**What it would take:** a `services: postgres` block in the gates workflow, the
-schema applied by the same bootstrap the tests use, and `DATABASE_URL` set for the
-test step. The suites already handle cleanup through a per-run table prefix, so
-nothing else has to change.
-
-## 13. No formatter
+## 12. No formatter
 
 **Missing:** nothing formats the codebase. Style is held only by `.editorconfig`
 and the warnings oxlint happens to raise.
@@ -276,17 +248,14 @@ changes rather than a frozen format.
 Revisit when a second regular contributor joins, or when formatting noise
 obscures a real diff. Until then the `.editorconfig` is the contract.
 
-## 14. Documentation debt
+## 13. Documentation debt
 
-- `docs/durable.md` opens with "There are no tools and no streaming" — the backend
-  streams now (`/threads/:threadId/stream` plus the frontend store), so that status
-  paragraph is stale. It needs a rewrite to describe the chat slice as it stands,
-  including the windowed stream and the paging contract.
-- `docs/postgres-adapter.md` and `docs/durable.md` predate `workspaces`, `agents`
-  and archiving; neither mentions the platform tables that now sit beside the
-  durable ones in the same schema.
+- `docs/postgres-adapter.md` and `docs/durable.md` predate the platform tables
+  (`workspaces`, `agents`, capabilities, environments, auth, providers). Neither
+  describes them; `apps/backend/src/storage/postgres/schema.ts` and its migration
+  list are the source of truth until they do.
 
-## 15. The backend cannot update its own host
+## 14. The backend cannot update its own host
 
 **Missing:** the update socket works and nothing calls it.
 
@@ -303,7 +272,7 @@ route behind whatever authentication item 7 ends up with, since triggering an
 update is a privileged action; and a UI that shows the installer's output instead
 of a spinner.
 
-## 16. No backups, no restore
+## 15. No backups, no restore
 
 **Missing:** nothing copies the database or the state directory, and there is no
 restore path to test.
@@ -323,7 +292,7 @@ Related: an upgrade that ran a migration cannot be rolled back in place. Until a
 schema policy exists, the pre-upgrade dump is the only way back, which is another
 reason this lands before the first real deployment.
 
-## 17. The Docker API is still host root
+## 16. The Docker API is still host root
 
 **Missing:** a real boundary between the backend and the host.
 
