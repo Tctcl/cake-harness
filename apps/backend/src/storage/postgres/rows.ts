@@ -1,4 +1,4 @@
-import type { DocumentAddress, DocumentRecord, JsonObject } from '@earendil-works/pi-durable'
+import type { DocumentAddress, DocumentRecord } from '@earendil-works/pi-durable'
 
 /**
  * How Durable's records map to Postgres: a `json` column, and indexed strings alongside it.
@@ -97,6 +97,3 @@ export const revisionRow = (
 
 /** The columns a revision row writes, in order. */
 export const revisionColumns = ['document_id', 'seq', 'kind', 'version', 'content'] as const
-
-/** A `json` column the driver has already parsed. */
-export type JsonColumn = JsonObject

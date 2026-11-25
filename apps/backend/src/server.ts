@@ -38,7 +38,17 @@ function loggerOptions(config: Config): NonNullable<FastifyServerOptions['logger
 export function buildServer(config: Config, options: ServerOptions): FastifyInstance {
   const server = fastify({ logger: loggerOptions(config) })
 
-  void registerPlugins(server, config, { agent: options.agent })
+  // Registration is async (it awaits the websocket plugin before the routes that upgrade), but callers need the instance
+  // synchronously. A failure must still stop the server: it is held here and rethrown from `ready()`, which `listen()`
+  // and `inject()` both wait on, instead of surfacing as an unhandled rejection while a half-registered server boots.
+  let failure: unknown
+  const registration = registerPlugins(server, config, { agent: options.agent }).catch((error: unknown) => {
+    failure = error
+  })
+  server.addHook('onReady', async () => {
+    await registration
+    if (failure !== undefined) throw failure
+  })
 
   return server
 }

@@ -7,11 +7,12 @@ import type { DockerConnection } from './environments/docker-connection.js'
 import { parseDockerConnection } from './environments/docker-connection.js'
 import type { TerminalLimits } from './terminal/contract.js'
 
-// A local .env supplies the provider keys; the process environment wins nothing, Node only fills gaps.
+// A checkout's .env fills variables the process environment does not already set; it never overrides one. A missing
+// file is the normal case in a container. Anything else (a file Node cannot read or parse) is a startup failure.
 try {
   process.loadEnvFile()
-} catch {
-  // No .env file: the environment must already carry everything.
+} catch (error) {
+  if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error
 }
 
 const nodeEnvironments = ['development', 'test', 'production'] as const
@@ -191,7 +192,7 @@ export function loadConfig(source: Record<string, string | undefined> = process.
   }
 }
 
-/** Absent when neither variable is set; a half-configured store is a startup failure, not a silent fallback. */
+/** Unwired when neither variable is set; setting only one is a startup failure, not a silent fallback. */
 const workspaceWiring = (
   backendUrl: string | undefined,
   network: string | undefined,
