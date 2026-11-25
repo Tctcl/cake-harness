@@ -81,6 +81,28 @@ const messageListSchema = {
   required: ['messages', 'nextCursor'],
 } as const
 
+const contextCategorySchema = {
+  type: 'object',
+  properties: {
+    kind: { type: 'string', enum: ['messages', 'systemPrompt', 'systemTools'] },
+    tokens: { type: 'integer' },
+  },
+  required: ['kind', 'tokens'],
+} as const
+
+const contextUsageSchema = {
+  type: 'object',
+  properties: {
+    provider: { type: ['string', 'null'] },
+    modelId: { type: ['string', 'null'] },
+    contextWindow: { type: ['integer', 'null'] },
+    used: { type: 'integer' },
+    remaining: { type: ['integer', 'null'] },
+    categories: { type: 'array', items: contextCategorySchema },
+  },
+  required: ['provider', 'modelId', 'contextWindow', 'used', 'remaining', 'categories'],
+} as const
+
 const submissionSchema = {
   type: 'object',
   properties: { submissionId: { type: 'string' } },
@@ -230,6 +252,14 @@ export const threadRoutes: FastifyPluginAsync<{ agent: Agent }> = async (server,
         limit: request.query.limit ?? DEFAULT_MESSAGE_LIMIT,
         cursor: request.query.cursor,
       }),
+  )
+
+  // Estimated, not measured: the panel draws a share of the window, and a thread has to have one before the provider
+  // has answered once.
+  server.get<{ Params: ThreadIdParams }>(
+    '/threads/:threadId/context',
+    { schema: { params: threadIdParams, response: { 200: contextUsageSchema } } },
+    async (request) => options.agent.contextUsage(request.params.threadId),
   )
 
   // The stream is the transcript: it opens with the current window and then follows every commit, including the answer
