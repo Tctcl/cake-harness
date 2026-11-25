@@ -12,17 +12,15 @@ import type { WorkspaceTabId } from './workspace-detail.tsx'
 import { useNarrowScreen } from '../../lib/use-narrow-screen.ts'
 
 /**
- * Workspace management, a screen of its own rather than a settings section: the list on the left is every workspace, the
- * right is the one selected out of it, and only that one is loaded. The sidebar's order is arranged by dragging there, so
- * nothing here mentions it.
+ * Workspace management, a window of its own rather than a settings section: the list on the left is every workspace, the
+ * right is the one selected out of it, and only that one is loaded. The window's chrome — its title and the way out —
+ * belongs to the overlay around it. The sidebar's order is arranged by dragging there, so nothing here mentions it.
  */
 export function WorkspacesPage({
-  onClose,
   onOpenCredentials,
   initialWorkspaceId = null,
   initialTab = 'overview',
 }: {
-  onClose: () => void
   onOpenCredentials: () => void
   /** The workspace to open on, and its tab; another screen uses this to send the user to a specific fix. */
   initialWorkspaceId?: string | null
@@ -93,15 +91,6 @@ export function WorkspacesPage({
         aria-label="Workspaces"
         className={`${narrow && selected !== null ? 'hidden' : 'flex'} w-full shrink-0 flex-col gap-1 bg-sidebar p-2 text-sidebar-foreground md:w-64 md:border-r`}
       >
-        <button
-          type="button"
-          onClick={onClose}
-          className="mb-2 flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-        >
-          <ArrowLeftIcon className="size-4" aria-hidden />
-          Back to conversations
-        </button>
-
         <ul className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
           {loading && workspaces.length === 0 ? (
             <li className="flex items-center gap-2 px-2 py-1.5 text-sm text-muted-foreground">

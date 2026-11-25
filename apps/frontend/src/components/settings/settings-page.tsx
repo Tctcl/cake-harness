@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, KeyRoundIcon, SettingsIcon, UserIcon } from 'lucide-react'
+import { KeyRoundIcon, SettingsIcon, UserIcon } from 'lucide-react'
 import type { ComponentType } from 'react'
 import { useState } from 'react'
 
@@ -67,17 +67,15 @@ function SectionBody({ section }: { section: Section }) {
 }
 
 /**
- * The settings screen, replacing the whole app rather than the chat area: it owns the full width, its sections run down
- * the left, and the way back is a single control at the top.
+ * The settings window's two columns: its sections run down the left, the chosen one fills the right. The window's own
+ * chrome — its title and the way out — belongs to the overlay around it.
  *
  * What belongs to a workspace — its MCP servers, skills, prompts, tools, environment and providers — is not here. It
  * lives behind the workspace manager, because it means nothing outside the workspace it belongs to.
  */
 export function SettingsPage({
-  onClose,
   initialSection = 'application',
 }: {
-  onClose: () => void
   /** The section to open on, so another screen can send the user straight to their keys. */
   initialSection?: SectionId
 }) {
@@ -91,14 +89,6 @@ export function SettingsPage({
         aria-label="Settings sections"
         className="flex shrink-0 gap-1 overflow-x-auto border-b bg-sidebar p-2 text-sidebar-foreground md:w-64 md:flex-col md:overflow-visible md:border-r md:border-b-0"
       >
-        <button
-          type="button"
-          onClick={onClose}
-          className="flex shrink-0 items-center gap-2 md:mb-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-        >
-          <ArrowLeftIcon className="size-4" aria-hidden />
-          Back to conversations
-        </button>
         {SECTIONS.map((candidate) => {
           const Icon = candidate.icon
 
