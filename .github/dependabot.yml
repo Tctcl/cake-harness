@@ -1,25 +1,8 @@
 version: 2
 
 updates:
-  - package-ecosystem: npm
-    directory: /
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: chore
-      include: scope
-    groups:
-      # Tooling that is only ever bumped together with the lockfile.
-      dev-dependencies:
-        dependency-type: development
-        patterns:
-          - "*"
-      production-dependencies:
-        dependency-type: production
-        patterns:
-          - "*"
+  # npm/pnpm updates come from Renovate (renovate.json): Dependabot's updater
+  # does not support the pinned Node 26 and fails with tool_version_not_supported.
 
   - package-ecosystem: github-actions
     directory: /

@@ -61,7 +61,8 @@ with no demonstrated impact.
 
 ## Automated checks
 
-There is no continuous security scanning beyond what GitHub provides: Dependabot
-opens update pull requests weekly (`.github/dependabot.yml`) and GitHub's
+There is no continuous security scanning beyond what GitHub provides: Renovate
+opens npm update pull requests weekly (`renovate.json`), Dependabot does the same
+for GitHub Actions and Docker images (`.github/dependabot.yml`), and GitHub's
 dependency graph alerts on known advisories. There is no SAST or secret-scanning
 gate in CI yet — this section must be updated if one is added.

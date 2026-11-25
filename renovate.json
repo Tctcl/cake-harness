@@ -1,0 +1,36 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "npm/pnpm updates only. Dependabot keeps GitHub Actions and Docker; it cannot update npm here because it does not support the pinned Node 26.",
+  "extends": ["config:recommended"],
+  "enabledManagers": ["npm"],
+  "schedule": ["before 6am on monday"],
+  "timezone": "Europe/Berlin",
+  "prConcurrentLimit": 5,
+  "semanticCommits": "enabled",
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "deps",
+  "packageRules": [
+    {
+      "description": "Grouped like the former Dependabot npm entry: every non-major update in one PR per dependency type.",
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "dev dependencies"
+    },
+    {
+      "matchDepTypes": ["dependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "production dependencies"
+    },
+    {
+      "description": "Node types follow the pinned runtime major (.node-version, devEngines); that moves by hand.",
+      "matchPackageNames": ["@types/node"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "description": "Node and pnpm in devEngines/packageManager are pinned together and move by hand.",
+      "matchPackageNames": ["node", "pnpm"],
+      "enabled": false
+    }
+  ]
+}
