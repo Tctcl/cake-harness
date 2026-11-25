@@ -8,8 +8,8 @@ import { rowsOf, withClient, withTransaction } from '../storage/postgres/db.js'
 import type { PostgresSchema } from '../storage/postgres/schema.js'
 
 /**
- * A workspace: the scope threads and agents live in. The container an environment runs is a property of the
- * environment, not of the workspace — one workspace can have several.
+ * A workspace: the scope threads and agents live in, and the container they run in. Each workspace owns exactly one
+ * environment, created with it; the default workspace is the exception and has none, because it runs on this host.
  */
 export interface Workspace {
   readonly id: string
@@ -18,6 +18,8 @@ export interface Workspace {
   readonly isDefault: boolean
   readonly allowAll: boolean
   readonly archivedAt: Date | null
+  /** Where the workspace sits in the user's list, 0 at the top. Ordering is the user's, not a recency signal. */
+  readonly position: number
   readonly createdAt: Date
   readonly updatedAt: Date
 }
@@ -37,6 +39,7 @@ interface WorkspaceRow {
   readonly is_default: boolean
   readonly allow_all: boolean
   readonly archived_at: Date | null
+  readonly position: number
   readonly created_at: Date
   readonly updated_at: Date
 }
@@ -48,11 +51,18 @@ const toWorkspace = (row: WorkspaceRow): Workspace => ({
   isDefault: row.is_default,
   allowAll: row.allow_all,
   archivedAt: row.archived_at,
+  position: row.position,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 })
 
-const COLUMNS = `id, name, description, is_default, allow_all, archived_at, created_at, updated_at`
+interface MissingEnvironmentRow {
+  readonly id: string
+  readonly owner_id: string
+  readonly name: string
+}
+
+const COLUMNS = `id, name, description, is_default, allow_all, archived_at, position, created_at, updated_at`
 
 const immutable = (): AppError =>
   new AppError('the default workspace cannot be edited, archived or deleted', {
@@ -84,6 +94,10 @@ export class WorkspaceRepository {
     readonly deleteThreads: string
     readonly deleteAgents: string
     readonly deleteWorkspace: string
+    readonly reposition: string
+    readonly insertOnTop: string
+    readonly insertEnvironment: string
+    readonly attachEnvironment: string
   }
 
   constructor(pool: Pool, schema: PostgresSchema) {
@@ -99,14 +113,31 @@ export class WorkspaceRepository {
       deleteThreads: `DELETE FROM ${tables.chatThreads} WHERE workspace_id = $1`,
       deleteAgents: `DELETE FROM ${tables.agents} WHERE workspace_id = $1`,
       deleteWorkspace: `DELETE FROM ${tables.workspaces} WHERE id = $1`,
+      reposition: `UPDATE ${tables.workspaces} SET position = $2 WHERE id = $1`,
+      // A new workspace takes position 0 and pushes the rest down one: the arrangement is stored, so "newest on top"
+      // has to be written, not inferred from a timestamp later.
+      insertOnTop: `WITH shifted AS (
+          UPDATE ${tables.workspaces} SET position = position + 1
+          WHERE owner_id = $2 AND archived_at IS NULL
+        )
+        INSERT INTO ${tables.workspaces}
+          (id, owner_id, name, description, allow_all, position)
+        VALUES ($1, $2, $3, $4, $5, 0) RETURNING ${COLUMNS}`,
+      insertEnvironment: `INSERT INTO ${tables.devEnvironments} (id, owner_id, name, image)
+        VALUES ($1, $2, $3, $4)`,
+      attachEnvironment: `INSERT INTO ${tables.workspaceEnvironments} (workspace_id, environment_id)
+        VALUES ($1, $2)`,
     }
   }
 
-  /** Workspaces of `ownerId`, most recently changed first: the live ones, or the archived ones when asked for. */
+  /**
+   * Workspaces of `ownerId` in the user's own order: the live ones, or the archived ones when asked for. Newest library
+   * work lands on top because `create` puts it at position 0, and after that only `reorder` moves a row.
+   */
   async list(ownerId: string, options: { archived?: boolean | undefined } = {}): Promise<Workspace[]> {
     const visible = options.archived === true ? 'archived_at IS NOT NULL' : 'archived_at IS NULL'
     const text = `SELECT ${COLUMNS} FROM ${this.#schema.tables.workspaces}
-      WHERE owner_id = $1 AND ${visible} ORDER BY updated_at DESC`
+      WHERE owner_id = $1 AND ${visible} ORDER BY position, created_at DESC`
 
     return (await this.#select(text, [ownerId])).map(toWorkspace)
   }
@@ -123,21 +154,90 @@ export class WorkspaceRepository {
     return this.#one(`SELECT ${COLUMNS} FROM ${this.#schema.tables.workspaces} WHERE id = $1`, [id])
   }
 
-  async create(ownerId: string, input: WorkspaceInput): Promise<Workspace> {
-    const text = `INSERT INTO ${this.#schema.tables.workspaces}
-      (id, owner_id, name, description, allow_all)
-      VALUES ($1, $2, $3, $4, $5) RETURNING ${COLUMNS}`
-    const rows = await this.#select(text, [
-      randomUUID(),
-      ownerId,
-      input.name,
-      input.description ?? '',
-      input.allowAll ?? false,
-    ])
+  /**
+   * Create a workspace and the one environment it runs in, in a single transaction: a workspace without a container is
+   * a broken workspace, so the row and its link become visible together or not at all. The environment takes the
+   * workspace's name — both describe the same thing — and the image the caller passes, because the image is
+   * configuration and this module holds none.
+   */
+  async create(ownerId: string, input: WorkspaceInput, environmentImage: string): Promise<Workspace> {
+    const id = randomUUID()
+    const environmentId = randomUUID()
+
+    const rows = await withTransaction(this.#pool, async (client) => {
+      const inserted = await rowsOf<WorkspaceRow>(client, this.#sql.insertOnTop, [
+        id,
+        ownerId,
+        input.name,
+        input.description ?? '',
+        input.allowAll ?? false,
+      ])
+      await client.query(this.#sql.insertEnvironment, [environmentId, ownerId, input.name, environmentImage])
+      await client.query(this.#sql.attachEnvironment, [id, environmentId])
+
+      return inserted
+    })
     const row = rows[0]
     if (row === undefined) throw new Error('The workspace insert returned no row')
 
     return toWorkspace(row)
+  }
+
+  /**
+   * Give every non-default workspace that has no environment one, and answer how many were created.
+   *
+   * The image comes from configuration, which a migration cannot see, so this runs at startup instead: a migration that
+   * guessed a tag would pin the install to whatever was current the day the schema moved. Idempotent — it repairs an
+   * install that predates the rule and does nothing on the next boot.
+   */
+  async ensureEnvironments(ownerId: string, image: string): Promise<number> {
+    const missing = await withClient(this.#pool, (client) =>
+      rowsOf<MissingEnvironmentRow>(
+        client,
+        `SELECT w.id, w.owner_id, w.name FROM ${this.#schema.tables.workspaces} w
+          WHERE w.owner_id = $1 AND NOT w.is_default
+            AND NOT EXISTS (SELECT 1 FROM ${this.#schema.tables.workspaceEnvironments} link WHERE link.workspace_id = w.id)
+          ORDER BY w.position`,
+        [ownerId],
+      ),
+    )
+    if (missing.length === 0) return 0
+
+    await withTransaction(this.#pool, async (client) => {
+      for (const row of missing) {
+        const environmentId = randomUUID()
+        await client.query(this.#sql.insertEnvironment, [environmentId, row.owner_id, row.name, image])
+        await client.query(this.#sql.attachEnvironment, [row.id, environmentId])
+      }
+    })
+
+    return missing.length
+  }
+
+  /**
+   * Rewrite the list order from `ownerId`'s ids, top first. The set has to be the live workspaces exactly: a partial
+   * list would renumber some rows onto positions the others already hold, and the order would then depend on which
+   * row the database happened to update first.
+   */
+  async reorder(ownerId: string, ids: readonly string[]): Promise<Workspace[]> {
+    const current = await this.list(ownerId)
+    const known = new Set(current.map((workspace) => workspace.id))
+    const asked = new Set(ids)
+
+    if (ids.length !== current.length || asked.size !== ids.length || ids.some((id) => !known.has(id))) {
+      throw new AppError('the order must name every workspace exactly once', {
+        statusCode: 400,
+        code: 'WORKSPACE_ORDER_INVALID',
+      })
+    }
+
+    await withTransaction(this.#pool, async (client) => {
+      for (const [position, id] of ids.entries()) {
+        await client.query(this.#sql.reposition, [id, position])
+      }
+    })
+
+    return this.list(ownerId)
   }
 
   /** Edit a workspace, or answer `undefined` when the id is unknown. The default one is immutable. */

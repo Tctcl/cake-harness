@@ -1,6 +1,7 @@
 import { Client } from 'pg'
 import { afterAll, describe, expect, it } from 'vitest'
 
+import { EnvironmentRepository } from '../environments/environment-repository.js'
 import { createSchema, openPostgresStorage } from '../storage/postgres/index.js'
 import { ensureLocalUser } from '../threads/local-user.js'
 import { ThreadRepository } from '../threads/thread-repository.js'
@@ -16,6 +17,9 @@ import { WorkspaceRepository } from './workspace-repository.js'
  * Runs against a real server like the thread suite: `DATABASE_URL` must point at a disposable database, and each case
  * gets its own table prefix. Without the variable the file reports nothing instead of failing.
  */
+/** The image a workspace records until its container is first started; the value `WORKSPACE_IMAGE` defaults to. */
+const IMAGE = 'tctcl/dev-env:dev'
+
 const url = process.env['DATABASE_URL']
 
 if (url === undefined) {
@@ -32,6 +36,7 @@ if (url === undefined) {
       workspaces: WorkspaceRepository,
       threads: ThreadRepository,
       ownerId: string,
+      environments: EnvironmentRepository,
     ) => Promise<void>,
   ): Promise<void> => {
     const prefix = `w${run}_${caseIndex++}_`
@@ -44,6 +49,7 @@ if (url === undefined) {
         new WorkspaceRepository(storage.pool, schema),
         new ThreadRepository(storage.pool, schema),
         ownerId,
+        new EnvironmentRepository(storage.pool, schema),
       )
     } finally {
       await storage.close({} as never)
@@ -73,7 +79,7 @@ if (url === undefined) {
           name: 'Platform',
           description: 'Needs to reach everything',
           allowAll: false,
-        })
+        }, IMAGE)
 
         expect(workspace).toMatchObject({
           name: 'Platform',
@@ -82,6 +88,98 @@ if (url === undefined) {
           allowAll: false,
         })
         await expect(workspaces.find(workspace.id)).resolves.toMatchObject({ id: workspace.id })
+      })
+    })
+
+    it('creates the one environment the workspace runs in', async () => {
+      await withWorkspaces(async (workspaces, _threads, ownerId, environments) => {
+        const workspace = await workspaces.create(ownerId, { name: 'Platform' }, IMAGE)
+        const attached = await environments.ofWorkspace(workspace.id)
+
+        expect(attached).toHaveLength(1)
+        expect(attached[0]).toMatchObject({ name: 'Platform', image: IMAGE, containerId: null })
+      })
+    })
+
+    it('leaves the default workspace without an environment', async () => {
+      await withWorkspaces(async (_workspaces, _threads, _ownerId, environments) => {
+        await expect(environments.ofWorkspace(DEFAULT_WORKSPACE_ID)).resolves.toEqual([])
+      })
+    })
+
+    it('gives a workspace that lost its environment one again, once', async () => {
+      await withWorkspaces(async (workspaces, _threads, ownerId, environments) => {
+        const workspace = await workspaces.create(ownerId, { name: 'Platform' }, IMAGE)
+        const [environment] = await environments.ofWorkspace(workspace.id)
+        if (environment === undefined) throw new Error('the workspace was created without an environment')
+
+        // Deleting the row takes the link with it, which is the state an install predating the rule is in.
+        await environments.remove(environment.id)
+        await expect(environments.ofWorkspace(workspace.id)).resolves.toEqual([])
+
+        await expect(workspaces.ensureEnvironments(ownerId, 'tctcl/dev-env:next')).resolves.toBe(1)
+        const [healed] = await environments.ofWorkspace(workspace.id)
+        expect(healed).toMatchObject({ name: 'Platform', image: 'tctcl/dev-env:next' })
+
+        // Nothing is missing the second time, which is what makes it safe to run on every boot.
+        await expect(workspaces.ensureEnvironments(ownerId, 'tctcl/dev-env:next')).resolves.toBe(0)
+      })
+    })
+
+    it('puts a new workspace on top of the list', async () => {
+      await withWorkspaces(async (workspaces, _threads, ownerId) => {
+        const first = await workspaces.create(ownerId, { name: 'Platform' }, IMAGE)
+        const second = await workspaces.create(ownerId, { name: 'Research' }, IMAGE)
+
+        // Newest first, and the default workspace — the one that was already there — last: the list is arranged, not
+        // derived from a timestamp, so creating a workspace has to move the others down itself.
+        const all = await workspaces.list(ownerId)
+        expect(all.map((workspace) => workspace.name)).toEqual([
+          'Research',
+          'Platform',
+          DEFAULT_WORKSPACE_NAME,
+        ])
+        expect(all.map((workspace) => workspace.position)).toEqual([0, 1, 2])
+        expect(first.position).toBe(0)
+        expect(second.position).toBe(0)
+      })
+    })
+
+    it('keeps the order the user drags into place', async () => {
+      await withWorkspaces(async (workspaces, _threads, ownerId) => {
+        const platform = await workspaces.create(ownerId, { name: 'Platform' }, IMAGE)
+        const research = await workspaces.create(ownerId, { name: 'Research' }, IMAGE)
+
+        const reordered = await workspaces.reorder(ownerId, [
+          DEFAULT_WORKSPACE_ID,
+          research.id,
+          platform.id,
+        ])
+
+        expect(reordered.map((workspace) => workspace.name)).toEqual([
+          DEFAULT_WORKSPACE_NAME,
+          'Research',
+          'Platform',
+        ])
+        await expect(workspaces.list(ownerId)).resolves.toMatchObject(
+          reordered.map((workspace) => ({ id: workspace.id, position: workspace.position })),
+        )
+      })
+    })
+
+    it('refuses an order that does not name every workspace exactly once', async () => {
+      await withWorkspaces(async (workspaces, _threads, ownerId) => {
+        const platform = await workspaces.create(ownerId, { name: 'Platform' }, IMAGE)
+
+        await expect(workspaces.reorder(ownerId, [platform.id])).rejects.toMatchObject({
+          code: 'WORKSPACE_ORDER_INVALID',
+        })
+        await expect(
+          workspaces.reorder(ownerId, [platform.id, platform.id, DEFAULT_WORKSPACE_ID]),
+        ).rejects.toMatchObject({ code: 'WORKSPACE_ORDER_INVALID' })
+        await expect(
+          workspaces.reorder(ownerId, [platform.id, '00000000-0000-4000-8000-000000000009']),
+        ).rejects.toMatchObject({ code: 'WORKSPACE_ORDER_INVALID' })
       })
     })
 
@@ -104,9 +202,11 @@ if (url === undefined) {
 
     it('edits a workspace', async () => {
       await withWorkspaces(async (workspaces) => {
-        const workspace = await workspaces.create('00000000-0000-4000-8000-000000000001', {
-          name: 'Platform',
-        })
+        const workspace = await workspaces.create(
+          '00000000-0000-4000-8000-000000000001',
+          { name: 'Platform' },
+          IMAGE,
+        )
 
         const renamed = await workspaces.update(workspace.id, { name: 'Platform v2' })
 
@@ -122,7 +222,7 @@ if (url === undefined) {
 
     it('archives a workspace with its agents and threads', async () => {
       await withWorkspaces(async (workspaces, threads, ownerId) => {
-        const workspace = await workspaces.create(ownerId, { name: 'Platform' })
+        const workspace = await workspaces.create(ownerId, { name: 'Platform' }, IMAGE)
         const thread = await threads.create(ownerId, 1, {
           workspaceId: workspace.id,
           agentId: DEFAULT_AGENT_ID,
@@ -147,7 +247,7 @@ if (url === undefined) {
 
     it('refuses to remove a live workspace', async () => {
       await withWorkspaces(async (workspaces, _threads, ownerId) => {
-        const workspace = await workspaces.create(ownerId, { name: 'Platform' })
+        const workspace = await workspaces.create(ownerId, { name: 'Platform' }, IMAGE)
 
         await expect(workspaces.remove(workspace.id)).rejects.toMatchObject({
           code: 'WORKSPACE_NOT_ARCHIVED',
@@ -158,7 +258,7 @@ if (url === undefined) {
 
     it('refuses to remove an archived workspace holding a thread restored on its own', async () => {
       await withWorkspaces(async (workspaces, threads, ownerId) => {
-        const workspace = await workspaces.create(ownerId, { name: 'Platform' })
+        const workspace = await workspaces.create(ownerId, { name: 'Platform' }, IMAGE)
         const thread = await threads.create(ownerId, 1, {
           workspaceId: workspace.id,
           agentId: DEFAULT_AGENT_ID,
@@ -176,7 +276,7 @@ if (url === undefined) {
 
     it('deletes an archived workspace and answers undefined afterwards', async () => {
       await withWorkspaces(async (workspaces, _threads, ownerId) => {
-        const workspace = await workspaces.create(ownerId, { name: 'Platform' })
+        const workspace = await workspaces.create(ownerId, { name: 'Platform' }, IMAGE)
         await workspaces.archive(workspace.id)
 
         await expect(workspaces.remove(workspace.id)).resolves.toBe(true)

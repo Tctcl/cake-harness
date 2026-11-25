@@ -35,6 +35,7 @@ const workspaceProperties = {
   isDefault: { type: 'boolean' },
   allowAll: { type: 'boolean' },
   archivedAt: { type: ['string', 'null'] },
+  position: { type: 'integer' },
   createdAt: { type: 'string' },
   updatedAt: { type: 'string' },
 } as const
@@ -49,6 +50,7 @@ const workspaceSchema = {
     'isDefault',
     'allowAll',
     'archivedAt',
+    'position',
     'createdAt',
     'updatedAt',
   ],
@@ -78,6 +80,17 @@ const updateWorkspaceBody = {
     description: { type: 'string' },
     allowAll: { type: 'boolean' },
   },
+  additionalProperties: false,
+} as const
+
+// The whole order at once, top first: a single moved row is a client-side notion, and sending it alone would let two
+// users' drags interleave into an order neither of them asked for.
+const reorderWorkspacesBody = {
+  type: 'object',
+  properties: {
+    order: { type: 'array', items: { type: 'string', pattern: uuid }, uniqueItems: true },
+  },
+  required: ['order'],
   additionalProperties: false,
 } as const
 
@@ -165,6 +178,8 @@ type CreateWorkspaceBody = {
 
 type UpdateWorkspaceBody = WorkspacePatch
 
+type ReorderWorkspacesBody = { order: string[] }
+
 type CreateAgentBody = {
   name: string
   description?: string
@@ -206,9 +221,19 @@ export const workspaceRoutes: FastifyPluginAsync<{ agent: Agent }> = async (serv
 
   server.post<{ Body: CreateWorkspaceBody }>(
     '/workspaces',
-    { schema: { body: createWorkspaceBody, response: { 201: workspaceSchema } } },
+    { config: { permission: 'workspaces.create' }, schema: { body: createWorkspaceBody, response: { 201: workspaceSchema } } },
     async (request, reply) =>
       reply.code(201).send(toWorkspace(await options.agent.createWorkspace(request.body))),
+  )
+
+  // Before the `:workspaceId` routes on purpose: "order" is a word, not an id, and matching it as one would be a 404
+  // dressed as a workspace lookup.
+  server.put<{ Body: ReorderWorkspacesBody }>(
+    '/workspaces/order',
+    { schema: { body: reorderWorkspacesBody, response: { 200: workspaceListSchema } } },
+    async (request) => ({
+      workspaces: (await options.agent.reorderWorkspaces(request.body.order)).map(toWorkspace),
+    }),
   )
 
   server.get<{ Params: WorkspaceIdParams }>(
@@ -289,7 +314,7 @@ export const workspaceRoutes: FastifyPluginAsync<{ agent: Agent }> = async (serv
 
   server.post<{ Params: WorkspaceIdParams; Body: CreateAgentBody }>(
     '/workspaces/:workspaceId/agents',
-    { schema: { params: workspaceIdParams, body: createAgentBody, response: { 201: agentSchema } } },
+    { config: { permission: 'agents.create' }, schema: { params: workspaceIdParams, body: createAgentBody, response: { 201: agentSchema } } },
     async (request, reply) => {
       const created = await options.agent.createAgent(request.params.workspaceId, request.body)
 
