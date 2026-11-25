@@ -7,21 +7,30 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip.tsx'
 
 type SidebarSide = 'left' | 'right'
 
-const MIN_WIDTH = 160
-const MAX_WIDTH = 480
 const MAIN_MIN_WIDTH = 320
+
+/**
+ * What a sidebar's resize is allowed to produce and what it opens at. Each sidebar names its own: a terminal wants room
+ * the conversation list does not, and the width it opens at is a decision of the screen that owns it, not of the handle.
+ */
+type SidebarWidths = {
+  readonly min: number
+  readonly max: number
+  readonly open: number
+}
 
 type WidthProps = {
   side: SidebarSide
+  widths: SidebarWidths
   width: number
   otherWidth: number
   onWidthChange: (width: number) => void
 }
 
-function clampWidth(next: number, otherWidth: number) {
+function clampWidth(next: number, otherWidth: number, widths: SidebarWidths) {
   const available = window.innerWidth - otherWidth - MAIN_MIN_WIDTH
 
-  return Math.round(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, next, Math.min(next, available))))
+  return Math.round(Math.min(widths.max, Math.max(widths.min, next, Math.min(next, available))))
 }
 
 type SidebarProps = WidthProps & {
@@ -104,6 +113,7 @@ function SidebarRail({ side, title, onExpand }: SidebarRailProps) {
 
 function ResizeHandle({
   side,
+  widths,
   width,
   otherWidth,
   onWidthChange,
@@ -122,7 +132,7 @@ function ResizeHandle({
 
     const delta = event.clientX - start.x
     const next = side === 'left' ? start.width + delta : start.width - delta
-    onWidthChange(clampWidth(next, otherWidth))
+    onWidthChange(clampWidth(next, otherWidth, widths))
   }
 
   function handlePointerUp(event: PointerEvent<HTMLButtonElement>) {
@@ -139,14 +149,16 @@ function ResizeHandle({
     event.preventDefault()
     // ArrowRight always grows the left sidebar and shrinks the right one.
     const grows = side === 'left' ? step > 0 : step < 0
-    onWidthChange(clampWidth(width + (grows ? 16 : -16), otherWidth))
+    onWidthChange(clampWidth(width + (grows ? 16 : -16), otherWidth, widths))
   }
 
   return (
     <button
       type="button"
       aria-label={`Resize ${side} sidebar`}
-      className="m-0 h-full w-1 shrink-0 cursor-col-resize touch-none border-0 bg-border transition-colors hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:outline-none"
+      // The line itself is the 1px border of the sidebar it borders on; this strip is only the grab area, so dragging
+      // is comfortable without the separator growing to the width of the handle.
+      className="m-0 h-full w-1 shrink-0 cursor-col-resize touch-none border-0 bg-transparent transition-colors hover:bg-primary/40 focus-visible:bg-primary/60 focus-visible:outline-none"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -158,3 +170,4 @@ function ResizeHandle({
 }
 
 export { ResizeHandle, Sidebar, SidebarRail }
+export type { SidebarWidths }
