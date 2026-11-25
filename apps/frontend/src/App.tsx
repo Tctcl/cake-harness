@@ -9,6 +9,7 @@ import { Topbar, type PanelKind } from './components/layout/topbar.tsx'
 import { UpdateNotice } from './components/layout/update-notice.tsx'
 import { UserMenu } from './components/layout/user-menu.tsx'
 import { SettingsPage } from './components/settings/settings-page.tsx'
+import type { SectionId } from './components/settings/settings-page.tsx'
 import { WorkspacesPage } from './components/workspaces/workspaces-page.tsx'
 import { TooltipProvider } from './components/ui/tooltip.tsx'
 import type { ChatThread, CurrentUser, WorkspaceSummary } from './lib/chat-api.ts'
@@ -38,6 +39,7 @@ const SIDEBAR_WIDTHS = {
  */
 function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
   const [view, setView] = useState<'chat' | 'settings' | 'workspaces'>('chat')
+  const [settingsSection, setSettingsSection] = useState<SectionId>('application')
   const [me, setMe] = useState<CurrentUser | null>(null)
   const [loadingMe, setLoadingMe] = useState(true)
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([])
@@ -185,6 +187,10 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
       <TooltipProvider>
         <div className="h-full min-h-0">
           <WorkspacesPage
+            onOpenCredentials={() => {
+              setSettingsSection('credentials')
+              setView('settings')
+            }}
             onClose={() => {
               // Workspaces are added and archived there, so the list is re-read before the columns come back.
               loadWorkspaces()
@@ -203,6 +209,7 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
         <div className="h-full min-h-0">
           <SettingsPage
             user={me}
+            initialSection={settingsSection}
             onClose={() => {
               setView('chat')
             }}
@@ -234,7 +241,10 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
                   <UserMenu
                     user={me}
                     loading={loadingMe}
-                    onOpenSettings={() => setView('settings')}
+                    onOpenSettings={() => {
+                      setSettingsSection('application')
+                      setView('settings')
+                    }}
                     onOpenWorkspaces={() => setView('workspaces')}
                     onSignOut={onSignOut}
                   />

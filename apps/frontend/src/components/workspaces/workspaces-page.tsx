@@ -14,7 +14,13 @@ import { WorkspaceDetail } from './workspace-detail.tsx'
  * right is the one selected out of it, and only that one is loaded. The sidebar's order is arranged by dragging there, so
  * nothing here mentions it.
  */
-export function WorkspacesPage({ onClose }: { onClose: () => void }) {
+export function WorkspacesPage({
+  onClose,
+  onOpenCredentials,
+}: {
+  onClose: () => void
+  onOpenCredentials: () => void
+}) {
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -143,7 +149,12 @@ export function WorkspacesPage({ onClose }: { onClose: () => void }) {
           </div>
         ) : (
           // Keyed on the id: switching workspace starts the next one on its Overview tab, not on the last one's tab.
-          <WorkspaceDetail key={selected.id} workspace={selected} onChanged={reload} />
+          <WorkspaceDetail
+            key={selected.id}
+            workspace={selected}
+            onChanged={reload}
+            onOpenCredentials={onOpenCredentials}
+          />
         )}
       </main>
     </div>

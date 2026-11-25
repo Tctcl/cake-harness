@@ -2,7 +2,7 @@
  * Provider logins and the models behind them. A login is the user's, not a workspace's: it is stored once, and a
  * workspace links the ones it may use, the same way a tool or a prompt is granted rather than copied.
  *
- * The key itself never comes back from the server; it is sent once on `createLogin` and afterwards only named by label.
+ * Keys are added in Settings → Credentials (`credentials-api.ts`); here they are only listed by label and linked.
  */
 
 import { request } from './http.ts'
@@ -18,7 +18,7 @@ export interface ProviderLogin {
 
 /** What the catalog knows about a model, which is what a run reports once it uses one. */
 export interface ProviderModel {
-  /** Provider-qualified, e.g. `anthropic/claude-sonnet-4`, which is how a grant names a model. */
+  /** The model id within its provider, e.g. `deepseek-v4.1-flash`: what an agent and a workspace grant name. */
   readonly id: string
   readonly provider: string
   readonly name: string
@@ -33,17 +33,10 @@ export interface ProviderModel {
 /** What a workspace may reach: the logins it links, and which of their models it allows. */
 export interface WorkspaceProviders {
   readonly loginIds: readonly string[]
-  /** Provider-qualified model ids. Meaningful only while the model's provider has a linked login. */
+  /** Model ids the workspace allows its agents to pick. */
   readonly allowedModels: readonly string[]
   /** Every model any linked login reaches, so a model added later is allowed without being listed. */
   readonly allowAllModels: boolean
-}
-
-export interface ProviderLoginInput {
-  readonly provider: string
-  readonly label: string
-  /** Sent once; the server stores it and answers with the login, never the key. */
-  readonly key: string
 }
 
 const json = (method: string, body: unknown): RequestInit => ({
@@ -55,8 +48,6 @@ const json = (method: string, body: unknown): RequestInit => ({
 export const listProviderLogins = async (): Promise<ProviderLogin[]> =>
   (await request<{ logins: ProviderLogin[] }>('/providers/logins')).logins
 
-export const createProviderLogin = async (input: ProviderLoginInput): Promise<ProviderLogin> =>
-  await request<ProviderLogin>('/providers/logins', json('POST', input))
 
 /** Every model the user's logins reach; the workspace's selection is picked out of it. */
 export const listProviderModels = async (): Promise<ProviderModel[]> =>
