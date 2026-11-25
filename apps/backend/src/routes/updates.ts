@@ -24,7 +24,10 @@ export const updateRoutes: FastifyPluginAsync<{ agent: Agent }> = async (server,
   )
 
   // Forcing the check from the UI must not wait for the interval; concurrent callers share one request.
-  server.post('/updates', { schema: { response: { 200: updateSchema } } }, async () =>
+  server.post(
+    '/updates',
+    { config: { permission: 'updates.manage' }, schema: { response: { 200: updateSchema } } },
+    async () =>
     options.agent.checkForUpdates(),
   )
 }
