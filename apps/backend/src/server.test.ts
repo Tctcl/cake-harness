@@ -301,6 +301,22 @@ describe('GET /me', () => {
 })
 
 describe('error handling', () => {
+  it('refuses to become ready when route registration fails', async () => {
+    // Registration reads the auth service first; a throwing getter stands in for any failure during registration.
+    const broken = {
+      get auth(): never {
+        throw new Error('registration broke')
+      },
+    } as unknown as Agent
+    const server = buildServer(config, { agent: broken })
+
+    try {
+      await expect(server.ready()).rejects.toThrow('registration broke')
+    } finally {
+      await server.close()
+    }
+  })
+
   it('responds with a structured 404 for unknown routes', async () => {
     const server = buildServer(config, { agent })
 

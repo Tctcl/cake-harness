@@ -90,5 +90,3 @@ export const authRoutes: FastifyPluginAsync<{ agent: Agent }> = async (server, o
     return reply.send()
   })
 }
-
-export const sessionMaxAgeSeconds = SESSION_MAX_AGE_SECONDS

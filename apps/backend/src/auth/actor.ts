@@ -23,6 +23,3 @@ export interface Actor {
 }
 
 export const can = (actor: Actor, permission: Permission): boolean => actor.permissions.has(permission)
-
-/** A half-signed-in session may read nothing but its own state: the pending step is a wall, not a warning. */
-export const isSignedIn = (actor: Actor): boolean => actor.pending === null
