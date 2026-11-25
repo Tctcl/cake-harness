@@ -43,7 +43,7 @@ describe('SettingsPage', () => {
     renderPage()
 
     expect(screen.getByRole('heading', { name: 'Application settings' })).toBeDefined()
-    for (const label of ['Application settings', 'Credentials', 'Account']) {
+    for (const label of ['Application settings', 'Credentials', 'SSH keys', 'Account']) {
       expect(screen.getByRole('button', { name: label })).toBeDefined()
     }
     // What belongs to a workspace is edited in the workspace manager, not here.

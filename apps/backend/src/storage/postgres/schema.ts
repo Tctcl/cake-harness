@@ -67,6 +67,8 @@ export type PostgresSchema = {
     readonly appSettings: string
     /** User-owned secrets: API keys and MCP credentials, kept apart from the capability catalog they serve. */
     readonly userCredentials: string
+    /** Public keys authorized in every container the owner starts; private material never enters this table. */
+    readonly userSshKeys: string
     /** What a provider serves, cached; and the two link tables that say what one workspace may spend. */
     readonly providerModels: string
     readonly workspaceProviderLogins: string
@@ -108,6 +110,7 @@ export type PostgresSchema = {
     readonly workspaceMcpServersByName: string
     readonly sessionsByUser: string
     readonly usersByUsername: string
+    readonly userSshKeysByOwner: string
   }
 }
 
@@ -160,6 +163,7 @@ const PLATFORM_TABLE_NAMES = {
   // checkbox is a migration nobody needs.
   appSettings: 'app_settings',
   userCredentials: 'user_credentials',
+  userSshKeys: 'user_ssh_keys',
   // The catalog of what a provider serves, cached because the upstream call is somebody else's rate limit.
   providerModels: 'provider_models',
   workspaceProviderLogins: 'workspace_provider_logins',
@@ -210,6 +214,7 @@ const PLATFORM_INDEX_NAMES = {
   workspaceMcpServersByName: 'workspace_mcp_servers_by_workspace_name',
   sessionsByUser: 'sessions_by_user',
   usersByUsername: 'users_by_username',
+  userSshKeysByOwner: 'user_ssh_keys_by_owner',
 } as const
 
 const PREFIX = /^[a-z0-9_]*$/
@@ -1057,6 +1062,21 @@ const generalEnvironmentDescriptionMigration = (schema: PostgresSchema): readonl
     WHERE is_default AND description = ${literal(LEGACY_DEFAULT_WORKSPACE_DESCRIPTION)}`,
 ]
 
+/** Stable host ports for Remote-SSH, and the owner's public keys delivered to each container at start and on change. */
+const sshAccessMigration = (schema: PostgresSchema): readonly string[] => [
+  `ALTER TABLE ${schema.tables.devEnvironments} ADD COLUMN ssh_port integer UNIQUE`,
+  `CREATE TABLE ${schema.tables.userSshKeys} (
+    id uuid PRIMARY KEY,
+    owner_id uuid NOT NULL REFERENCES ${schema.tables.users} (id) ON DELETE CASCADE,
+    name text NOT NULL,
+    public_key text NOT NULL,
+    fingerprint text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+  )`,
+  `CREATE INDEX ${schema.indexes.userSshKeysByOwner}
+    ON ${schema.tables.userSshKeys} (owner_id, created_at)`,
+]
+
 /** Ordered schema history: a released version is never edited, a change appends one. */
 export const MIGRATIONS: readonly { version: number; statements: (schema: PostgresSchema) => readonly string[] }[] = [
   { version: 1, statements: migration },
@@ -1081,6 +1101,7 @@ export const MIGRATIONS: readonly { version: number; statements: (schema: Postgr
   { version: 20, statements: removePromptsMigration },
   { version: 21, statements: agentPromptAppendMigration },
   { version: 22, statements: generalEnvironmentDescriptionMigration },
+  { version: 23, statements: sshAccessMigration },
 ]
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0

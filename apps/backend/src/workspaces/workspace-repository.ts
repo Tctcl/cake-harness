@@ -6,6 +6,8 @@ import { AppError } from '../errors.js'
 import type { Value } from '../storage/postgres/db.js'
 import { rowsOf, withClient, withTransaction } from '../storage/postgres/db.js'
 import type { PostgresSchema } from '../storage/postgres/schema.js'
+import type { SshPortRange } from '../environments/ssh-ports.js'
+import { DEFAULT_SSH_PORT_RANGE, reserveSshPort } from '../environments/ssh-ports.js'
 import {
   PLAN_AGENT_DESCRIPTION,
   PLAN_AGENT_INSTRUCTIONS,
@@ -93,6 +95,7 @@ const notArchived = (): AppError =>
 export class WorkspaceRepository {
   readonly #pool: Pool
   readonly #schema: PostgresSchema
+  readonly #sshPortRange: SshPortRange
   // Statements whose text is not a value of this call live beside the columns they name, so the call sites bind only ids.
   readonly #sql: {
     readonly archive: string
@@ -111,9 +114,10 @@ export class WorkspaceRepository {
     readonly grantPlanTools: string
   }
 
-  constructor(pool: Pool, schema: PostgresSchema) {
+  constructor(pool: Pool, schema: PostgresSchema, sshPortRange: SshPortRange = DEFAULT_SSH_PORT_RANGE) {
     this.#pool = pool
     this.#schema = schema
+    this.#sshPortRange = sshPortRange
 
     const { tables } = schema
     const stamp = 'archived_at = now(), updated_at = now()'
@@ -134,8 +138,8 @@ export class WorkspaceRepository {
         INSERT INTO ${tables.workspaces}
           (id, owner_id, name, description, allow_all, position)
         VALUES ($1, $2, $3, $4, $5, 0) RETURNING ${COLUMNS}`,
-      insertEnvironment: `INSERT INTO ${tables.devEnvironments} (id, owner_id, name, image)
-        VALUES ($1, $2, $3, $4)`,
+      insertEnvironment: `INSERT INTO ${tables.devEnvironments} (id, owner_id, name, image, ssh_port)
+        VALUES ($1, $2, $3, $4, $5)`,
       attachEnvironment: `INSERT INTO ${tables.workspaceEnvironments} (workspace_id, environment_id)
         VALUES ($1, $2)`,
       // Every workspace starts with an agent, so a conversation can start there before anyone opens the Agents tab.
@@ -191,6 +195,7 @@ export class WorkspaceRepository {
     const environmentId = randomUUID()
 
     const rows = await withTransaction(this.#pool, async (client) => {
+      const sshPort = await reserveSshPort(client, this.#schema, this.#sshPortRange)
       const inserted = await rowsOf<WorkspaceRow>(client, this.#sql.insertOnTop, [
         id,
         ownerId,
@@ -198,7 +203,7 @@ export class WorkspaceRepository {
         input.description ?? '',
         input.allowAll ?? false,
       ])
-      await client.query(this.#sql.insertEnvironment, [environmentId, ownerId, input.name, environmentImage])
+      await client.query(this.#sql.insertEnvironment, [environmentId, ownerId, input.name, environmentImage, sshPort])
       await client.query(this.#sql.attachEnvironment, [id, environmentId])
       await client.query(this.#sql.insertDefaultAgent, [randomUUID(), id])
       const planId = randomUUID()
@@ -250,7 +255,8 @@ export class WorkspaceRepository {
     await withTransaction(this.#pool, async (client) => {
       for (const row of missing) {
         const environmentId = randomUUID()
-        await client.query(this.#sql.insertEnvironment, [environmentId, row.owner_id, row.name, image])
+        const sshPort = await reserveSshPort(client, this.#schema, this.#sshPortRange)
+        await client.query(this.#sql.insertEnvironment, [environmentId, row.owner_id, row.name, image, sshPort])
         await client.query(this.#sql.attachEnvironment, [row.id, environmentId])
       }
     })

@@ -30,10 +30,11 @@ Choose a bare hostname such as `cake.example.com`. Create an A or AAAA record th
 | `22/tcp` | SSH administration, if you use it |
 | `80/tcp` | HTTP, redirected to HTTPS |
 | `443/tcp` | HTTPS and Let's Encrypt TLS-ALPN validation |
+| `22000-22999/tcp` | Workspace SSH by default; the configured `CAKE_SSH_PORT_RANGE` if changed |
 
-Only Traefik publishes the web ports. Workspace containers, Postgres, and the secrets store do not publish host ports. Agent tools communicate with the pi-env daemon inside a workspace container without opening a port for each tool.
+Only Traefik publishes the web ports. Workspace containers publish one stable host port each for SSH from the configured range; development-server ports are not published individually. Postgres and the secrets store do not publish host ports. Agent tools communicate with the pi-env daemon inside a workspace container without opening a port for each tool.
 
-Certificate issuance uses **TLS-ALPN**, so port 443 must reach Traefik. Port 80 is still needed for the normal HTTP-to-HTTPS redirect.
+Certificate issuance uses **TLS-ALPN**, so port 443 must reach Traefik. Port 80 is still needed for the normal HTTP-to-HTTPS redirect. Open the full configured SSH port range in the server firewall and allow clients to reach `CAKE_SSH_HOST` on those ports.
 
 ## Deliberately manual steps
 

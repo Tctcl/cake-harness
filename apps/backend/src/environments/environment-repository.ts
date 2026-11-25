@@ -5,6 +5,8 @@ import type { Pool, QueryResultRow } from 'pg'
 import type { Value } from '../storage/postgres/db.js'
 import { rowsOf, withClient, withTransaction } from '../storage/postgres/db.js'
 import type { PostgresSchema } from '../storage/postgres/schema.js'
+import type { SshPortRange } from './ssh-ports.js'
+import { DEFAULT_SSH_PORT_RANGE, reserveSshPort } from './ssh-ports.js'
 
 /**
  * One development environment: the container an agent works in, named and addressed on its own rather than as a
@@ -15,6 +17,8 @@ export interface DevEnvironment {
   readonly name: string
   readonly image: string
   readonly containerId: string | null
+  /** The stable host port published as this container's SSH endpoint. */
+  readonly sshPort: number
   readonly createdAt: Date
   readonly updatedAt: Date
 }
@@ -32,6 +36,7 @@ interface EnvironmentRow {
   readonly name: string
   readonly image: string
   readonly container_id: string | null
+  readonly ssh_port: number
   readonly created_at: Date
   readonly updated_at: Date
 }
@@ -41,11 +46,12 @@ const toEnvironment = (row: EnvironmentRow): DevEnvironment => ({
   name: row.name,
   image: row.image,
   containerId: row.container_id,
+  sshPort: row.ssh_port,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 })
 
-const COLUMNS = `id, name, image, container_id, created_at, updated_at`
+const COLUMNS = `id, name, image, container_id, ssh_port, created_at, updated_at`
 
 /** One stored report: the document as the container sent it, and the instant the container said it was produced. */
 export interface ReportedState {
@@ -65,6 +71,7 @@ interface ReportedStateRow {
 export class EnvironmentRepository {
   readonly #pool: Pool
   readonly #schema: PostgresSchema
+  readonly #sshPortRange: SshPortRange
   readonly #sql: {
     readonly byWorkspace: string
     readonly workspacesOf: string
@@ -76,13 +83,14 @@ export class EnvironmentRepository {
     readonly connect: string
   }
 
-  constructor(pool: Pool, schema: PostgresSchema) {
+  constructor(pool: Pool, schema: PostgresSchema, sshPortRange: SshPortRange = DEFAULT_SSH_PORT_RANGE) {
     this.#pool = pool
     this.#schema = schema
+    this.#sshPortRange = sshPortRange
 
     const { tables } = schema
     this.#sql = {
-      byWorkspace: `SELECT e.id, e.name, e.image, e.container_id, e.created_at, e.updated_at
+      byWorkspace: `SELECT e.id, e.name, e.image, e.container_id, e.ssh_port, e.created_at, e.updated_at
         FROM ${tables.devEnvironments} e
         JOIN ${tables.workspaceEnvironments} w ON w.environment_id = e.id
         WHERE w.workspace_id = $1 ORDER BY e.updated_at DESC`,
@@ -90,7 +98,7 @@ export class EnvironmentRepository {
       attach: `INSERT INTO ${tables.workspaceEnvironments} (workspace_id, environment_id) VALUES ($1, $2)
         ON CONFLICT DO NOTHING`,
       detach: `DELETE FROM ${tables.workspaceEnvironments} WHERE workspace_id = $1 AND environment_id = $2`,
-      byAgent: `SELECT e.id, e.name, e.image, e.container_id, e.created_at, e.updated_at
+      byAgent: `SELECT e.id, e.name, e.image, e.container_id, e.ssh_port, e.created_at, e.updated_at
         FROM ${tables.devEnvironments} e
         JOIN ${tables.agentEnvironments} a ON a.environment_id = e.id
         WHERE a.agent_id = $1`,
@@ -113,13 +121,35 @@ export class EnvironmentRepository {
   }
 
   async create(ownerId: string, input: EnvironmentInput): Promise<DevEnvironment> {
-    const text = `INSERT INTO ${this.#schema.tables.devEnvironments} (id, owner_id, name, image)
-      VALUES ($1, $2, $3, $4) RETURNING ${COLUMNS}`
-    const rows = await this.#select(text, [randomUUID(), ownerId, input.name, input.image])
-    const row = rows[0]
-    if (row === undefined) throw new Error('The environment insert returned no row')
+    return withTransaction(this.#pool, async (client) => {
+      const sshPort = await reserveSshPort(client, this.#schema, this.#sshPortRange)
+      const text = `INSERT INTO ${this.#schema.tables.devEnvironments} (id, owner_id, name, image, ssh_port)
+        VALUES ($1, $2, $3, $4, $5) RETURNING ${COLUMNS}`
+      const rows = await rowsOf<EnvironmentRow>(client, text, [randomUUID(), ownerId, input.name, input.image, sshPort])
+      const row = rows[0]
+      if (row === undefined) throw new Error('The environment insert returned no row')
 
-    return toEnvironment(row)
+      return toEnvironment(row)
+    })
+  }
+
+  /** Backfill rows created before SSH ports existed; a later boot finds no nulls and writes nothing. */
+  async ensureSshPorts(): Promise<number> {
+    return withTransaction(this.#pool, async (client) => {
+      const missing = await rowsOf<{ readonly id: string }>(
+        client,
+        `SELECT id FROM ${this.#schema.tables.devEnvironments} WHERE ssh_port IS NULL ORDER BY created_at, id`,
+      )
+      for (const row of missing) {
+        const sshPort = await reserveSshPort(client, this.#schema, this.#sshPortRange)
+        await client.query(
+          `UPDATE ${this.#schema.tables.devEnvironments} SET ssh_port = $1 WHERE id = $2`,
+          [sshPort, row.id],
+        )
+      }
+
+      return missing.length
+    })
   }
 
   /** Answer `undefined` when the id is unknown. */
@@ -189,9 +219,9 @@ export class EnvironmentRepository {
 
   /** The workspaces offering this environment, as ids: a workspace has no payload to return here. */
   async workspacesOf(environmentId: string): Promise<string[]> {
-    const rows = await this.#select(this.#sql.workspacesOf, [environmentId])
+    const rows = await this.#select<{ readonly workspace_id: string }>(this.#sql.workspacesOf, [environmentId])
 
-    return rows.map((row) => row.id)
+    return rows.map((row) => row.workspace_id)
   }
 
   /** `false` when the workspace already offers it, which is the state the caller asked for either way. */

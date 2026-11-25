@@ -5,6 +5,9 @@ import { createSecretBox } from './auth/secret-box.js'
 
 import type { DockerConnection } from './environments/docker-connection.js'
 import { parseDockerConnection } from './environments/docker-connection.js'
+import { dockerHostOf } from './environments/ssh-access.js'
+import type { SshPortRange } from './environments/ssh-ports.js'
+import { parseSshPortRange } from './environments/ssh-ports.js'
 import type { TerminalLimits } from './terminal/contract.js'
 
 // A checkout's .env fills variables the process environment does not already set; it never overrides one. A missing
@@ -38,6 +41,10 @@ export interface Config {
   readonly workspaceBackendUrl: string | null
   /** The Docker network the backend is reachable on from a workspace container, or `null` for Docker's default. */
   readonly workspaceNetwork: string | null
+  /** Public hostname clients use for workspace SSH; defaults to DOMAIN, then the Docker host. */
+  readonly sshHost: string
+  /** Inclusive host ports that can be assigned, one permanently per environment. */
+  readonly sshPortRange: SshPortRange
   /** Where this install's releases come from; a staging install tracks a moving tag instead of a version. */
   readonly channel: ReleaseChannel
   /** The release this install runs, or `undefined` when nothing said (a checkout, `pnpm dev`). */
@@ -93,6 +100,10 @@ const environmentSchema = z.object({
   // Both or neither: a container that cannot resolve the backend gets no documents and boots without them.
   WORKSPACE_BACKEND_URL: z.url({ protocol: /^https?$/, error: 'must be an http:// or https:// URL' }).optional(),
   WORKSPACE_NETWORK: z.string().min(1).optional(),
+  // The install's public hostname. Local development normally leaves it unset and connects to the Docker host.
+  DOMAIN: z.string().min(1).optional(),
+  CAKE_SSH_HOST: z.string().min(1).optional(),
+  CAKE_SSH_PORT_RANGE: z.string().default('22000-22999'),
   CAKE_CHANNEL: z.enum(releaseChannels).default('production'),
   // Absent in a checkout and empty on a staging install, which follows a moving tag: there is nothing to compare
   // against, so the check reports that instead of guessing. Compose hands an empty variable through as ''.
@@ -169,6 +180,10 @@ export function loadConfig(source: Record<string, string | undefined> = process.
 
   const ciphergate = cipherGateConfig(parsed.data.CIPHERGATE_URL, parsed.data.CIPHERGATE_TOKEN)
   const workspace = workspaceWiring(parsed.data.WORKSPACE_BACKEND_URL, parsed.data.WORKSPACE_NETWORK)
+  const sshPortRange = parseSshPortRange(parsed.data.CAKE_SSH_PORT_RANGE)
+  if (sshPortRange === null) {
+    throw new ConfigError(['CAKE_SSH_PORT_RANGE: must be FIRST-LAST with 1 <= FIRST <= LAST <= 65535'])
+  }
 
   return {
     nodeEnv: parsed.data.NODE_ENV,
@@ -181,6 +196,8 @@ export function loadConfig(source: Record<string, string | undefined> = process.
     workspaceImage: parsed.data.WORKSPACE_IMAGE,
     workspaceBackendUrl: workspace.backendUrl,
     workspaceNetwork: workspace.network,
+    sshHost: parsed.data.CAKE_SSH_HOST ?? parsed.data.DOMAIN ?? dockerHostOf(docker),
+    sshPortRange,
     channel: parsed.data.CAKE_CHANNEL,
     version: parsed.data.CAKE_VERSION,
     updateCheckIntervalMs: parsed.data.UPDATE_CHECK_INTERVAL_MS,

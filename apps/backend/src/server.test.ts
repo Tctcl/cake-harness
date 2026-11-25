@@ -84,6 +84,7 @@ const environmentOf = (overrides: Partial<DevEnvironment> = {}): DevEnvironment 
   name: 'Node',
   image: 'ghcr.io/tctcl/cake-harness/workspace:1.0.0',
   containerId: null,
+  sshPort: 22_000,
   createdAt: new Date(0),
   updatedAt: new Date(0),
   ...overrides,
@@ -110,7 +111,8 @@ const environmentsOf = (overrides: Partial<EnvironmentApi> = {}): EnvironmentApi
   state: async () => undefined,
   status: async () => 'missing',
   metrics: async () => null,
-  ssh: async () => null,
+  ssh: async () => undefined,
+  ports: async () => null,
   ...overrides,
 })
 
@@ -167,6 +169,7 @@ function stubAgent(overrides: Partial<Agent> = {}): Agent {
     environments: environmentsOf(),
     // Only the credential routes read a key; a test that needs another store stubs that one instead.
     credentials: { list: async () => [], create: unused, remove: unused },
+    sshKeys: { list: async () => [], upload: unused, generate: unused, remove: unused },
     answerQuestion: async () => 'not-found',
     // Same rule for the provider routes: the stub answers only what registration needs.
     providers: {
@@ -277,6 +280,7 @@ describe('GET /me', () => {
         pending: null,
         singleUser: true,
       })
+
     } finally {
       await server.close()
     }
@@ -295,6 +299,75 @@ describe('GET /me', () => {
       })
     } finally {
       await server.close()
+    }
+  })
+})
+
+describe('account SSH keys', () => {
+  it('uses the signed-in account guard and returns public key metadata only', async () => {
+    const publicKey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJPOdiu8Ol2WKBKTzIV+JvRpeQbODlBw8uQpa+7VXVs'
+    const server = buildServer(config, {
+      agent: stubAgent({
+        sshKeys: {
+          list: async () => [{
+            id: 'key-1',
+            name: 'Laptop',
+            publicKey,
+            fingerprint: 'SHA256:fingerprint',
+            createdAt: new Date(0).toISOString(),
+          }],
+          upload: unused,
+          generate: unused,
+          remove: unused,
+        },
+        auth: authOf({
+          resolve: async () => actorOf({ pending: 'password' }),
+        }),
+      }),
+    })
+
+    try {
+      const response = await server.inject({ method: 'GET', url: '/account/ssh-keys' })
+
+      expect(response.statusCode).toBe(401)
+      expect(response.json<{ error: { code: string } }>().error.code).toBe('auth.pending')
+    } finally {
+      await server.close()
+    }
+
+    const signedIn = buildServer(config, {
+      agent: stubAgent({
+        sshKeys: {
+          list: async () => [{
+            id: 'key-1',
+            name: 'Laptop',
+            publicKey,
+            fingerprint: 'SHA256:fingerprint',
+            createdAt: new Date(0).toISOString(),
+          }],
+          upload: unused,
+          generate: unused,
+          remove: unused,
+        },
+      }),
+    })
+
+    try {
+      const response = await signedIn.inject({ method: 'GET', url: '/account/ssh-keys' })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual({
+        keys: [{
+          id: 'key-1',
+          name: 'Laptop',
+          publicKey,
+          fingerprint: 'SHA256:fingerprint',
+          createdAt: new Date(0).toISOString(),
+        }],
+      })
+      expect(response.body).not.toContain('PRIVATE KEY')
+    } finally {
+      await signedIn.close()
     }
   })
 })
@@ -1109,6 +1182,7 @@ describe('environment routes', () => {
             name: 'Node',
             image: 'ghcr.io/tctcl/cake-harness/workspace:1.0.0',
             containerId: null,
+            sshPort: 22_000,
             createdAt: '1970-01-01T00:00:00.000Z',
             updatedAt: '1970-01-01T00:00:00.000Z',
           },
@@ -1204,21 +1278,30 @@ describe('environment routes', () => {
     }
   })
 
-  it('answers null for SSH when the container published no port, rather than an error', async () => {
-    const server = buildServer(config, { agent: stubAgent() })
+  it('answers the stable SSH endpoint with running false for a stopped container', async () => {
+    const access = {
+      command: 'ssh -p 22000 dev@dev.example',
+      host: 'dev.example',
+      port: 22_000,
+      user: 'dev',
+      running: false,
+    }
+    const server = buildServer(config, {
+      agent: stubAgent({ environments: environmentsOf({ ssh: async () => access }) }),
+    })
 
     try {
       const response = await server.inject({ method: 'GET', url: `/environments/${ENVIRONMENT_ID}/ssh` })
 
       expect(response.statusCode).toBe(200)
-      expect(response.json()).toBeNull()
+      expect(response.json()).toEqual(access)
     } finally {
       await server.close()
     }
   })
 
   it('answers the SSH command when a port is published', async () => {
-    const access = { command: 'ssh -p 2222 dev@127.0.0.1', host: '127.0.0.1', port: 2222, user: 'dev' }
+    const access = { command: 'ssh -p 2222 dev@127.0.0.1', host: '127.0.0.1', port: 2222, user: 'dev', running: true }
     const server = buildServer(config, {
       agent: stubAgent({ environments: environmentsOf({ ssh: async () => access }) }),
     })
@@ -1248,16 +1331,26 @@ describe('environment routes', () => {
     }
   })
 
-  it('answers an empty tunnel list until something forwards a port', async () => {
+  it('answers the listening ports with workspace SSH forwarding commands', async () => {
     const server = buildServer(config, {
-      agent: stubAgent({ environments: environmentsOf({ find: async () => environmentOf() }) }),
+      agent: stubAgent({
+        environments: environmentsOf({
+          find: async () => environmentOf(),
+          ports: async () => [5173, 8080],
+        }),
+      }),
     })
 
     try {
-      const response = await server.inject({ method: 'GET', url: `/environments/${ENVIRONMENT_ID}/ssh/tunnels` })
+      const response = await server.inject({ method: 'GET', url: `/environments/${ENVIRONMENT_ID}/ports` })
 
       expect(response.statusCode).toBe(200)
-      expect(response.json()).toEqual({ tunnels: [] })
+      expect(response.json()).toEqual({
+        ports: [
+          { port: 5173, command: 'ssh -N -L 5173:localhost:5173 cake-node' },
+          { port: 8080, command: 'ssh -N -L 8080:localhost:8080 cake-node' },
+        ],
+      })
     } finally {
       await server.close()
     }

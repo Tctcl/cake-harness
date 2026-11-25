@@ -12,6 +12,8 @@ export interface DevEnvironment {
   readonly image: string
   /** The running container, or null until it is first started. */
   readonly containerId: string | null
+  /** The stable host port assigned to this environment's SSH service. */
+  readonly sshPort: number
   readonly createdAt: string
   readonly updatedAt: string
 }
@@ -37,6 +39,12 @@ export interface SshAccess {
   readonly host: string
   readonly port: number
   readonly user: string
+  readonly running: boolean
+}
+
+export interface ListeningPort {
+  readonly port: number
+  readonly command: string
 }
 
 const json = (method: string, body: unknown): RequestInit => ({
@@ -63,9 +71,12 @@ export const getWorkspaceEnvironment = async (workspaceId: string): Promise<DevE
 export const getEnvironment = async (environmentId: string): Promise<EnvironmentDetail> =>
   await request<EnvironmentDetail>(`/environments/${environmentId}`)
 
-/** `null` means sshd has no published endpoint, including while the container is stopped. */
+/** `null` means no endpoint was published; `running` separately reports the container state. */
 export const getEnvironmentSsh = async (environmentId: string): Promise<SshAccess | null> =>
   await request<SshAccess | null>(`/environments/${environmentId}/ssh`)
+
+export const getEnvironmentPorts = async (environmentId: string): Promise<ListeningPort[]> =>
+  (await request<{ ports: ListeningPort[] }>(`/environments/${environmentId}/ports`)).ports
 
 export const setWorkspaceImage = async (workspaceId: string, image: string): Promise<DevEnvironment> => {
   const environment = await getWorkspaceEnvironment(workspaceId)

@@ -144,7 +144,7 @@ describe('TerminalPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close shell 2' }))
 
     await waitFor(() => expect(deleted).toEqual([`${ROOT}/${other.id}`]))
-    expect(screen.queryByRole('tab', { name: 'shell 2' })).toBeNull()
+    await waitFor(() => expect(screen.queryByRole('tab', { name: 'shell 2' })).toBeNull())
     expect(screen.getByRole('tab', { name: 'shell 1' }).getAttribute('aria-selected')).toBe('true')
   })
 

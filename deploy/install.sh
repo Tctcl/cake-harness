@@ -36,6 +36,8 @@ IMAGE=""
 WORKSPACE_IMAGE=""
 CIPHERGATE_IMAGE=""
 DOMAIN="${CAKE_DOMAIN:-}"
+SSH_HOST="${CAKE_SSH_HOST:-}"
+SSH_PORT_RANGE="${CAKE_SSH_PORT_RANGE:-}"
 ACME_EMAIL=""
 ADMIN_USER="admin"
 
@@ -75,6 +77,8 @@ Installs or updates one self-hosted Cake instance.
   --channel NAME      production or staging (default: what the install already follows, else production)
   --admin-user NAME   username of the first admin, created once (default: admin)
   --domain HOST       hostname to serve; required for a first install
+  --ssh-host HOST     public hostname for workspace SSH (default: --domain)
+  --ssh-port-range N-M host ports for workspace SSH (default: 22000-22999)
   --acme-email ADDR   Let's Encrypt contact (default: admin@HOST)
   --dry-run           print the changes instead of making them
   -h, --help          this text
@@ -94,6 +98,14 @@ parse_args() {
       ;;
     --domain)
       DOMAIN="${2:-}"
+      shift 2
+      ;;
+    --ssh-host)
+      SSH_HOST="${2:-}"
+      shift 2
+      ;;
+    --ssh-port-range)
+      SSH_PORT_RANGE="${2:-}"
       shift 2
       ;;
     --acme-email)
@@ -118,6 +130,18 @@ parse_args() {
 }
 
 validate() {
+  if [ -z "$DOMAIN" ]; then
+    DOMAIN="$(sed -n 's/^DOMAIN=//p' "$STATE_DIR/.env" 2>/dev/null | tail -n1)"
+  fi
+  if [ -z "$SSH_HOST" ]; then
+    SSH_HOST="$(sed -n 's/^CAKE_SSH_HOST=//p' "$STATE_DIR/.env" 2>/dev/null | tail -n1)"
+  fi
+  if [ -z "$SSH_PORT_RANGE" ]; then
+    SSH_PORT_RANGE="$(sed -n 's/^CAKE_SSH_PORT_RANGE=//p' "$STATE_DIR/.env" 2>/dev/null | tail -n1)"
+  fi
+  SSH_PORT_RANGE="${SSH_PORT_RANGE:-22000-22999}"
+  SSH_HOST="${SSH_HOST:-$DOMAIN}"
+
   if [ -z "$CHANNEL" ]; then
     CHANNEL="$(sed -n 's/^CAKE_CHANNEL=//p' "$STATE_DIR/.env" 2>/dev/null || true)"
     CHANNEL="${CHANNEL:-production}"
@@ -144,6 +168,14 @@ validate() {
       die "--domain must be a bare hostname like chat.example.com, got: $DOMAIN"
     ACME_EMAIL="${ACME_EMAIL:-admin@$DOMAIN}"
   fi
+  [ -n "$DOMAIN" ] || die "--domain is required for a first install"
+  [[ $SSH_HOST =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] ||
+    die "--ssh-host must be a bare hostname like chat.example.com, got: $SSH_HOST"
+  [[ $SSH_PORT_RANGE =~ ^([0-9]{1,5})-([0-9]{1,5})$ ]] ||
+    die "--ssh-port-range must be FIRST-LAST, got: $SSH_PORT_RANGE"
+  local ssh_first="${BASH_REMATCH[1]}" ssh_last="${BASH_REMATCH[2]}"
+  (( ssh_first >= 1 && ssh_last <= 65535 && ssh_first <= ssh_last )) ||
+    die "--ssh-port-range must satisfy 1 <= FIRST <= LAST <= 65535, got: $SSH_PORT_RANGE"
 
   case "$(uname -m)" in
   x86_64 | amd64) ;;
@@ -306,7 +338,6 @@ write_env() {
   if [ -f "$env_file" ]; then
     log "keeping the existing $env_file (secrets are never regenerated)"
   else
-    [ -n "$DOMAIN" ] || die "--domain is required for a first install"
     log "writing $env_file"
     if [ "$DRY_RUN" = false ]; then
       local password secret_key
@@ -318,6 +349,8 @@ write_env() {
 INSTALL_DIR=$INSTALL_DIR
 STATE_DIR=$STATE_DIR
 DOMAIN=$DOMAIN
+CAKE_SSH_HOST=$SSH_HOST
+CAKE_SSH_PORT_RANGE=$SSH_PORT_RANGE
 ACME_EMAIL=$ACME_EMAIL
 POSTGRES_DB=cake
 POSTGRES_USER=cake
@@ -342,6 +375,8 @@ EOF
     set_env "$env_file" CAKE_IMAGE "$IMAGE"
     set_env "$env_file" CAKE_WORKSPACE_IMAGE "$WORKSPACE_IMAGE"
     set_env "$env_file" CAKE_CIPHERGATE_IMAGE "$CIPHERGATE_IMAGE"
+    set_env "$env_file" CAKE_SSH_HOST "$SSH_HOST"
+    set_env "$env_file" CAKE_SSH_PORT_RANGE "$SSH_PORT_RANGE"
   fi
 }
 
@@ -498,11 +533,13 @@ summary() {
   if [ -n "$DOMAIN" ]; then
     log "url:       https://$DOMAIN (once DNS points here and 443 is open)"
   fi
+  log "ssh:       $SSH_HOST, TCP ports $SSH_PORT_RANGE"
   cat <<'EOF'
 
 Next, if this is a fresh host:
   - point the domain's A/AAAA record at this server
   - allow 80/tcp and 443/tcp, and 22/tcp if you use a firewall
+  - allow TCP ports $SSH_PORT_RANGE for workspace SSH access
   - copy the secrets keyfile somewhere safe, away from the database: without it the
     store's contents cannot be decrypted, and a copy beside the database is one leak
     away from handing over every credential

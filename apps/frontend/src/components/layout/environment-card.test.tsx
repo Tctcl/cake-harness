@@ -9,6 +9,7 @@ const environment = (overrides: Partial<DevEnvironment> = {}): DevEnvironment =>
   name: 'Platform',
   image: 'cake-harness/dev-env:latest',
   containerId: 'container-1',
+  sshPort: 22_000,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
   ...overrides,

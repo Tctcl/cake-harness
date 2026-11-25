@@ -76,9 +76,10 @@ compose.dev.yml           local harness: build, run, port 2222
 - Environment variables: `DEV_ENV_MANIFEST_URL` (required — the backend's
   manifest for this environment), `DEV_ENV_STATE_URL` (where the report goes;
   absent means the environment runs without telling anyone), and
-  `DEV_ENV_INSTALL_RECORD` (default `/var/lib/dev-env/installed.json`).
-  `SSH_AUTHORIZED_KEYS_FILE` is read by `docker/entrypoint.sh`, not by the
-  bootstrap.
+  `DEV_ENV_INSTALL_RECORD` (default `/var/lib/dev-env/installed.json`). Cake
+  installs SSH authorized keys with `docker exec` after the container starts;
+  the standalone `compose.dev.yml` harness has no backend key delivery, so it
+  does not accept SSH connections until a key is manually installed.
 
 ## Running from the repo root
 

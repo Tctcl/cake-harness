@@ -1,13 +1,14 @@
-import { KeyRoundIcon, SettingsIcon, UserIcon } from 'lucide-react'
+import { FingerprintIcon, KeyRoundIcon, SettingsIcon, UserIcon } from 'lucide-react'
 import type { ComponentType } from 'react'
 import { useState } from 'react'
 
 import { ThemePicker } from '../layout/theme-picker.tsx'
 import { AccountSection } from './account-section.tsx'
 import { CredentialsPage } from './credentials-page.tsx'
+import { SshKeysPage } from './ssh-keys-page.tsx'
 import { ApplicationSettings } from './application-settings.tsx'
 
-export type SectionId = 'application' | 'credentials' | 'user'
+export type SectionId = 'application' | 'credentials' | 'ssh-keys' | 'user'
 
 interface Section {
   readonly id: SectionId
@@ -32,6 +33,13 @@ const SECTIONS: readonly Section[] = [
     title: 'Credentials',
     description:
       'Your OpenCode Go keys and MCP keys. A key added here is checked, then linked to a workspace on its Providers tab.',
+  },
+  {
+    id: 'ssh-keys',
+    label: 'SSH keys',
+    icon: FingerprintIcon,
+    title: 'SSH keys',
+    description: 'Public keys authorize SSH access to your workspace containers.',
   },
   {
     id: 'user',
@@ -61,6 +69,8 @@ function SectionBody({ section }: { section: Section }) {
       )
     case 'credentials':
       return <CredentialsPage />
+    case 'ssh-keys':
+      return <SshKeysPage />
     case 'user':
       return <AccountSection />
     default:

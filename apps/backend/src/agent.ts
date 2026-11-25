@@ -39,6 +39,10 @@ import type { CredentialApi } from './credentials/api.js'
 import { CredentialRepository } from './credentials/credential-repository.js'
 import { createEnvironmentApi } from './environments/api.js'
 import type { EnvironmentApi } from './environments/api.js'
+import { createSshKeyApi } from './ssh-keys/api.js'
+import type { SshKeyApi } from './ssh-keys/api.js'
+import { SshKeyRepository } from './ssh-keys/ssh-key-repository.js'
+import { createAuthorizedKeyDelivery } from './ssh-keys/delivery.js'
 import { noSecrets, createCipherGateSecrets } from './secrets/ciphergate.js'
 import { DockerContainers } from './environments/container-runtime.js'
 import { DockerDaemonInstaller } from './environments/daemon-installer.js'
@@ -237,6 +241,8 @@ export interface Agent {
   environments: EnvironmentApi
   /** The keys this user owns: provider accounts and MCP credentials, listed without their secrets. */
   credentials: CredentialApi
+  /** Public keys authorized in every workspace container; generated private material is returned only at creation. */
+  readonly sshKeys: SshKeyApi
   /** The provider keys this user stored, the models they reach, and what each workspace may spend. */
   providers: ProviderApi
   /** What this install runs and whether a newer release exists, as of the last check. */
@@ -725,7 +731,7 @@ export async function createAgent(config: Config): Promise<Agent> {
 
   // The thread rows share the storage's pool: one connection ceiling, and they sit beside the log they point into.
   const threads = new ThreadRepository(postgres.pool, postgres.schema)
-  const workspaces = new WorkspaceRepository(postgres.pool, postgres.schema)
+  const workspaces = new WorkspaceRepository(postgres.pool, postgres.schema, config.sshPortRange)
   const agents = new AgentRepository(postgres.pool, postgres.schema)
   const tools = new ToolRepository(postgres.pool, postgres.schema)
   const skills = new SkillRepository(postgres.pool, postgres.schema)
@@ -806,17 +812,34 @@ export async function createAgent(config: Config): Promise<Agent> {
   await workspaces.ensureEnvironments(ownerId, config.workspaceImage)
   await workspaces.ensureDefaultAgents(ownerId)
 
+  const environmentRepository = new EnvironmentRepository(postgres.pool, postgres.schema, config.sshPortRange)
+  await environmentRepository.ensureSshPorts()
+  const containers = new DockerContainers(config.docker)
+  const sshKeyRepository = new SshKeyRepository(postgres.pool, postgres.schema)
+  const sshKeys = createSshKeyApi({
+    ownerId,
+    keys: sshKeyRepository,
+    onChange: createAuthorizedKeyDelivery({
+      ownerId,
+      keys: sshKeyRepository,
+      environments: environmentRepository,
+      containers,
+    }),
+  })
+
   // Harnesses come and go as Sessions fail; the storage outlives them and only the process closes it.
   const storage: Storage = sharedStorage(retryingStorage(postgres))
 
   const environments = createEnvironmentApi({
     ownerId,
-    environments: new EnvironmentRepository(postgres.pool, postgres.schema),
+    environments: environmentRepository,
     // The runtime is the only thing that talks to Docker; the routes decide nothing about it.
-    containers: new DockerContainers(config.docker),
+    containers,
     image: config.workspaceImage,
     backendUrl: config.workspaceBackendUrl,
     network: config.workspaceNetwork,
+    sshHost: config.sshHost,
+    authorizedKeys: () => sshKeyRepository.publicKeys(ownerId),
     // No configured store is a reader that knows nothing: the manifest still serves tooling, and no credential.
     secrets: config.ciphergate === undefined ? noSecrets : createCipherGateSecrets(config.ciphergate),
   })
@@ -894,6 +917,7 @@ export async function createAgent(config: Config): Promise<Agent> {
     capabilities,
     environments,
     credentials: userCredentials,
+    sshKeys,
     providers,
 
     updateStatus() {

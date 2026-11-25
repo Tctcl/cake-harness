@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
 import { noSecrets } from '../secrets/ciphergate.js'
-import { createEnvironmentApi } from './api.js'
+import { createEnvironmentApi as buildEnvironmentApi } from './api.js'
+import type { EnvironmentApiOptions } from './api.js'
 import type { ContainerRuntime, StartRequest } from './container-runtime.js'
+
+const createEnvironmentApi = (
+  options: Omit<EnvironmentApiOptions, 'sshHost' | 'authorizedKeys'> &
+    Partial<Pick<EnvironmentApiOptions, 'sshHost' | 'authorizedKeys'>>,
+): ReturnType<typeof buildEnvironmentApi> =>
+  buildEnvironmentApi({ sshHost: 'dev.example', authorizedKeys: async () => [], ...options })
 import type { DevEnvironment, EnvironmentRepository } from './environment-repository.js'
 
 const OWNER_ID = '00000000-0000-4000-8000-000000000001'
@@ -24,6 +31,7 @@ const environmentOf = (overrides: Partial<DevEnvironment> = {}): DevEnvironment 
   name: 'Node',
   image: IMAGE,
   containerId: null,
+  sshPort: 22_000,
   createdAt: new Date(0),
   updatedAt: new Date(0),
   ...overrides,
@@ -43,6 +51,13 @@ const runtimeOf = (overrides: Partial<ContainerRuntime> = {}) => {
     },
     remove: async (containerId) => {
       calls.push(`remove:${containerId}`)
+    },
+    replaceAuthorizedKeys: async (containerId) => {
+      calls.push(`keys:${containerId}`)
+    },
+    listeningPorts: async (containerId) => {
+      calls.push(`ports:${containerId}`)
+      return [5173]
     },
     status: async (containerId) => {
       calls.push(`status:${containerId}`)
@@ -107,7 +122,29 @@ describe('EnvironmentApi', () => {
     const started = await api.start(ENVIRONMENT_ID)
 
     expect(started?.containerId).toBe('created')
-    expect(calls).toEqual(['ensureRunning:none'])
+    expect(calls).toEqual(['ensureRunning:none', 'keys:created'])
+  })
+
+  it('delivers the complete authorized key list after a start', async () => {
+    const writes: (readonly string[])[] = []
+    const { runtime } = runtimeOf({
+      replaceAuthorizedKeys: async (_containerId, publicKeys) => {
+        writes.push(publicKeys)
+      },
+    })
+    const api = createEnvironmentApi({
+      ownerId: OWNER_ID,
+      environments: repositoryOf({ find: async () => environmentOf() }),
+      containers: runtime,
+      image: IMAGE,
+      secrets: noSecrets,
+      backendUrl: null,
+      network: null,
+      authorizedKeys: async () => ['ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJPOdiu8Ol2WKBKTzIV+JvRpeQbODlBw8uQpa+7VXVs'],
+    })
+
+    await api.start(ENVIRONMENT_ID)
+    expect(writes).toEqual([['ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHJPOdiu8Ol2WKBKTzIV+JvRpeQbODlBw8uQpa+7VXVs']])
   })
 
   it('removes the container before the row', async () => {
@@ -203,18 +240,12 @@ describe('EnvironmentApi', () => {
     await expect(api.status(ENVIRONMENT_ID)).resolves.toBe('missing')
     await expect(api.metrics(ENVIRONMENT_ID)).resolves.toBeNull()
     // Nothing was provisioned, so there is no container whose port could be published.
-    await expect(api.ssh(ENVIRONMENT_ID)).resolves.toBeNull()
+    await expect(api.ssh(ENVIRONMENT_ID)).resolves.toMatchObject({ port: 22_000, running: false })
     expect(calls).toEqual([])
   })
 
-  it('reports an SSH endpoint only when the container published one', async () => {
-    const { runtime, calls } = runtimeOf({
-      sshEndpoint: async (containerId) => {
-        calls.push(`sshEndpoint:${containerId}`)
-
-        return { host: '127.0.0.1', port: 2222 }
-      },
-    })
+  it('reports the configured host and stored port with the live running state', async () => {
+    const { runtime, calls } = runtimeOf()
     const api = createEnvironmentApi({
       ownerId: OWNER_ID,
       environments: repositoryOf({ find: async () => environmentOf({ containerId: 'abc123' }) }),
@@ -226,12 +257,13 @@ describe('EnvironmentApi', () => {
     })
 
     await expect(api.ssh(ENVIRONMENT_ID)).resolves.toEqual({
-      command: 'ssh -p 2222 dev@127.0.0.1',
-      host: '127.0.0.1',
-      port: 2222,
+      command: 'ssh -p 22000 dev@dev.example',
+      host: 'dev.example',
+      port: 22_000,
       user: 'dev',
+      running: true,
     })
-    expect(calls).toEqual(['sshEndpoint:abc123'])
+    expect(calls).toEqual(['status:abc123'])
   })
 
   it('tells the container where to fetch its documents', async () => {
@@ -262,6 +294,7 @@ describe('EnvironmentApi', () => {
       DEV_ENV_STATE_URL: `http://backend:8080/environments/${ENVIRONMENT_ID}/state`,
     })
     expect(requests[0]?.network).toBe('cake-workspaces')
+    expect(requests[0]?.sshPort).toBe(22_000)
   })
 
   it('leaves the container without documents when no backend URL is configured', async () => {

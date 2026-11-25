@@ -4,14 +4,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SshCard } from './ssh-card.tsx'
 
 /** The two endpoints answer different shapes, so the stub branches on the path rather than on a caller's guess. */
-const stubFetch = ({ access, tunnels }: { access: unknown; tunnels?: readonly unknown[] }) =>
+const stubFetch = ({ access, ports }: { access: unknown; ports?: readonly unknown[] }) =>
   vi.stubGlobal(
     'fetch',
     vi.fn((input: RequestInfo | URL) =>
       Promise.resolve({
         ok: true,
         status: 200,
-        json: () => Promise.resolve(String(input).endsWith('/ssh/tunnels') ? { tunnels: tunnels ?? [] } : access),
+        json: () => Promise.resolve(String(input).endsWith('/ports') ? { ports: ports ?? [] } : access),
       }),
     ),
   )
@@ -26,9 +26,9 @@ describe('SshCard', () => {
       'fetch',
       vi.fn((input: RequestInfo | URL) => {
         const url = String(input)
-        const body = url.endsWith('/ssh/tunnels')
-          ? { tunnels: [{ id: 't1', command: 'ssh -L 5432:localhost:5432 dev@127.0.0.1 -p 2222', localPort: 5432, remotePort: 5432 }] }
-          : { command: 'ssh dev@127.0.0.1 -p 2222', host: '127.0.0.1', port: 2222, user: 'dev' }
+        const body = url.endsWith('/ports')
+          ? { ports: [{ port: 5432, command: 'ssh -N -L 5432:localhost:5432 cake-project' }] }
+          : { command: 'ssh dev@127.0.0.1 -p 2222', host: '127.0.0.1', port: 2222, user: 'dev', running: true }
 
         return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) })
       }),
@@ -38,11 +38,11 @@ describe('SshCard', () => {
 
     expect(await screen.findByText('ssh dev@127.0.0.1 -p 2222')).toBeInTheDocument()
     expect(screen.getByText('dev@127.0.0.1, port 2222')).toBeInTheDocument()
-    expect(screen.getByText('ssh -L 5432:localhost:5432 dev@127.0.0.1 -p 2222')).toBeInTheDocument()
+    expect(screen.getByText('ssh -N -L 5432:localhost:5432 cake-project')).toBeInTheDocument()
   })
 
   it('copies a command to the clipboard', async () => {
-    stubFetch({ access: { command: 'ssh dev@127.0.0.1 -p 2222', host: '127.0.0.1', port: 2222, user: 'dev' } })
+    stubFetch({ access: { command: 'ssh dev@127.0.0.1 -p 2222', host: '127.0.0.1', port: 2222, user: 'dev', running: true } })
     const writeText = vi.fn(() => Promise.resolve())
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
 

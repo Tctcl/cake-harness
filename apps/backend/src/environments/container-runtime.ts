@@ -1,7 +1,9 @@
 import Docker from 'dockerode'
 
 import { AppError } from '../errors.js'
+import { execInContainer } from './container-exec.js'
 import type { DockerConnection } from './docker-connection.js'
+import { parseListeningPorts } from './listening-ports.js'
 import type { SshEndpoint } from './ssh-access.js'
 import { dockerHostOf, readSshEndpoint } from './ssh-access.js'
 
@@ -9,6 +11,8 @@ import { dockerHostOf, readSshEndpoint } from './ssh-access.js'
 export interface StartRequest {
   readonly id: string
   readonly image: string
+  /** The stable host port that publishes container port 22. */
+  readonly sshPort: number
   /** Variables the container boots with; empty when Cake has nothing to tell it. */
   readonly env: Readonly<Record<string, string>>
   /** The network the backend is reachable on, or `null` to leave the container on Docker's default one. */
@@ -24,12 +28,16 @@ export interface ContainerRuntime {
   ensureRunning(request: StartRequest, containerId: string | null): Promise<string>
   /** Stop the container if it exists, and say nothing when it already is. */
   stop(containerId: string): Promise<void>
-  /** Remove the container if it exists, and say nothing when it already is gone. */
-  remove(containerId: string): Promise<void>
+  /** Remove the container and both environment volumes; a null id still removes orphaned volumes. */
+  remove(containerId: string | null, environmentId: string): Promise<void>
   /** Ask Docker what the container is doing now, so a status is a fact rather than a recorded id. */
   status(containerId: string): Promise<ContainerStatus>
   /** One sample of the container's use, or `null` when Docker has none because it is not running. */
   metrics(containerId: string): Promise<ContainerMetrics | null>
+  /** Replace the owner's complete authorized_keys file, including with an empty file when the last key is deleted. */
+  replaceAuthorizedKeys(containerId: string, publicKeys: readonly string[]): Promise<void>
+  /** Listening TCP ports inside a running container, read without installing another process in the image. */
+  listeningPorts(containerId: string): Promise<readonly number[]>
   /**
    * Where the container's sshd can be reached, or `null` when it is not running or no port was published for it.
    * Nothing here opens a port: it reports the mapping Docker was asked for.
@@ -70,6 +78,26 @@ const unavailable = (action: string, error: unknown): AppError => {
 
 const containerName = (id: string): string => `cake-env-${id}`
 
+export const environmentVolumeNames = (id: string): readonly [string, string] => [
+  `cake-env-${id}-home`,
+  `cake-env-${id}-ssh`,
+]
+
+const SSH_CONTAINER_PORT = '22/tcp'
+
+/** A pre-SSH container cannot acquire a port or mounts by being restarted; it is replaced while its named volumes remain. */
+const hasExpectedLayout = (inspected: Docker.ContainerInspectInfo, request: StartRequest): boolean => {
+  const [home, hostKeys] = environmentVolumeNames(request.id)
+  const mounts = inspected.Mounts ?? []
+  const mounted = (name: string, destination: string): boolean =>
+    mounts.some((mount) => mount.Type === 'volume' && mount.Name === name && mount.Destination === destination)
+  const binding = inspected.HostConfig?.PortBindings?.[SSH_CONTAINER_PORT]?.[0]
+
+  return mounted(home, '/home/dev') && mounted(hostKeys, '/var/lib/cake/ssh') &&
+    binding?.HostPort === String(request.sshPort) &&
+    (binding.HostIp === '0.0.0.0' || binding.HostIp === '')
+}
+
 /**
  * Provisions one environment as one container, through the read-write Docker proxy. The container carries labels, so
  * Cake can find what it created without this module remembering anything Docker already knows.
@@ -77,19 +105,32 @@ const containerName = (id: string): string => `cake-env-${id}`
 export class DockerContainers implements ContainerRuntime {
   readonly #docker: Docker
   readonly #host: string
+  readonly #warn: (message: string) => void
 
   // The client is a parameter so a test can hand in a stand-in daemon; production always builds it from the connection.
-  constructor(connection: DockerConnection, docker: Docker = new Docker(connection)) {
+  constructor(
+    connection: DockerConnection,
+    docker: Docker = new Docker(connection),
+    warn: (message: string) => void = (message) => process.emitWarning(message, { code: 'CAKE_CONTAINER_RECREATED' }),
+  ) {
     this.#docker = docker
     // Derived once: the daemon's address does not change for the life of the process.
     this.#host = dockerHostOf(connection)
+    this.#warn = warn
   }
 
   async ensureRunning(request: StartRequest, containerId: string | null): Promise<string> {
     if (containerId !== null) {
+      const existing = this.#docker.getContainer(containerId)
       try {
-        await this.#docker.getContainer(containerId).start()
-        return containerId
+        const inspected = await existing.inspect()
+        if (hasExpectedLayout(inspected, request)) {
+          await existing.start()
+          return containerId
+        }
+
+        this.#warn(`Recreating ${containerId} for environment ${request.id}: its SSH mounts or port binding are outdated`)
+        await existing.remove({ force: true })
       } catch (error) {
         // 304 is Docker saying the container is already running, which is the state this call is for.
         if (statusOf(error) === 304) return containerId
@@ -113,13 +154,22 @@ export class DockerContainers implements ContainerRuntime {
     }
   }
 
-  async remove(containerId: string): Promise<void> {
-    try {
-      // Forced: an environment is disposable, and a stuck process must not keep a deleted environment's container.
-      await this.#docker.getContainer(containerId).remove({ force: true })
-    } catch (error) {
-      if (statusOf(error) === 404) return
-      throw unavailable('removed', error)
+  async remove(containerId: string | null, environmentId: string): Promise<void> {
+    if (containerId !== null) {
+      try {
+        // Forced: an environment is disposable, and a stuck process must not keep its container behind.
+        await this.#docker.getContainer(containerId).remove({ force: true })
+      } catch (error) {
+        if (statusOf(error) !== 404) throw unavailable('removed', error)
+      }
+    }
+
+    for (const name of environmentVolumeNames(environmentId)) {
+      try {
+        await this.#docker.getVolume(name).remove()
+      } catch (error) {
+        if (statusOf(error) !== 404) throw unavailable('removed', error)
+      }
     }
   }
 
@@ -147,6 +197,26 @@ export class DockerContainers implements ContainerRuntime {
     }
   }
 
+  async replaceAuthorizedKeys(containerId: string, publicKeys: readonly string[]): Promise<void> {
+    const command = 'install -d -m 0700 -o dev -g dev /home/dev/.ssh && ' +
+      'cat > /home/dev/.ssh/authorized_keys && ' +
+      'chown dev:dev /home/dev/.ssh/authorized_keys && chmod 0600 /home/dev/.ssh/authorized_keys'
+    const input = Buffer.from(publicKeys.length === 0 ? '' : `${publicKeys.join('\n')}\n`, 'utf8')
+    const result = await execInContainer(this.#docker, containerId, ['sh', '-c', command], input)
+    if (result.exitCode !== 0) {
+      throw unavailable('given its SSH keys', new Error(result.stderr.trim() || `exec exited ${result.exitCode}`))
+    }
+  }
+
+  async listeningPorts(containerId: string): Promise<readonly number[]> {
+    const result = await execInContainer(this.#docker, containerId, ['cat', '/proc/net/tcp', '/proc/net/tcp6'])
+    if (result.exitCode !== 0) {
+      throw unavailable('inspected for listening ports', new Error(result.stderr.trim() || `exec exited ${result.exitCode}`))
+    }
+
+    return parseListeningPorts(result.stdout)
+  }
+
   async sshEndpoint(containerId: string): Promise<SshEndpoint | null> {
     try {
       const inspected = await this.#docker.getContainer(containerId).inspect()
@@ -170,8 +240,16 @@ export class DockerContainers implements ContainerRuntime {
         'cake.environment': request.id,
       },
       Tty: false,
+      ExposedPorts: { [SSH_CONTAINER_PORT]: {} },
       HostConfig: {
         RestartPolicy: { Name: 'unless-stopped' },
+        Binds: (() => {
+          const [home, hostKeys] = environmentVolumeNames(request.id)
+          return [`${home}:/home/dev`, `${hostKeys}:/var/lib/cake/ssh`]
+        })(),
+        PortBindings: {
+          [SSH_CONTAINER_PORT]: [{ HostIp: '0.0.0.0', HostPort: String(request.sshPort) }],
+        },
         // Without this the container cannot resolve `backend`, and a boot would fail on a manifest it cannot reach.
         ...(request.network === null ? {} : { NetworkMode: request.network }),
       },

@@ -298,6 +298,7 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
             initialWorkspaceId={workspacesTarget.workspaceId}
             initialTab={workspacesTarget.tab}
             onOpenCredentials={() => openSettings('credentials')}
+            onOpenSshKeys={() => openSettings('ssh-keys')}
             onOpenTerminal={openTerminal}
           />
         )}
