@@ -92,6 +92,8 @@ const environmentOf = (overrides: Partial<DevEnvironment> = {}): DevEnvironment 
 
 // Registration needs every member; a test overrides the one it exercises and the rest stay absent.
 const environmentsOf = (overrides: Partial<EnvironmentApi> = {}): EnvironmentApi => ({
+  // Containers authenticate with their bootstrap token; these tests present this one.
+  acceptsBootstrapToken: (_id, presented) => presented === 'container-token',
   list: async () => [],
   find: async () => undefined,
   create: async (name) => environmentOf({ name }),
@@ -1466,11 +1468,44 @@ describe('environment routes', () => {
       const response = await server.inject({
         method: 'GET',
         url: `/environments/${ENVIRONMENT_ID}/manifest`,
+        headers: { authorization: 'Bearer container-token' },
       })
 
       expect(response.statusCode).toBe(200)
       // The whole document survives: no response schema strips a field the container needs.
       expect(response.json()).toEqual(manifest)
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('refuses the manifest and the state report without the container token', async () => {
+    const manifest = vi.fn(async () => undefined)
+    const recordState = vi.fn(async () => true)
+    const server = buildServer(config, {
+      agent: stubAgent({ environments: environmentsOf({ manifest, recordState }) }),
+    })
+
+    try {
+      for (const authorization of [undefined, 'Bearer wrong-token', 'container-token']) {
+        const read = await server.inject({
+          method: 'GET',
+          url: `/environments/${ENVIRONMENT_ID}/manifest`,
+          ...(authorization === undefined ? {} : { headers: { authorization } }),
+        })
+        expect(read.statusCode).toBe(401)
+        expect(read.json<{ error: { code: string } }>().error.code).toBe('ENVIRONMENT_TOKEN_INVALID')
+
+        const report = await server.inject({
+          method: 'PUT',
+          url: `/environments/${ENVIRONMENT_ID}/state`,
+          ...(authorization === undefined ? {} : { headers: { authorization } }),
+          payload: { schemaVersion: 1, reportedAt: '2026-01-01T00:00:00.000Z', tools: [] },
+        })
+        expect(report.statusCode).toBe(401)
+      }
+      expect(manifest).not.toHaveBeenCalled()
+      expect(recordState).not.toHaveBeenCalled()
     } finally {
       await server.close()
     }
@@ -1483,6 +1518,7 @@ describe('environment routes', () => {
       const response = await server.inject({
         method: 'GET',
         url: `/environments/${ENVIRONMENT_ID}/manifest`,
+        headers: { authorization: 'Bearer container-token' },
       })
 
       expect(response.statusCode).toBe(404)
@@ -1506,6 +1542,7 @@ describe('environment routes', () => {
       const response = await server.inject({
         method: 'PUT',
         url: `/environments/${ENVIRONMENT_ID}/state`,
+        headers: { authorization: 'Bearer container-token' },
         payload: state,
       })
 
@@ -1526,6 +1563,7 @@ describe('environment routes', () => {
       const response = await server.inject({
         method: 'PUT',
         url: `/environments/${ENVIRONMENT_ID}/state`,
+        headers: { authorization: 'Bearer container-token' },
         payload: { schemaVersion: 1, reportedAt: 'yesterday' },
       })
 

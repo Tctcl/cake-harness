@@ -14,6 +14,9 @@ export default mergeConfig(
     test: {
       environment: 'jsdom',
       setupFiles: ['./src/test/setup.ts'],
+      // The setup file lets Testing Library wait up to 5 s for an element; a test that waits for two of them on a slow
+      // CI runner must not hit the default 5 s test limit first, which failed passing tests at random.
+      testTimeout: 15_000,
     },
   }),
 )

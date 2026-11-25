@@ -64,6 +64,9 @@ export function WorkspaceAgents({
   const [editing, setEditing] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [nonce, setNonce] = useState(0)
+  // Bumped when a load lands, not when one starts: an editor keyed on the request would remount on the stale list
+  // and keep its values after the fresh one arrived, which is how a save looked undone until the window reopened.
+  const [loaded, setLoaded] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -80,6 +83,7 @@ export function WorkspaceAgents({
         setArchived(gone)
         setChoices(choicesOf(workspace, logins, models, providers))
         setError(null)
+        setLoaded((value) => value + 1)
       },
       (failure: unknown) => {
         if (!cancelled) setError(messageOf(failure, 'the agents failed to load'))
@@ -182,13 +186,14 @@ export function WorkspaceAgents({
         archived={archivedGroup}
         renderDetail={() => (
           <AgentEditor
-            key={`${editing}-${nonce}`}
+            key={`${editing}-${loaded}`}
             workspace={workspace}
             agent={current}
             choices={choices}
             onOpenProviders={onOpenProviders}
-            onDone={() => {
-              setEditing(null)
+            onDone={(savedId) => {
+              // A save keeps that agent open (a new one becomes the selection); archive or cancel goes back to the list.
+              setEditing(savedId ?? null)
               reload()
             }}
           />
@@ -210,7 +215,8 @@ function AgentEditor({
   agent: ChatAgent | undefined
   choices: Choices
   onOpenProviders: () => void
-  onDone: () => void
+  /** Called with the saved agent's id after a save, and with nothing after archive or cancel. */
+  onDone: (savedId?: string) => void
 }) {
   const [draft, setDraft] = useState<AgentDraft>(
     agent === undefined ? emptyDraft : draftOf(agent),
@@ -246,7 +252,7 @@ function AgentEditor({
   const set = <K extends keyof AgentDraft>(field: K, value: AgentDraft[K]): void =>
     setDraft((current) => ({ ...current, [field]: value }))
 
-  const run = (call: () => Promise<unknown>): void => {
+  const run = (call: () => Promise<string | undefined>): void => {
     setBusy(true)
     setError(null)
     call().then(onDone, (failure: unknown) => {
@@ -266,6 +272,8 @@ function AgentEditor({
         skills: grants.skills,
         mcpServers: grants.mcpServers,
       })
+
+      return saved.id
     })
 
   // An agent may still name a key or model the workspace has since stopped offering; it stays selectable as itself.
@@ -451,7 +459,7 @@ function AgentEditor({
         <Button type="submit" size="sm" disabled={busy || grants === null || tools === null || draft.name.trim() === ''}>
           {agent === undefined ? 'Create agent' : 'Save'}
         </Button>
-        <Button type="button" size="sm" variant="ghost" onClick={onDone}>
+        <Button type="button" size="sm" variant="ghost" onClick={() => onDone()}>
           Cancel
         </Button>
         {agent !== undefined && !agent.isDefault ? (
@@ -463,7 +471,10 @@ function AgentEditor({
             disabled={busy}
             onClick={() => {
               if (!window.confirm(`Archive ${agent.name}? Its conversations are archived with it.`)) return
-              run(() => setAgentArchived(workspace.id, agent.id, true))
+              run(async () => {
+                await setAgentArchived(workspace.id, agent.id, true)
+                return undefined
+              })
             }}
           >
             Archive

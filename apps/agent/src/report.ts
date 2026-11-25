@@ -17,12 +17,13 @@ export interface ReportResult {
 export const reportState = async (
   url: string,
   state: ToolingState,
+  token: string | null,
   fetchFn: typeof fetch = fetch,
 ): Promise<ReportResult> => {
   try {
     const response = await fetchFn(url, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...(token === null ? {} : { authorization: `Bearer ${token}` }) },
       body: JSON.stringify(state),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     })

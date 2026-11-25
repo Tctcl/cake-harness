@@ -1,3 +1,4 @@
+import { bearerToken } from '../environments/bootstrap-token.js'
 import type { FastifyPluginAsync } from 'fastify'
 
 import type { Agent } from '../agent.js'
@@ -265,6 +266,12 @@ const toEnvironment = (environment: DevEnvironment) => ({
 export const environmentRoutes: FastifyPluginAsync<{ agent: Agent; terminals: TerminalSessions }> = async (server, options) => {
   const environments: EnvironmentApi = options.agent.environments
 
+  const requireBootstrapToken = (environmentId: string, authorization: string | undefined): void => {
+    if (!environments.acceptsBootstrapToken(environmentId, bearerToken(authorization))) {
+      throw new AppError('this environment token is not valid', { statusCode: 401, code: 'ENVIRONMENT_TOKEN_INVALID' })
+    }
+  }
+
   // The workspace is the scope the client is looking through, so an unknown one is a 404 before the link table is
   // consulted — otherwise an empty list would hide a typo in the id.
   const requireWorkspace = async (workspaceId: string): Promise<Workspace> => {
@@ -420,10 +427,13 @@ export const environmentRoutes: FastifyPluginAsync<{ agent: Agent; terminals: Te
 
   // No response schema on purpose: Fastify drops what a schema does not name, and the manifest belongs to the
   // container's parser — a field this file forgot to list would disappear from the document a workspace boots from.
+  // The container calls these two itself while it boots, with no browser session: it proves which environment it is
+  // with the bootstrap token Cake started it with, so they skip the session check and check that token instead.
   server.get<{ Params: EnvironmentIdParams }>(
     '/environments/:environmentId/manifest',
-    { schema: { params: environmentIdParams } },
+    { config: { public: true }, schema: { params: environmentIdParams } },
     async (request) => {
+      requireBootstrapToken(request.params.environmentId, request.headers.authorization)
       const manifest = await environments.manifest(request.params.environmentId)
       if (manifest === undefined) throw missing()
 
@@ -433,8 +443,9 @@ export const environmentRoutes: FastifyPluginAsync<{ agent: Agent; terminals: Te
 
   server.put<{ Params: EnvironmentIdParams; Body: ToolingStateBody }>(
     '/environments/:environmentId/state',
-    { schema: { params: environmentIdParams, body: toolingStateBody } },
+    { config: { public: true }, schema: { params: environmentIdParams, body: toolingStateBody } },
     async (request, reply) => {
+      requireBootstrapToken(request.params.environmentId, request.headers.authorization)
       const recorded = await environments.recordState(request.params.environmentId, request.body)
       if (!recorded) throw missing()
 

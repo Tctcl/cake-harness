@@ -69,6 +69,7 @@ import { selectTools } from './agents/tool-selection.js'
 import { syncToolCatalog } from './agents/tool-catalog.js'
 import { composeAgentInstructions } from './agents/base-prompt.js'
 import { createCakeExtension } from './agents/cake-extension.js'
+import { environmentBootstrapToken } from './environments/bootstrap-token.js'
 import { AuthService } from './auth/service.js'
 import { ToolRepository } from './capabilities/tool-repository.js'
 import { createReadonlyToolsExtension } from './capabilities/readonly-tools.js'
@@ -840,6 +841,7 @@ export async function createAgent(config: Config): Promise<Agent> {
     network: config.workspaceNetwork,
     sshHost: config.sshHost,
     authorizedKeys: () => sshKeyRepository.publicKeys(ownerId),
+    bootstrapToken: (environmentId) => environmentBootstrapToken(config.secrets, environmentId),
     // No configured store is a reader that knows nothing: the manifest still serves tooling, and no credential.
     secrets: config.ciphergate === undefined ? noSecrets : createCipherGateSecrets(config.ciphergate),
   })

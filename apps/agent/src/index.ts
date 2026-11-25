@@ -14,7 +14,7 @@ const main = async (): Promise<void> => {
   const config = readBootstrapConfig(process.env)
   log.info('bootstrap.start', { manifestUrl: config.manifestUrl })
 
-  const documents = await fetchDocuments(config.manifestUrl)
+  const documents = await fetchDocuments(config.manifestUrl, config.token)
   log.info('documents.loaded', {
     tools: documents.tooling.tools.map((tool) => tool.id),
     credentials: documents.credentials.credentials.map((credential) => credential.id),
@@ -54,7 +54,7 @@ const main = async (): Promise<void> => {
   if (config.stateUrl === null) {
     log.info('state.unreported', { reason: 'DEV_ENV_STATE_URL is not set' })
   } else {
-    const report = await reportState(config.stateUrl, actual)
+    const report = await reportState(config.stateUrl, actual, config.token)
     if (report.delivered) {
       log.info('state.reported', { url: config.stateUrl })
     } else {

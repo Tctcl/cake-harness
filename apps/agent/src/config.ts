@@ -8,6 +8,11 @@ export interface BootstrapConfig {
   readonly stateUrl: string | null
   /** What reconciliation installed last time, so a recorded install is not mistaken for an image tool. */
   readonly installRecordPath: string
+  /**
+   * The bearer token the backend started this container with, sent with both calls so the backend knows which
+   * environment is asking. Absent for a container started without one, which the backend then refuses.
+   */
+  readonly token: string | null
 }
 
 const requireUrl = (name: string, raw: string | undefined): string | null => {
@@ -46,5 +51,6 @@ export const readBootstrapConfig = (env: NodeJS.ProcessEnv): BootstrapConfig => 
     manifestUrl,
     stateUrl: requireUrl('DEV_ENV_STATE_URL', env['DEV_ENV_STATE_URL']),
     installRecordPath: recordPath.length === 0 ? DEFAULT_INSTALL_RECORD : recordPath,
+    token: (env['DEV_ENV_TOKEN']?.trim() ?? '') === '' ? null : (env['DEV_ENV_TOKEN']?.trim() ?? null),
   }
 }

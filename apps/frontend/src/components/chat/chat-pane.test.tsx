@@ -302,6 +302,33 @@ describe('ChatPane', () => {
     expect(screen.getByText('Tools offered: read, web_fetch')).toBeInTheDocument()
   })
 
+  it('shows the context a request carried before the line that triggered it, in the order the model reads them', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => reply({ messages: [], nextCursor: null })))
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    await waitFor(() => expect(stream()).toBeDefined())
+
+    // Durable stores the request's system entry after the user's line, in the same commit.
+    stream()?.emit(
+      STREAM_EVENT,
+      frame([
+        chatMessage(4, 'user', 'Hello there'),
+        chatMessage(5, 'context', '', {
+          sections: [{ key: 'cake-system', text: 'Base prompt.' }],
+          toolsAdded: [],
+          toolsRemoved: [],
+        }),
+        chatMessage(6, 'assistant', 'Hi!'),
+      ]),
+    )
+
+    const context = await screen.findByText('Context sent')
+    const question = screen.getByText('Hello there')
+    const answer = screen.getByText('Hi!')
+    expect(context.compareDocumentPosition(question) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(question.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('shows a committed assistant error above its answer', async () => {
     vi.stubGlobal('fetch', vi.fn(() => reply({ messages: [], nextCursor: null })))
 

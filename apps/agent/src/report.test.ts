@@ -32,17 +32,17 @@ describe('reportState', () => {
   it('puts the report to the state endpoint', async () => {
     const { fetch, sent } = recorder(new Response(null, { status: 204 }))
 
-    await expect(reportState(STATE_URL, state, fetch)).resolves.toEqual({ delivered: true, status: 204 })
+    await expect(reportState(STATE_URL, state, 'env-token', fetch)).resolves.toEqual({ delivered: true, status: 204 })
     expect(sent[0]?.url).toBe(STATE_URL)
     expect(sent[0]?.init?.method).toBe('PUT')
-    expect(sent[0]?.init?.headers).toEqual({ 'content-type': 'application/json' })
+    expect(sent[0]?.init?.headers).toEqual({ 'content-type': 'application/json', authorization: 'Bearer env-token' })
     expect(JSON.parse(String(sent[0]?.init?.body))).toEqual(state)
   })
 
   it('reports a refusing backend instead of throwing', async () => {
     const { fetch } = recorder(new Response(null, { status: 503 }))
 
-    await expect(reportState(STATE_URL, state, fetch)).resolves.toEqual({ delivered: false, status: 503 })
+    await expect(reportState(STATE_URL, state, null, fetch)).resolves.toEqual({ delivered: false, status: 503 })
   })
 
   it('reports an unreachable backend as no status at all', async () => {
@@ -50,6 +50,6 @@ describe('reportState', () => {
       throw new Error('connect ECONNREFUSED')
     }
 
-    await expect(reportState(STATE_URL, state, failing)).resolves.toEqual({ delivered: false, status: null })
+    await expect(reportState(STATE_URL, state, null, failing)).resolves.toEqual({ delivered: false, status: null })
   })
 })

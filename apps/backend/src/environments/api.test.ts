@@ -6,10 +6,15 @@ import type { EnvironmentApiOptions } from './api.js'
 import type { ContainerRuntime, StartRequest } from './container-runtime.js'
 
 const createEnvironmentApi = (
-  options: Omit<EnvironmentApiOptions, 'sshHost' | 'authorizedKeys'> &
-    Partial<Pick<EnvironmentApiOptions, 'sshHost' | 'authorizedKeys'>>,
+  options: Omit<EnvironmentApiOptions, 'sshHost' | 'authorizedKeys' | 'bootstrapToken'> &
+    Partial<Pick<EnvironmentApiOptions, 'sshHost' | 'authorizedKeys' | 'bootstrapToken'>>,
 ): ReturnType<typeof buildEnvironmentApi> =>
-  buildEnvironmentApi({ sshHost: 'dev.example', authorizedKeys: async () => [], ...options })
+  buildEnvironmentApi({
+    sshHost: 'dev.example',
+    authorizedKeys: async () => [],
+    bootstrapToken: (id) => `token-for-${id}`,
+    ...options,
+  })
 import type { DevEnvironment, EnvironmentRepository } from './environment-repository.js'
 
 const OWNER_ID = '00000000-0000-4000-8000-000000000001'
@@ -292,6 +297,7 @@ describe('EnvironmentApi', () => {
     expect(requests[0]?.env).toEqual({
       DEV_ENV_MANIFEST_URL: `http://backend:8080/environments/${ENVIRONMENT_ID}/manifest`,
       DEV_ENV_STATE_URL: `http://backend:8080/environments/${ENVIRONMENT_ID}/state`,
+      DEV_ENV_TOKEN: `token-for-${ENVIRONMENT_ID}`,
     })
     expect(requests[0]?.network).toBe('cake-workspaces')
     expect(requests[0]?.sshPort).toBe(22_000)

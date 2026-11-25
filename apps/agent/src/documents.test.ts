@@ -23,7 +23,7 @@ const json = (body: unknown, status = 200): Response =>
 
 describe('fetchDocuments', () => {
   it('validates both documents out of one manifest', async () => {
-    const documents = await fetchDocuments(MANIFEST_URL, async () => json(manifest))
+    const documents = await fetchDocuments(MANIFEST_URL, null, async () => json(manifest))
 
     expect(documents.tooling.tools).toEqual([{ id: 'node', version: '26.13.1' }])
     expect(documents.credentials.credentials[0]?.id).toBe('github')
@@ -31,7 +31,7 @@ describe('fetchDocuments', () => {
 
   it('asks for JSON and bounds the wait', async () => {
     let seen: RequestInit | undefined
-    await fetchDocuments(MANIFEST_URL, async (_input, init) => {
+    await fetchDocuments(MANIFEST_URL, null, async (_input, init) => {
       seen = init
       return json(manifest)
     })
@@ -40,14 +40,24 @@ describe('fetchDocuments', () => {
     expect(seen?.signal).toBeDefined()
   })
 
+  it('proves which environment it is with the bearer token', async () => {
+    let seen: RequestInit | undefined
+    await fetchDocuments(MANIFEST_URL, 'env-token', async (_input, init) => {
+      seen = init
+      return json(manifest)
+    })
+
+    expect(seen?.headers).toEqual({ accept: 'application/json', authorization: 'Bearer env-token' })
+  })
+
   it('fails with the reason when the manifest cannot be read', async () => {
-    await expect(fetchDocuments(MANIFEST_URL, async () => json({ error: 'nope' }, 500))).rejects.toThrow(
+    await expect(fetchDocuments(MANIFEST_URL, null, async () => json({ error: 'nope' }, 500))).rejects.toThrow(
       /cannot read .*: 500/,
     )
   })
 
   it('refuses a manifest without one of the documents', async () => {
-    await expect(fetchDocuments(MANIFEST_URL, async () => json({ tooling: manifest.tooling }))).rejects.toThrow(
+    await expect(fetchDocuments(MANIFEST_URL, null, async () => json({ tooling: manifest.tooling }))).rejects.toThrow(
       /tooling and credentials/,
     )
   })
@@ -63,7 +73,7 @@ describe('fetchDocuments', () => {
       },
     }
 
-    await expect(fetchDocuments(MANIFEST_URL, async () => json(broken))).rejects.toThrow(
+    await expect(fetchDocuments(MANIFEST_URL, null, async () => json(broken))).rejects.toThrow(
       /mode must be an octal permission string/,
     )
   })

@@ -1,3 +1,4 @@
+import { bootstrapTokenMatches } from './bootstrap-token.js'
 import type { ContainerMetrics, ContainerRuntime, ContainerStatus } from './container-runtime.js'
 import type { SshAccessView } from './ssh-access.js'
 import { sshAccessOf } from './ssh-access.js'
@@ -30,6 +31,8 @@ export interface EnvironmentApiOptions {
   readonly authorizedKeys: () => Promise<readonly string[]>
   /** Where the credentials a workspace gets come from; a reader that knows nothing serves a manifest without any. */
   readonly secrets: SecretReader
+  /** The token a container proves itself with when it fetches its manifest and reports its state. */
+  readonly bootstrapToken: (environmentId: string) => string
 }
 
 /**
@@ -64,6 +67,8 @@ export interface EnvironmentApi {
   detach(workspaceId: string, environmentId: string): Promise<boolean>
   connectAgent(agentId: string, environmentId: string): Promise<void>
   disconnectAgent(agentId: string): Promise<boolean>
+  /** Whether `presented` is the bootstrap token this environment's container was started with. */
+  acceptsBootstrapToken(id: string, presented: string | undefined): boolean
   /** The documents an environment bootstraps from, or `undefined` when the id is unknown. */
   manifest(id: string): Promise<EnvironmentManifest | undefined>
   /** Store a report from the container; `false` when the id is unknown. */
@@ -81,6 +86,7 @@ export const createEnvironmentApi = (options: EnvironmentApiOptions): Environmen
       : {
           DEV_ENV_MANIFEST_URL: `${options.backendUrl}/environments/${id}/manifest`,
           DEV_ENV_STATE_URL: `${options.backendUrl}/environments/${id}/state`,
+          DEV_ENV_TOKEN: options.bootstrapToken(id),
         }
 
   return {
@@ -174,6 +180,8 @@ export const createEnvironmentApi = (options: EnvironmentApiOptions): Environmen
     state: (id) => environments.reportedState(id),
 
     // The id is checked first: a manifest for an environment that does not exist is a 404, not an empty document.
+    acceptsBootstrapToken: (id, presented) => bootstrapTokenMatches(options.bootstrapToken(id), presented),
+
     manifest: async (id) => (await environments.find(id)) === undefined ? undefined : buildManifest(options.secrets),
   }
 }

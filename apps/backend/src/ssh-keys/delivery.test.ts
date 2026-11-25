@@ -71,4 +71,37 @@ describe('authorized key delivery', () => {
     await deliver()
     expect(writes).toEqual([[]])
   })
+
+  it('reports a container that cannot take the keys and still writes the others', async () => {
+    const writes: string[] = []
+    const failures: string[] = []
+    const keys: SshKeyStore = {
+      list: async () => [],
+      publicKeys: async () => PUBLIC_KEYS,
+      create: async () => { throw new Error('not used') },
+      remove: async () => false,
+    }
+    const deliver = createAuthorizedKeyDelivery({
+      ownerId: OWNER_ID,
+      keys,
+      environments: {
+        list: async () => [environment('restarting', 'restarting-id'), environment('healthy', 'healthy-id')],
+      },
+      containers: {
+        status: async () => 'running',
+        replaceAuthorizedKeys: async (containerId) => {
+          // Docker's answer for a container in a restart loop, as seen on staging.
+          if (containerId === 'restarting-id') throw new Error('(HTTP code 409) container is restarting')
+          writes.push(containerId)
+        },
+      },
+      onFailure: (environmentId) => {
+        failures.push(environmentId)
+      },
+    })
+
+    await expect(deliver()).resolves.toBeUndefined()
+    expect(writes).toEqual(['healthy-id'])
+    expect(failures).toEqual(['restarting'])
+  })
 })
