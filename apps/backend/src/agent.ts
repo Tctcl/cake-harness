@@ -69,6 +69,7 @@ import { AuthService } from './auth/service.js'
 import { ToolRepository } from './capabilities/tool-repository.js'
 import { createReadonlyToolsExtension } from './capabilities/readonly-tools.js'
 import { createWebExtension } from './capabilities/web.js'
+import { ASK_USER_ANSWER, createAskUserExtension } from './capabilities/ask-user.js'
 import { TOOL_TEXT_LIMIT } from './live-activity.js'
 import { idFromNumber } from './storage/postgres/ids.js'
 import { openPostgresStorage } from './storage/postgres/index.js'
@@ -254,6 +255,12 @@ export interface Agent {
   messages(threadId: string, query: MessageQuery): Promise<MessagePage>
   /** Full recorded arguments and result, or undefined when no call with this id exists in the thread. */
   toolCallDetails(threadId: string, callId: string): Promise<ToolCallDetails | undefined>
+  /** Deliver an answer to a currently parked ask_user call. */
+  answerQuestion(
+    threadId: string,
+    callId: string,
+    answer: string,
+  ): Promise<'answered' | 'already-answered' | 'not-found'>
   /** What the thread's next request would carry, split by where its tokens go. */
   contextUsage(threadId: string): Promise<ContextUsage>
   /** Set a thread's title, or answer `undefined` when the id is unknown. */
@@ -790,6 +797,7 @@ export async function createAgent(config: Config): Promise<Agent> {
   registry.install(createReadonlyToolsExtension())
   registry.install(createWebExtension())
   registry.install(createCodemodeExtension({ sandbox: codemodeSandbox, models: false }))
+  registry.install(createAskUserExtension())
 
   // The catalog is maintained automatically: agent grants and Plan's seeded grants must never need a manual sync.
   await syncToolCatalog(tools, ownerId, registry.snapshot())
@@ -1010,6 +1018,42 @@ export async function createAgent(config: Config): Promise<Agent> {
         )
 
         return await threads.create(ownerId, conversation.id, target, input.title)
+      } catch (error) {
+        if (error instanceof SessionFailed) supervisor.discard()
+
+        throw error instanceof AppError ? error : unavailable(error)
+      }
+    },
+
+    async answerQuestion(threadId, callId, answer) {
+      try {
+        const conversation = await conversationFor(supervisor, threads, threadId)
+        const harness = await supervisor.harness()
+        const live = await harness.snapshot(LiveDoc, conversation.id, CONTEXT)
+        const slot = live?.tools?.find(
+          (candidate) => candidate.callId === callId && candidate.name === 'ask_user',
+        )
+        if (slot?.taskId === undefined) return 'not-found'
+        if (slot.status === 'done' || slot.status === 'running') return 'already-answered'
+        if (slot.status !== 'sleeping' && slot.status !== 'waiting') return 'not-found'
+
+        const delivered = await harness.signal(
+          slot.taskId,
+          ASK_USER_ANSWER,
+          callId,
+          answer,
+          CONTEXT,
+        )
+        if (delivered === 'delivered') return 'answered'
+        if (delivered === 'duplicate' || delivered === 'closed') return 'already-answered'
+        if (delivered === 'invalid') {
+          throw new AppError('the answer is not valid for this question', {
+            statusCode: 400,
+            code: 'QUESTION_ANSWER_INVALID',
+          })
+        }
+
+        return 'not-found'
       } catch (error) {
         if (error instanceof SessionFailed) supervisor.discard()
 

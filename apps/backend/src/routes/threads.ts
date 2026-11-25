@@ -216,6 +216,13 @@ const sendMessageBody = {
   additionalProperties: false,
 } as const
 
+const answerQuestionBody = {
+  type: 'object',
+  properties: { answer: { type: 'string', minLength: 1, maxLength: 4000 } },
+  required: ['answer'],
+  additionalProperties: false,
+} as const
+
 interface ThreadIdParams {
   threadId: string
 }
@@ -242,6 +249,10 @@ interface MessageListQuery {
 
 interface SendMessageBody {
   message: string
+}
+
+interface AnswerQuestionBody {
+  answer: string
 }
 
 interface RenameThreadBody {
@@ -442,6 +453,38 @@ export const threadRoutes: FastifyPluginAsync<{ agent: Agent }> = async (server,
       const submissionId = await options.agent.submit(request.params.threadId, request.body.message)
 
       return reply.code(202).send({ submissionId })
+    },
+  )
+
+  server.post<{ Params: ToolCallParams; Body: AnswerQuestionBody }>(
+    '/threads/:threadId/questions/:callId/answer',
+    {
+      schema: {
+        params: toolCallParams,
+        body: answerQuestionBody,
+        response: { 200: { type: 'object', properties: { answered: { type: 'boolean' } }, required: ['answered'] } },
+      },
+    },
+    async (request, reply) => {
+      const result = await options.agent.answerQuestion(
+        request.params.threadId,
+        request.params.callId,
+        request.body.answer,
+      )
+      if (result === 'not-found') {
+        throw new AppError('no waiting ask_user call was found', {
+          statusCode: 404,
+          code: 'QUESTION_NOT_FOUND',
+        })
+      }
+      if (result === 'already-answered') {
+        throw new AppError('this question has already been answered', {
+          statusCode: 409,
+          code: 'QUESTION_ALREADY_ANSWERED',
+        })
+      }
+
+      return reply.code(200).send({ answered: true })
     },
   )
 }

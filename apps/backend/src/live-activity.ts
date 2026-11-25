@@ -33,6 +33,7 @@ export interface LiveToolCall {
   readonly droppedBytes: number
   readonly droppedLines: number
   readonly diagnostics: readonly string[]
+  readonly question: { readonly text: string; readonly options: readonly string[]; readonly allowFreeText: boolean } | null
 }
 
 /** Why a run ended without an answer, kept until a later run starts, so a dead run is not just a stale spinner. */
@@ -93,9 +94,23 @@ export const liveActivity = (state: Readonly<LiveState> | undefined): LiveActivi
       droppedBytes: slot.droppedBytes ?? 0,
       droppedLines: slot.droppedLines ?? 0,
       diagnostics: (slot.diagnostics ?? []).map((diagnostic) => diagnostic.message),
+      question: questionOf(slot.name, slot.details),
     })),
     turns: state?.run?.turns ?? 0,
     compacting: state?.compactions?.length ?? 0,
     failure: failure === undefined ? null : { reason: failure.reason, detail: failure.detail ?? null },
   }
+}
+
+const questionOf = (
+  name: string,
+  details: unknown,
+): LiveToolCall['question'] => {
+  if (name !== 'ask_user' || typeof details !== 'object' || details === null || Array.isArray(details)) return null
+  if (!('text' in details) || typeof details.text !== 'string') return null
+  if (!('options' in details) || !Array.isArray(details.options)) return null
+  if (!details.options.every((option) => typeof option === 'string')) return null
+  if (!('allowFreeText' in details) || typeof details.allowFreeText !== 'boolean') return null
+
+  return { text: details.text, options: details.options, allowFreeText: details.allowFreeText }
 }

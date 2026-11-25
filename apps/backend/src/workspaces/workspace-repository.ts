@@ -148,7 +148,7 @@ export class WorkspaceRepository {
       // Creation also works without a prior startup sync, so Plan's catalog rows are resolved in this transaction.
       ensurePlanTools: `INSERT INTO ${tables.tools} (id, owner_id, name)
         VALUES ($1, $2, 'read'), ($3, $2, 'grep'), ($4, $2, 'find'), ($5, $2, 'ls'),
-          ($6, $2, 'git'), ($7, $2, 'web_fetch')
+          ($6, $2, 'git'), ($7, $2, 'web_fetch'), ($8, $2, 'ask_user')
         ON CONFLICT (owner_id, name) DO UPDATE SET archived_at = NULL, updated_at = now()`,
       grantPlanTools: `INSERT INTO ${tables.agentTools} (agent_id, tool_id)
         SELECT $1, id FROM ${tables.tools} WHERE owner_id = $2 AND name = ANY($3)
@@ -211,11 +211,12 @@ export class WorkspaceRepository {
         randomUUID(),
         randomUUID(),
         randomUUID(),
+        randomUUID(),
       ])
       await client.query(this.#sql.grantPlanTools, [
         planId,
         ownerId,
-        ['read', 'grep', 'find', 'ls', 'git', 'web_fetch'],
+        ['read', 'grep', 'find', 'ls', 'git', 'web_fetch', 'ask_user'],
       ])
 
       return inserted

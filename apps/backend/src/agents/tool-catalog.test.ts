@@ -5,6 +5,7 @@ import { CodemodeSandbox } from '@earendil-works/pi-codemode'
 import { Client } from 'pg'
 import { afterAll, describe, expect, it } from 'vitest'
 
+import { createAskUserExtension } from '../capabilities/ask-user.js'
 import { createWebExtension } from '../capabilities/web.js'
 import { createReadonlyToolsExtension } from '../capabilities/readonly-tools.js'
 import { ToolRepository } from '../capabilities/tool-repository.js'
@@ -34,6 +35,7 @@ if (url === undefined) {
         registry.install(createReadonlyToolsExtension())
         registry.install(createWebExtension())
         registry.install(createCodemodeExtension({ sandbox, models: false }))
+        registry.install(createAskUserExtension())
         const tools = new ToolRepository(storage.pool, storage.schema)
 
         try {
@@ -41,6 +43,7 @@ if (url === undefined) {
           await syncToolCatalog(tools, ownerId, registry.snapshot())
 
           expect((await tools.list(ownerId)).map((tool) => tool.name)).toEqual([
+            'ask_user',
             'bash',
             'codemode',
             'edit',

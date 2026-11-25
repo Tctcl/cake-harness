@@ -83,7 +83,7 @@ if (url === undefined) {
       }),
     }
     const auth = new AuthService({ pool, schema, secrets: config.secrets })
-    // Registration builds every route, but this suite calls only the two thread routes supplied here.
+    // Registration builds every route, while this suite exercises thread and answer endpoints through inject().
     const agent = {
       auth,
       capabilities: { skills: {} },
@@ -92,6 +92,12 @@ if (url === undefined) {
         id === thread.id && callId === 'call-full'
           ? { arguments: '{"path":"README.md"}', result: 'the complete result' }
           : undefined,
+      answerQuestion: async (_id: string, _callId: string, answer: string) => {
+        if (answer === 'missing') return 'not-found'
+        if (answer === 'duplicate') return 'already-answered'
+
+        return 'answered'
+      },
       updateThreadRunSettings: (id: string, patch: Parameters<typeof updateThreadRunSettings>[2]) =>
         updateThreadRunSettings(stores, id, patch),
     } as unknown as Agent
@@ -157,6 +163,37 @@ if (url === undefined) {
           arguments: '{"path":"README.md"}',
           result: 'the complete result',
         })
+      } finally {
+        await server.close()
+      }
+    })
+
+    it('answers a waiting question and distinguishes missing and already-answered calls', async () => {
+      const { server, thread } = await serve()
+      try {
+        const answered = await server.inject({
+          method: 'POST',
+          url: `/threads/${thread.id}/questions/call-question/answer`,
+          payload: { answer: 'Use the stable channel' },
+        })
+        expect(answered.statusCode).toBe(200)
+        expect(answered.json()).toEqual({ answered: true })
+
+        const duplicate = await server.inject({
+          method: 'POST',
+          url: `/threads/${thread.id}/questions/call-question/answer`,
+          payload: { answer: 'duplicate' },
+        })
+        expect(duplicate.statusCode).toBe(409)
+        expect(duplicate.json()).toMatchObject({ error: { code: 'QUESTION_ALREADY_ANSWERED' } })
+
+        const missing = await server.inject({
+          method: 'POST',
+          url: `/threads/${thread.id}/questions/call-question/answer`,
+          payload: { answer: 'missing' },
+        })
+        expect(missing.statusCode).toBe(404)
+        expect(missing.json()).toMatchObject({ error: { code: 'QUESTION_NOT_FOUND' } })
       } finally {
         await server.close()
       }
