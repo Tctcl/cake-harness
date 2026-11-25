@@ -3,11 +3,11 @@
 How one self-hosted instance is installed, upgraded and backed up, and what this
 repository does and does not do about it yet.
 
-Status: **the platform layer only.** `deploy/compose.yaml` defines Traefik, the two
-Docker socket proxies and Postgres. The application container is not in it,
-because the backend has no Dockerfile yet; until it does, `install.sh` brings up a
-stack that serves nothing on HTTP except the ACME challenge. Everything else here
-(installer, update socket, image publishing) is real and testable.
+Status: **the whole stack.** `deploy/compose.yaml` runs Traefik, the two Docker
+socket proxies, Postgres, CipherGate and the product image (Fastify serving the
+SPA). `install.sh` installs it, creates the first admin account, and turns sign-in
+on. The update socket is installed, but nothing in the backend writes to it yet
+(see "What is not here").
 
 ## One host, nothing else
 
@@ -48,6 +48,8 @@ other:
   workspaces/<id>/              one directory per workspace container
   backups/
   updater.log                   installer output, appended per update
+  first-run-credentials         the first admin password and the CipherGate admin key, root only;
+                                move them to a password manager and delete the file
 ```
 
 Postgres is the exception to "state is a directory": its data lives in the named
@@ -88,8 +90,10 @@ Three consequences worth knowing before operating this:
   not re-encrypt anything, which is why nothing rotates it automatically.
 - **Back the keyfile up separately from the database.** A copy of both in the
   same place is one leak away from handing over everything.
-- **The admin key is never stored.** `install.sh` prints it once during the first
-  install. If it is lost, it is a key rotation problem, not a reinstall problem.
+- **The store keeps no copy of its admin key.** The first install writes it to
+  `/var/lib/tctcl-platform/first-run-credentials` (root only, mode 0600), next to
+  the first admin password. Move both into a password manager and delete the
+  file. If the key is lost, it is a key rotation problem, not a reinstall problem.
 
 ## Install
 
@@ -106,8 +110,15 @@ the GitHub releases redirect, installs Docker from Docker's apt repository if
 `/opt/tctcl-platform`, creates the state directories and the `tctcl-updater`
 group, writes `.env` with a generated Postgres password, generates the secrets
 store's keyfile, initialises the store and creates the backend's reader consumer
-(its key is written into `.env`), then `docker compose up -d`, and enables the
-update socket.
+(its key is written into `.env`), then runs `docker compose up -d`. Once the app
+answers `/health`, it creates the first admin account (`--admin-user`, default
+`admin`) with a generated password and turns sign-in on (`docs/auth.md`), and
+finally enables the update socket. The password goes only into
+`first-run-credentials`; a re-run never resets it.
+
+```bash
+sudo cat /var/lib/tctcl-platform/first-run-credentials
+```
 
 Every step is idempotent, and an existing `.env` is never rewritten — the secrets
 in it are the deployment. `--dry-run` prints the whole list of changes instead of
@@ -244,10 +255,22 @@ production install does not drift when the next release lands; it is updated
 deliberately.
 
 A staging install follows the `staging` tag. `install.sh --channel staging`
-requires a checkout of `main` — there is no staging bundle to download, because
-nothing tags a staging commit — and it pulls `:staging` on every run. Switching
-channels is re-running the script with a different `--channel`: `.env` records the
-choice as `TCTCL_CHANNEL`, `TCTCL_IMAGE` and `TCTCL_WORKSPACE_IMAGE`.
+requires a checkout of `main`, because nothing tags a staging commit, so there is
+no staging bundle to download. It pulls `:staging` on every run:
+
+```bash
+git clone https://github.com/Tctcl/tlabs-platform.git && cd tlabs-platform
+sudo bash deploy/install.sh --channel staging --domain staging.example.com --acme-email you@example.com
+```
+
+From a checkout, the script assembles the same flat layout the release bundle
+has: `deploy/` plus `infrastructure/`'s updater and systemd units. To update
+staging, `git pull` and run it again. Without `--channel` it keeps the channel
+`.env` records, so a staging install is never quietly moved onto releases.
+Switching channels is re-running the script with a different `--channel`: `.env`
+records the choice as `TCTCL_CHANNEL`, `TCTCL_IMAGE` and `TCTCL_WORKSPACE_IMAGE`.
+`TCTCL_VERSION` is empty on staging, because a moving tag has no version to
+compare.
 
 `dev` is not an install. It is this repository and `pnpm dev`, and it is the only
 channel with no container on the machine.

@@ -117,6 +117,15 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ DATABASE_URL, DATABASE_POOL_SIZE: '2.5' })).toThrow(ConfigError)
   })
 
+  it('reads an empty TCTCL_VERSION as no version, the way a staging install passes it', () => {
+    expect(loadConfig({ DATABASE_URL, TCTCL_CHANNEL: 'staging', TCTCL_VERSION: '' })).toMatchObject({
+      channel: 'staging',
+      version: undefined,
+    })
+    expect(loadConfig({ DATABASE_URL, TCTCL_VERSION: '1.2.3' }).version).toBe('1.2.3')
+    expect(() => loadConfig({ DATABASE_URL, TCTCL_VERSION: 'staging' })).toThrow(/TCTCL_VERSION/)
+  })
+
   it('rejects an invalid port', () => {
     expect(() => loadConfig({ DATABASE_URL, PORT: '70000' })).toThrow(ConfigError)
     expect(() => loadConfig({ DATABASE_URL, PORT: 'not-a-port' })).toThrow(ConfigError)
