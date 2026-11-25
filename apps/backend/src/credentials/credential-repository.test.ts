@@ -1,6 +1,8 @@
 import { Client } from 'pg'
 import { afterAll, describe, expect, it } from 'vitest'
 
+import { createSecretBox } from '../auth/secret-box.js'
+import { ProviderRepository } from '../providers/provider-repository.js'
 import { createSchema, openPostgresStorage } from '../storage/postgres/index.js'
 import { ensureLocalUser } from '../threads/local-user.js'
 import { CredentialRepository } from './credential-repository.js'
@@ -17,8 +19,15 @@ if (url === undefined) {
   let caseIndex = 0
   const created: string[] = []
 
+  const secrets = createSecretBox('a-test-secret-key')
+
   const withCredentials = async (
-    use: (credentials: CredentialRepository, ownerId: string) => Promise<void>,
+    use: (
+      credentials: CredentialRepository,
+      ownerId: string,
+      providers: ProviderRepository,
+      read: (sql: string) => Promise<unknown[]>,
+    ) => Promise<void>,
   ): Promise<void> => {
     const prefix = `k${run}_${caseIndex++}_`
     const storage = await openPostgresStorage(url, { prefix })
@@ -26,13 +35,33 @@ if (url === undefined) {
     created.push(...Object.values(createSchema(prefix).tables))
     try {
       const ownerId = await ensureLocalUser(storage.pool, schema)
-      await use(new CredentialRepository(storage.pool, schema), ownerId)
+      await use(
+        new CredentialRepository(storage.pool, schema, secrets),
+        ownerId,
+        new ProviderRepository(storage.pool, schema, secrets),
+        async (sql) => (await storage.pool.query(sql.replaceAll('{credentials}', schema.tables.userCredentials))).rows,
+      )
     } finally {
       await storage.close({} as never)
     }
   }
 
   describe('CredentialRepository', () => {
+    it('stores the value sealed, and a provider key added here is the key a chat runs with', async () => {
+      await withCredentials(async (credentials, ownerId, providers, read) => {
+        const created = await credentials.create(ownerId, {
+          kind: 'opencode-go',
+          name: 'work',
+          value: 'sk-live-sealed',
+          email: 'me@example.com',
+        })
+
+        const [row] = (await read('SELECT value FROM {credentials}')) as { value: string }[]
+        expect(row?.value).not.toContain('sk-live-sealed')
+        await expect(providers.key(ownerId, created.id)).resolves.toBe('sk-live-sealed')
+      })
+    })
+
     it('records a provider key with its account and no expiry', async () => {
       await withCredentials(async (credentials, ownerId) => {
         const created = await credentials.create(ownerId, {

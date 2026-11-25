@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 
 import type { Pool } from 'pg'
 
+import type { SecretBox } from '../auth/secret-box.js'
 import type { PostgresSchema } from '../storage/postgres/schema.js'
 
 /**
@@ -68,11 +69,15 @@ const toDate = (value: string | null): Date | null => (value === null ? null : n
 /**
  * The secrets a user owns, one row per key. Kept out of the capability tables on purpose: a key outlives the server it
  * authenticates, so deleting an MCP server must not delete the key someone pasted into this page.
+ *
+ * Values are sealed with the install's `SECRET_KEY` before they are written, the same way `ProviderRepository` writes
+ * its rows into this table. Both read each other's rows: an `opencode-go` key added here is what a chat runs with.
  */
 export class CredentialRepository {
   constructor(
     private readonly pool: Pool,
     private readonly schema: PostgresSchema,
+    private readonly secrets: SecretBox,
   ) {}
 
   /** Newest first, which is the order the page shows and the order of "what did I just add". */
@@ -108,7 +113,7 @@ export class CredentialRepository {
         ownerId,
         input.kind,
         input.name,
-        input.value,
+        this.secrets.seal(input.value),
         toDate(input.expiresAt ?? null),
         input.kind === 'opencode-go' ? (input.email ?? null) : null,
         input.kind === 'mcp' ? (input.note ?? null) : null,

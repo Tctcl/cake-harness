@@ -532,7 +532,7 @@ export async function createAgent(config: Config): Promise<Agent> {
   // The user's own keys, apart from the MCP credentials a server definition carries: a key outlives the server it serves.
   const userCredentials = createCredentialApi({
     ownerId,
-    credentials: new CredentialRepository(postgres.pool, postgres.schema),
+    credentials: new CredentialRepository(postgres.pool, postgres.schema, config.secrets),
   })
   // Provider keys are credentials of one kind, so they live in the same table and are read through their own api.
   const providerRepository = new ProviderRepository(postgres.pool, postgres.schema, config.secrets)
