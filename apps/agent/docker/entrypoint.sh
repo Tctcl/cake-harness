@@ -1,20 +1,20 @@
 #!/bin/sh
 set -eu
 
-# Host keys are per container: regenerating them at boot keeps one environment's
-# identity out of another's known_hosts file.
-if [ ! -f /etc/ssh/ssh_host_ed25519_key ]; then
-  ssh-keygen -q -t ed25519 -N '' -f /etc/ssh/ssh_host_ed25519_key
-  ssh-keygen -q -t rsa -b 4096 -N '' -f /etc/ssh/ssh_host_rsa_key
+# Host keys live on the environment's named volume, so recreating its container
+# does not change the identity already recorded in a developer's known_hosts.
+SSH_HOST_KEY_DIR=/var/lib/cake/ssh
+mkdir -p "$SSH_HOST_KEY_DIR" /run/sshd
+chmod 0700 "$SSH_HOST_KEY_DIR"
+if [ ! -f "$SSH_HOST_KEY_DIR/ssh_host_ed25519_key" ]; then
+  ssh-keygen -q -t ed25519 -N '' -f "$SSH_HOST_KEY_DIR/ssh_host_ed25519_key"
+fi
+if [ ! -f "$SSH_HOST_KEY_DIR/ssh_host_rsa_key" ]; then
+  ssh-keygen -q -t rsa -b 4096 -N '' -f "$SSH_HOST_KEY_DIR/ssh_host_rsa_key"
 fi
 
-mkdir -p /run/sshd
-
-# The backend supplies the keys allowed to log in.
-if [ -n "${SSH_AUTHORIZED_KEYS_FILE:-}" ] && [ -f "${SSH_AUTHORIZED_KEYS_FILE}" ]; then
-  install -d -m 0700 -o dev -g dev /home/dev/.ssh
-  install -m 0600 -o dev -g dev "${SSH_AUTHORIZED_KEYS_FILE}" /home/dev/.ssh/authorized_keys
-fi
+# Cake writes authorized_keys with docker exec after start and after every key
+# change; the old SSH_AUTHORIZED_KEYS_FILE handoff is intentionally not used.
 
 # Bootstrap runs as the development user so anything it writes belongs to dev.
 # A failing bootstrap stops the container: a half-configured environment that

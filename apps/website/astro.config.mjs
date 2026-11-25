@@ -38,6 +38,7 @@ export default defineConfig({
           label: 'Using Cake',
           items: [
             { label: 'Workspaces', slug: 'docs/workspaces' },
+            { label: 'Connect with SSH and VS Code', slug: 'docs/connect-with-ssh-and-vscode' },
             { label: 'Agents', slug: 'docs/agents' },
             { label: 'Chat', slug: 'docs/chat' },
             { label: 'Tools', slug: 'docs/tools' },

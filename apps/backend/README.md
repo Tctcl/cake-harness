@@ -326,8 +326,12 @@ row; it is refused with `409 NOT_ARCHIVED` while the row is live, and with
 | `GET /providers/models` | — | `{ "models": [...] }`, the catalog cached by the last successful refresh |
 | `GET/PUT /workspaces/:workspaceId/providers` | `{ "loginIds", "allowedModels", "allowAllModels" }` | what the workspace may spend; `404 WORKSPACE_NOT_FOUND` |
 | `GET /workspaces/:workspaceId/providers/usage` | — | `{ "usage": [{ "provider", "loginCount", "requests", "inputTokens", "outputTokens", "costUsd" }] }`, the counters still zero |
-| `GET /environments/:environmentId/ssh` | — | the published endpoint as `{ "command", "host", "port", "user" }`, or `null` when the container published none |
-| `GET /environments/:environmentId/ssh/tunnels` | — | `{ "tunnels": [] }`: nothing forwards a port yet |
+| `GET /environments/:environmentId/ssh` | — | `{ "command", "host", "port", "user", "running" }` using the configured public host and stored port |
+| `GET /environments/:environmentId/ports` | — | `{ "ports": [{ "port", "command" }] }` for listening TCP ports, excluding SSH |
+| `GET /account/ssh-keys` | — | `{ "keys": [...] }`, public keys and fingerprints only |
+| `POST /account/ssh-keys` | `{ "name", "publicKey" }` | `201` with the validated key |
+| `POST /account/ssh-keys/generate` | `{ "name" }` | `201` with the public key and one-time OpenSSH private key |
+| `DELETE /account/ssh-keys/:keyId` | — | `204`; updates running containers |
 
 ### Workspace environments
 

@@ -4,6 +4,7 @@ import type { Agent } from '../agent.js'
 import type { EnvironmentApi } from '../environments/api.js'
 import { containerStatuses } from '../environments/container-runtime.js'
 import type { DevEnvironment, EnvironmentPatch } from '../environments/environment-repository.js'
+import { workspaceSshAlias } from '../environments/ssh-access.js'
 import { AppError } from '../errors.js'
 import type { TerminalSessions } from '../terminal/sessions.js'
 import type { Workspace } from '../workspaces/workspace-repository.js'
@@ -49,6 +50,7 @@ const environmentProperties = {
   name: { type: 'string' },
   image: { type: 'string' },
   containerId: { type: ['string', 'null'] },
+  sshPort: { type: 'integer' },
   createdAt: { type: 'string' },
   updatedAt: { type: 'string' },
 } as const
@@ -56,7 +58,7 @@ const environmentProperties = {
 const environmentSchema = {
   type: 'object',
   properties: environmentProperties,
-  required: ['id', 'name', 'image', 'containerId', 'createdAt', 'updatedAt'],
+  required: ['id', 'name', 'image', 'containerId', 'sshPort', 'createdAt', 'updatedAt'],
 } as const
 
 const environmentListSchema = {
@@ -69,7 +71,7 @@ const environmentListSchema = {
 const environmentDetailSchema = {
   type: 'object',
   properties: { ...environmentProperties, status: { type: 'string', enum: [...containerStatuses] } },
-  required: ['id', 'name', 'image', 'containerId', 'createdAt', 'updatedAt', 'status'],
+  required: ['id', 'name', 'image', 'containerId', 'sshPort', 'createdAt', 'updatedAt', 'status'],
 } as const
 
 // Bytes and a percentage, so a client formats them and the wire stays free of units.
@@ -104,25 +106,21 @@ const sshAccessSchema = {
     host: { type: 'string' },
     port: { type: 'integer' },
     user: { type: 'string' },
+    running: { type: 'boolean' },
   },
-  required: ['command', 'host', 'port', 'user'],
+  required: ['command', 'host', 'port', 'user', 'running'],
 } as const
 
-const sshTunnelSchema = {
+const listeningPortSchema = {
   type: 'object',
-  properties: {
-    id: { type: 'string' },
-    command: { type: 'string' },
-    localPort: { type: 'integer' },
-    remotePort: { type: 'integer' },
-  },
-  required: ['id', 'command', 'localPort', 'remotePort'],
+  properties: { port: { type: 'integer' }, command: { type: 'string' } },
+  required: ['port', 'command'],
 } as const
 
-const sshTunnelListSchema = {
+const listeningPortListSchema = {
   type: 'object',
-  properties: { tunnels: { type: 'array', items: sshTunnelSchema } },
-  required: ['tunnels'],
+  properties: { ports: { type: 'array', items: listeningPortSchema } },
+  required: ['ports'],
 } as const
 
 // The link tables answer ids, so the wrapper says which table it came from rather than posing as the rows.
@@ -340,15 +338,21 @@ export const environmentRoutes: FastifyPluginAsync<{ agent: Agent; terminals: Te
     },
   )
 
-  // Empty until something forwards a port: tunnels belong to the agent process that holds them, and none does yet.
   server.get<{ Params: EnvironmentIdParams }>(
-    '/environments/:environmentId/ssh/tunnels',
-    { schema: { params: environmentIdParams, response: { 200: sshTunnelListSchema } } },
+    '/environments/:environmentId/ports',
+    { schema: { params: environmentIdParams, response: { 200: listeningPortListSchema } } },
     async (request) => {
       const environment = await environments.find(request.params.environmentId)
       if (environment === undefined) throw missing()
+      const ports = await environments.ports(request.params.environmentId)
+      if (ports === undefined) throw missing()
+      if (ports === null) throw notRunning()
 
-      return { tunnels: [] }
+      const [workspaceId] = await environments.workspacesOf(environment.id)
+      const workspace = workspaceId === undefined ? undefined : await options.agent.workspace(workspaceId)
+      const alias = workspaceSshAlias(workspace?.name ?? environment.name)
+
+      return { ports: ports.map((port) => ({ port, command: `ssh -N -L ${port}:localhost:${port} ${alias}` })) }
     },
   )
 

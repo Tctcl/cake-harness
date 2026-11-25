@@ -13,6 +13,7 @@ import { Badge } from '../ui/badge.tsx'
 import { Button } from '../ui/button.tsx'
 import { Input } from '../ui/input.tsx'
 import { Spinner } from '../ui/spinner.tsx'
+import { EnvironmentSsh } from './environment-ssh.tsx'
 import { EnvironmentResources } from './environment-resources.tsx'
 
 interface EnvironmentSnapshot {
@@ -42,11 +43,15 @@ const statusLabel = (status: EnvironmentDetail['status']): string => {
 /** The user-facing controls for the workspace's one container; General's agent-tool exclusion is deliberately separate. */
 export function WorkspaceEnvironmentPanel({
   workspaceId,
+  workspaceName,
   isDefault,
+  onOpenSshKeys,
   onOpenTerminal,
 }: {
   workspaceId: string
+  workspaceName: string
   isDefault: boolean
+  onOpenSshKeys: () => void
   onOpenTerminal: (workspaceId: string) => void
 }) {
   const [environment, setEnvironment] = useState<EnvironmentDetail | null>(null)
@@ -55,7 +60,6 @@ export function WorkspaceEnvironmentPanel({
   const [image, setImage] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<BusyAction>(null)
-  const [copyState, setCopyState] = useState<'copied' | 'failed' | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -91,7 +95,6 @@ export function WorkspaceEnvironmentPanel({
       if (snapshot.environment === null) throw new Error('the environment disappeared while changing state')
       setEnvironment(snapshot.environment)
       setSsh(snapshot.ssh)
-      setCopyState(null)
     } catch (failure) {
       setError(message(failure, 'the container did not change state'))
     } finally {
@@ -114,16 +117,6 @@ export function WorkspaceEnvironmentPanel({
       setError(message(failure, 'the image could not be saved'))
     } finally {
       setBusy(null)
-    }
-  }
-
-  async function copyCommand() {
-    if (ssh === null) return
-    try {
-      await navigator.clipboard.writeText(ssh.command)
-      setCopyState('copied')
-    } catch {
-      setCopyState('failed')
     }
   }
 
@@ -250,31 +243,12 @@ export function WorkspaceEnvironmentPanel({
         </Button>
       </section>
 
-      <section aria-label="SSH access" className="flex flex-col gap-3 rounded-md border p-4">
-        <h2 className="font-medium">SSH</h2>
-        {ssh === null ? (
-          <p className="text-muted-foreground">SSH is not exposed for this container.</p>
-        ) : (
-          <>
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
-              <dt className="text-muted-foreground">Host</dt><dd className="font-mono">{ssh.host}</dd>
-              <dt className="text-muted-foreground">Port</dt><dd className="font-mono">{ssh.port}</dd>
-              <dt className="text-muted-foreground">User</dt><dd className="font-mono">{ssh.user}</dd>
-            </dl>
-            <div className="flex flex-wrap items-center gap-2">
-              <code className="min-w-0 flex-1 overflow-x-auto rounded-md bg-muted p-2 text-xs">{ssh.command}</code>
-              <Button type="button" size="sm" variant="outline" onClick={() => void copyCommand()}>
-                Copy SSH command
-              </Button>
-            </div>
-            {copyState === 'copied' ? <p className="text-xs text-muted-foreground">Copied.</p> : null}
-            {copyState === 'failed' ? <p role="alert" className="text-xs text-destructive">The command could not be copied.</p> : null}
-          </>
-        )}
-        <p className="text-xs text-muted-foreground">
-          To authorize a key, mount a file of public keys and set SSH_AUTHORIZED_KEYS_FILE to its path before starting the container; Cake does not yet expose those settings here.
-        </p>
-      </section>
+      <EnvironmentSsh
+        environmentId={environment.id}
+        workspaceName={workspaceName}
+        access={ssh}
+        onOpenSshKeys={onOpenSshKeys}
+      />
 
       <section aria-label="Tooling — coming next" className="rounded-md border border-dashed p-4">
         <h2 className="font-medium">Tooling — coming next</h2>

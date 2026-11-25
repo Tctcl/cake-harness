@@ -25,6 +25,21 @@ describe('loadConfig', () => {
     })
   })
 
+  it('reads SSH configuration and defaults its host to DOMAIN, then the Docker host', () => {
+    expect(loadConfig({ DATABASE_URL })).toMatchObject({
+      sshHost: '127.0.0.1',
+      sshPortRange: { first: 22_000, last: 22_999 },
+    })
+    expect(loadConfig({ DATABASE_URL, DOMAIN: 'cake.example.com' }).sshHost).toBe('cake.example.com')
+    expect(loadConfig({ DATABASE_URL, DOMAIN: 'cake.example.com', CAKE_SSH_HOST: 'ssh.example.com' }).sshHost)
+      .toBe('ssh.example.com')
+    expect(loadConfig({ DATABASE_URL, DOCKER_HOST: 'tcp://docker.internal:2375' }).sshHost).toBe('docker.internal')
+    expect(loadConfig({ DATABASE_URL, CAKE_SSH_PORT_RANGE: '23000-23010' }).sshPortRange)
+      .toEqual({ first: 23_000, last: 23_010 })
+    expect(() => loadConfig({ DATABASE_URL, CAKE_SSH_PORT_RANGE: '23010-23000' })).toThrow(/CAKE_SSH_PORT_RANGE/)
+    expect(() => loadConfig({ DATABASE_URL, CAKE_SSH_PORT_RANGE: '22000' })).toThrow(/CAKE_SSH_PORT_RANGE/)
+  })
+
   it('derives a seal key in development and refuses to run without one in production', () => {
     const development = loadConfig({ DATABASE_URL })
     expect(development.secrets.open(development.secrets.seal('secret'))).toBe('secret')

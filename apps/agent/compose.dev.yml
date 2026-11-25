@@ -1,8 +1,8 @@
 # Local development harness for the workspace image. There is no backend in this
 # stack, so no manifest URL is set and the bootstrap is skipped: what remains is
-# the image's floor of tooling reachable over SSH. The full path — documents from
-# the store, installs, a report back — needs the stack in deploy/. Build the
-# bootstrap first: `pnpm build` in this directory.
+# the image's floor of tooling. sshd starts, but no key is authorized without a
+# backend; Cake provisions keys with docker exec. Build the bootstrap first:
+# `pnpm build` in this directory.
 #
 #   docker compose -f compose.dev.yml up --build
 #   ssh -i dev/ssh/id_ed25519 -p 2222 dev@127.0.0.1
@@ -19,11 +19,9 @@ services:
       # single-key sshd on the network.
       - "127.0.0.1:2222:22"
     environment:
-      SSH_AUTHORIZED_KEYS_FILE: /etc/dev-env/authorized_keys
       # Empty on purpose; set it to a served manifest to exercise the bootstrap.
       DEV_ENV_MANIFEST_URL: ${DEV_ENV_MANIFEST_URL:-}
     volumes:
-      - ./dev/ssh/id_ed25519.pub:/etc/dev-env/authorized_keys:ro
       - workspace:/home/dev/workspace
 
 volumes:

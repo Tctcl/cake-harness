@@ -17,6 +17,8 @@ The installer rewrites the channel, version, and three image values whenever it 
 | `INSTALL_DIR` | `/opt/cake-harness` | Deployment files; replaced by upgrades |
 | `STATE_DIR` | `/var/lib/cake-harness` | Mutable state; preserved by upgrades |
 | `DOMAIN` | Required on first install | Hostname in Traefik's routing rule and certificate |
+| `CAKE_SSH_HOST` | `DOMAIN` | Public hostname clients use to SSH into workspace containers |
+| `CAKE_SSH_PORT_RANGE` | `22000-22999` | Inclusive TCP host-port range allocated to workspace SSH |
 | `ACME_EMAIL` | `admin@$DOMAIN` | Let's Encrypt contact |
 | `POSTGRES_DB` | `cake` | Database name |
 | `POSTGRES_USER` | `cake` | Database user |
@@ -52,6 +54,8 @@ The shared **System prompt** is edited in **Settings → Application settings**,
 | `WORKSPACE_IMAGE` | `cake/dev-env:dev` | Image used for new workspace containers unless one records another |
 | `WORKSPACE_BACKEND_URL` | Unset | HTTP(S) URL a workspace uses to reach the backend; trailing slashes are stripped |
 | `WORKSPACE_NETWORK` | Unset | Docker network a workspace joins; set both this and `WORKSPACE_BACKEND_URL`, or neither |
+| `CAKE_SSH_HOST` | `DOMAIN`, then the Docker host | Public hostname clients use for workspace SSH |
+| `CAKE_SSH_PORT_RANGE` | `22000-22999` | Inclusive `FIRST-LAST` range of host ports published for SSH; must fit within 1–65535 |
 | `CAKE_CHANNEL` | `production` | `production` or `staging`; staging has no fixed version to compare |
 | `CAKE_VERSION` | Unset | `X.Y.Z`; an empty string is treated as unset |
 | `UPDATE_CHECK_INTERVAL_MS` | `900000` | Non-negative integer milliseconds; `0` disables release checks |

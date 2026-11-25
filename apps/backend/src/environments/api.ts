@@ -24,6 +24,10 @@ export interface EnvironmentApiOptions {
   readonly backendUrl: string | null
   /** The network the container joins so `backend` resolves, or `null` to leave it on Docker's default one. */
   readonly network: string | null
+  /** Public hostname shown in SSH config, independent of Docker's internal address. */
+  readonly sshHost: string
+  /** Current public keys for the owner, written immediately after every successful start. */
+  readonly authorizedKeys: () => Promise<readonly string[]>
   /** Where the credentials a workspace gets come from; a reader that knows nothing serves a manifest without any. */
   readonly secrets: SecretReader
 }
@@ -49,11 +53,10 @@ export interface EnvironmentApi {
    * `undefined` when the id is unknown: the caller answers 404 or 409 rather than zeros that suggest an idle box.
    */
   metrics(id: string): Promise<ContainerMetrics | null | undefined>
-  /**
-   * How to reach the container over SSH. `null` when it is not running or no port was published for it, which is the
-   * answer for every container Cake creates today; `undefined` when the id is unknown.
-   */
-  ssh(id: string): Promise<SshAccessView | null | undefined>
+  /** The stable SSH endpoint and whether its container is running; `undefined` only when the id is unknown. */
+  ssh(id: string): Promise<SshAccessView | undefined>
+  /** Listening development-server ports; `null` when stopped and `undefined` when unknown. */
+  ports(id: string): Promise<readonly number[] | null | undefined>
   ofWorkspace(workspaceId: string): Promise<DevEnvironment[]>
   workspacesOf(environmentId: string): Promise<string[]>
   ofAgent(agentId: string): Promise<DevEnvironment | undefined>
@@ -90,8 +93,8 @@ export const createEnvironmentApi = (options: EnvironmentApiOptions): Environmen
       const environment = await environments.find(id)
       if (environment === undefined) return false
 
-      // The container goes first: a row that outlived its container is recoverable, a container nobody names is not.
-      if (environment.containerId !== null) await containers.remove(environment.containerId)
+      // Docker state and named volumes go first: a row that outlives them is recoverable, an orphan is not.
+      await containers.remove(environment.containerId, environment.id)
 
       return environments.remove(id)
     },
@@ -104,13 +107,17 @@ export const createEnvironmentApi = (options: EnvironmentApiOptions): Environmen
         {
           id: environment.id,
           image: environment.image,
+          sshPort: environment.sshPort,
           env: bootstrapEnv(environment.id),
           network: options.network,
         },
         environment.containerId,
       )
 
-      return environments.setContainer(id, containerId)
+      const started = await environments.setContainer(id, containerId)
+      await containers.replaceAuthorizedKeys(containerId, await options.authorizedKeys())
+
+      return started
     },
 
     stop: async (id) => {
@@ -142,11 +149,18 @@ export const createEnvironmentApi = (options: EnvironmentApiOptions): Environmen
     ssh: async (id) => {
       const environment = await environments.find(id)
       if (environment === undefined) return undefined
-      if (environment.containerId === null) return null
+      const running = environment.containerId !== null &&
+        await containers.status(environment.containerId) === 'running'
 
-      const endpoint = await containers.sshEndpoint(environment.containerId)
+      return sshAccessOf({ host: options.sshHost, port: environment.sshPort }, running)
+    },
 
-      return endpoint === null ? null : sshAccessOf(endpoint)
+    ports: async (id) => {
+      const environment = await environments.find(id)
+      if (environment === undefined) return undefined
+      if (environment.containerId === null || await containers.status(environment.containerId) !== 'running') return null
+
+      return containers.listeningPorts(environment.containerId)
     },
 
     ofWorkspace: (workspaceId) => environments.ofWorkspace(workspaceId),

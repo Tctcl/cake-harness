@@ -12,6 +12,7 @@ const environment = {
   name: 'General',
   image: 'cake-harness/dev-env:latest',
   containerId: 'container-1',
+  sshPort: 2222,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 }
@@ -37,9 +38,11 @@ function backend(initialStatus: EnvironmentStatus = 'stopped', exposed = false) 
     if (path === `/environments/${ENVIRONMENT_ID}/metrics`) return json(metrics)
     if (path === `/environments/${ENVIRONMENT_ID}/ssh`) {
       return json(exposed && status === 'running'
-        ? { host: 'dev.example', port: 2222, user: 'dev', command: 'ssh -p 2222 dev@dev.example' }
+        ? { host: 'dev.example', port: 2222, user: 'dev', command: 'ssh -p 2222 dev@dev.example', running: true }
         : null)
     }
+    if (path === `/environments/${ENVIRONMENT_ID}/ports`) return json({ ports: [] })
+    if (path === '/account/ssh-keys') return json({ keys: [] })
     if (path === `/environments/${ENVIRONMENT_ID}/start` && init?.method === 'POST') {
       status = 'running'
       return json(environment)
@@ -58,7 +61,9 @@ const renderPanel = (onOpenTerminal = () => {}, isDefault = false) =>
   render(
     <WorkspaceEnvironmentPanel
       workspaceId={WORKSPACE_ID}
+      workspaceName="My Workspace"
       isDefault={isDefault}
+      onOpenSshKeys={() => {}}
       onOpenTerminal={onOpenTerminal}
     />,
   )
@@ -109,27 +114,25 @@ describe('WorkspaceEnvironmentPanel', () => {
     })
   })
 
-  it('shows SSH connection data and copies its command', async () => {
+  it('shows the SSH config block and opens the Remote-SSH target', async () => {
     vi.stubGlobal('fetch', backend('running', true))
-    const writeText = vi.fn(() => Promise.resolve())
-    vi.stubGlobal('navigator', { clipboard: { writeText } })
     renderPanel()
 
     expect(await screen.findByText('dev.example')).toBeInTheDocument()
     expect(screen.getByText('2222')).toBeInTheDocument()
     expect(screen.getByText('dev', { selector: 'dd' })).toBeInTheDocument()
-    expect(screen.getByText('ssh -p 2222 dev@dev.example')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Copy SSH command' }))
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith('ssh -p 2222 dev@dev.example'))
-    expect(await screen.findByText('Copied.')).toBeInTheDocument()
+    expect(screen.getByText(/Host cake-my-workspace/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open in VS Code' })).toHaveAttribute(
+      'href',
+      'vscode://vscode-remote/ssh-remote+cake-my-workspace/home/dev/workspace',
+    )
   })
 
-  it('says plainly when SSH is not exposed and shows General’s note and tooling placeholder', async () => {
+  it('shows the tooling placeholder when the container has no SSH data', async () => {
     vi.stubGlobal('fetch', backend())
     renderPanel(() => {}, true)
 
-    expect(await screen.findByText('SSH is not exposed for this container.')).toBeInTheDocument()
+    expect(await screen.findByText('SSH is not available for this container.')).toBeInTheDocument()
     expect(screen.getByText(/General’s agent never uses this container directly/)).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Tooling — coming next' })).toBeInTheDocument()
   })

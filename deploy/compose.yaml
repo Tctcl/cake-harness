@@ -172,6 +172,9 @@ services:
       # without them an environment boots on the image's floor and is never told anything.
       WORKSPACE_BACKEND_URL: http://app:8080
       WORKSPACE_NETWORK: cake-workspaces
+      # Each environment publishes SSH on one stable host port. Only the configured range needs a firewall rule.
+      CAKE_SSH_PORT_RANGE: ${CAKE_SSH_PORT_RANGE:?set CAKE_SSH_PORT_RANGE}
+      CAKE_SSH_HOST: ${CAKE_SSH_HOST:?set CAKE_SSH_HOST}
     networks:
       - edge
       - db

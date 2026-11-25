@@ -22,6 +22,7 @@ export interface SshAccessView {
   readonly host: string
   readonly port: number
   readonly user: string
+  readonly running: boolean
 }
 
 /**
@@ -60,9 +61,17 @@ export const readSshEndpoint = (inspected: unknown, host: string): SshEndpoint |
 export const sshCommand = (endpoint: SshEndpoint): string =>
   `ssh -p ${endpoint.port} ${SSH_USER}@${endpoint.host}`
 
-export const sshAccessOf = (endpoint: SshEndpoint): SshAccessView => ({
+export const sshAccessOf = (endpoint: SshEndpoint, running = true): SshAccessView => ({
   command: sshCommand(endpoint),
   host: endpoint.host,
   port: endpoint.port,
   user: SSH_USER,
+  running,
 })
+
+/** The Host alias used by the copyable config and the VS Code remote URI. */
+export const workspaceSshAlias = (workspaceName: string): string => {
+  const slug = workspaceName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+
+  return `cake-${slug === '' ? 'workspace' : slug}`
+}

@@ -1,8 +1,8 @@
 import { Copy } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
-import type { SshAccess, SshTunnel } from '../../lib/ssh-api.ts'
-import { getSshAccess, listSshTunnels } from '../../lib/ssh-api.ts'
+import type { SshAccess, SshPort } from '../../lib/ssh-api.ts'
+import { getSshAccess, listSshPorts } from '../../lib/ssh-api.ts'
 import { Button } from '../ui/button.tsx'
 
 /** A command with the button that puts it on the clipboard; the button is labelled with what it copies. */
@@ -45,17 +45,18 @@ function CopyRow({ label, command }: { label: string; command: string }) {
  */
 export function SshCard({ environmentId }: { environmentId: string }) {
   const [access, setAccess] = useState<SshAccess | null>(null)
-  const [tunnels, setTunnels] = useState<readonly SshTunnel[]>([])
+  const [ports, setPorts] = useState<readonly SshPort[]>([])
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
 
-    void Promise.all([getSshAccess(environmentId), listSshTunnels(environmentId)]).then(
-      ([loadedAccess, loadedTunnels]) => {
+    void getSshAccess(environmentId).then(
+      async (loadedAccess) => {
+        const loadedPorts = loadedAccess?.running ? await listSshPorts(environmentId) : []
         if (cancelled) return
         setAccess(loadedAccess)
-        setTunnels(loadedTunnels)
+        setPorts(loadedPorts)
       },
       (failure: unknown) => {
         if (!cancelled) setError(failure instanceof Error ? failure.message : 'ssh access failed to load')
@@ -80,11 +81,11 @@ export function SshCard({ environmentId }: { environmentId: string }) {
         </>
       )}
 
-      {tunnels.length === 0 ? null : (
+      {ports.length === 0 ? null : (
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Tunnels</span>
-          {tunnels.map((tunnel) => (
-            <CopyRow key={tunnel.id} label={`tunnel ${tunnel.localPort}`} command={tunnel.command} />
+          <span className="text-xs text-muted-foreground">Listening ports</span>
+          {ports.map((port) => (
+            <CopyRow key={port.port} label={`port ${port.port}`} command={port.command} />
           ))}
         </div>
       )}

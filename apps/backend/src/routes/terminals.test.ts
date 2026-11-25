@@ -42,6 +42,7 @@ const environmentOf = (overrides: Partial<DevEnvironment> = {}): DevEnvironment 
   name: 'Node',
   image: 'ghcr.io/tctcl/cake-harness/workspace:1.0.0',
   containerId: 'container-one',
+  sshPort: 22_000,
   createdAt: new Date(0),
   updatedAt: new Date(0),
   ...overrides,
@@ -67,7 +68,8 @@ const environmentsOf = (overrides: Partial<EnvironmentApi> = {}): EnvironmentApi
   state: async () => undefined,
   status: async () => 'running',
   metrics: async () => null,
-  ssh: async () => null,
+  ssh: async () => undefined,
+  ports: async () => null,
   ...overrides,
 })
 

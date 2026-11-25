@@ -32,6 +32,7 @@ export function WorkspaceDetail({
   workspace,
   onChanged,
   onOpenCredentials,
+  onOpenSshKeys,
   onOpenTerminal,
   initialTab = 'overview',
 }: {
@@ -40,6 +41,8 @@ export function WorkspaceDetail({
   onChanged: () => void
   /** Leave for Settings → Credentials, where keys are added. */
   onOpenCredentials: () => void
+  /** Leave for Settings → SSH keys, where SSH access is authorized. */
+  onOpenSshKeys: () => void
   /** Close this window and show the selected workspace's terminal in the shell. */
   onOpenTerminal: (workspaceId: string) => void
   /** The tab to open on, so a "set up a key" link can land on Providers. */
@@ -105,7 +108,9 @@ export function WorkspaceDetail({
         {tab === 'environment' ? (
           <WorkspaceEnvironmentPanel
             workspaceId={workspace.id}
+            workspaceName={workspace.name}
             isDefault={workspace.isDefault}
+            onOpenSshKeys={onOpenSshKeys}
             onOpenTerminal={onOpenTerminal}
           />
         ) : null}

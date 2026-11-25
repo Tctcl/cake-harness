@@ -26,7 +26,9 @@ The container joins the `cake-workspaces` Docker network. On that network it can
 
 The workspace image comes from `WORKSPACE_IMAGE`. A production install sets it to the released `ghcr.io/tctcl/cake-harness/workspace` image at the same version as the app.
 
-The **Environment** tab reports running, stopped, or missing state; starts, stops, and restarts the container; samples CPU, memory, network, and disk use; opens its terminal; and shows SSH connection data when a port is published. Cake-created containers do not currently publish SSH or expose an authorized-keys API.
+The **Environment** tab reports running, stopped, or missing state; starts, stops, and restarts the container; samples CPU, memory, network, and disk use; opens its terminal; and provides SSH configuration, a VS Code Remote-SSH link, and a live list of listening development ports. SSH uses a stable host port assigned to the environment. The owner's public keys are written to the container when it starts and when keys are added or removed.
+
+See [Connect with SSH and VS Code](/docs/connect-with-ssh-and-vscode) for setup steps and port forwarding.
 
 ## Tools belong to each agent
 

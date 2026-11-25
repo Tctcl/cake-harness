@@ -178,15 +178,11 @@ chat — and keeps a `border-l`; the separator between columns is that 1px borde
 while the resize strip is an invisible grab area over it.
 
 Conversation info is a column of collapsible sections — `Conversation`,
-`Environment`, `Context`, and `SSH` — separated by a 1px rule inset by the
-panel's padding rather than boxed in bordered cards. The environment section
-carries the container's state, a start/stop button and a polled CPU/memory
-reading; the SSH section shows the `ssh` command for the container and the
-tunnels currently forwarded through it, each with a copy button. Both readings
-come from endpoints the frontend assumes and the backend does not serve yet
-(`GET /environments/:id/stats`, `/ssh`, `/ssh/tunnels`), so an install without
-them shows the empty states; so does `/workspaces/:id/providers/usage`, which is
-what the usage panel reads.
+`Environment`, `Context`, and `SSH`. The workspace Environment tab holds the
+full SSH setup: generated or uploaded keys are managed in Settings, and a
+workspace-specific config block opens `/home/dev/workspace` through VS Code
+Remote-SSH. Its listening-port list is polled while visible and provides
+copyable SSH forwarding commands; development ports are not published directly.
 
 Every sidebar declares its own resize range and opening width in
 `SIDEBAR_WIDTHS` (`src/App.tsx`): `min`/`max` bound what a drag can produce and

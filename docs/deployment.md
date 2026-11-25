@@ -16,7 +16,8 @@ nothing else. A single machine means no cluster, no orchestration, no rolling
 deploy, and no need to be clever about any of it.
 
 Two things stay manual on purpose: **hardening sshd** (`PasswordAuthentication no`,
-`PermitRootLogin no`) and **the firewall** (22, 80, 443). A script that rewrites
+`PermitRootLogin no`) and **the firewall** (22, 80, 443, and the configured
+workspace SSH port range). A script that rewrites
 `sshd_config` on a box somebody is currently SSH'd into is how people lock
 themselves out, and the installer has no way to tell a fresh host from a
 misconfigured one.
@@ -103,7 +104,10 @@ less install.sh
 sudo bash install.sh --domain chat.example.com
 ```
 
-Then add the DNS record and open 22/80/443. The script, in order: checks the
+Then add the DNS record and open 22/80/443 plus `22000-22999/tcp` (or the
+configured `CAKE_SSH_PORT_RANGE`). The installer sets `CAKE_SSH_HOST` to
+`DOMAIN` by default; use `--ssh-host` to override it and `--ssh-port-range` to
+change the allocated range. The script, in order: checks the
 architecture and (loosely) the distribution, resolves `--version latest` through
 the GitHub releases redirect, installs Docker from Docker's apt repository if
 `docker compose version` does not already work, unpacks the release bundle into

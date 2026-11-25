@@ -4,6 +4,37 @@ import { AuthService } from '../auth/service.js'
 import { AppError } from '../errors.js'
 import type { Agent } from '../agent.js'
 
+const sshKeyName = { type: 'string', minLength: 1, maxLength: 200, pattern: '\\S' } as const
+
+const sshKeyProperties = {
+  id: { type: 'string' },
+  name: { type: 'string' },
+  publicKey: { type: 'string' },
+  fingerprint: { type: 'string' },
+  createdAt: { type: 'string' },
+} as const
+
+const sshKeySchema = {
+  type: 'object',
+  properties: sshKeyProperties,
+  required: ['id', 'name', 'publicKey', 'fingerprint', 'createdAt'],
+} as const
+
+const sshKeyListSchema = {
+  type: 'object',
+  properties: { keys: { type: 'array', items: sshKeySchema } },
+  required: ['keys'],
+} as const
+
+const sshKeyIdParams = {
+  type: 'object',
+  properties: {
+    keyId: { type: 'string', pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' },
+  },
+  required: ['keyId'],
+  additionalProperties: false,
+} as const
+
 const passwordSchema = {
   type: 'object',
   properties: { current: { type: 'string' }, next: { type: 'string' } },
@@ -34,6 +65,76 @@ const setupSchema = {
  */
 export const accountRoutes: FastifyPluginAsync<{ agent: Agent }> = async (server, options) => {
   const auth = (): AuthService => options.agent.auth
+  const sshKeys = options.agent.sshKeys
+
+  server.get('/account/ssh-keys', { schema: { response: { 200: sshKeyListSchema } } }, async (request) => {
+    AuthService.assertSignedIn(request.actor)
+
+    return { keys: await sshKeys.list() }
+  })
+
+  server.post<{ Body: { name: string; publicKey: string } }>(
+    '/account/ssh-keys',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          properties: { name: sshKeyName, publicKey: { type: 'string', minLength: 1, maxLength: 16_384 } },
+          required: ['name', 'publicKey'],
+          additionalProperties: false,
+        },
+        response: { 201: sshKeySchema },
+      },
+    },
+    async (request, reply) => {
+      AuthService.assertSignedIn(request.actor)
+
+      return reply.code(201).send(await sshKeys.upload(request.body.name, request.body.publicKey))
+    },
+  )
+
+  server.post<{ Body: { name: string } }>(
+    '/account/ssh-keys/generate',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          properties: { name: sshKeyName },
+          required: ['name'],
+          additionalProperties: false,
+        },
+        response: {
+          201: {
+            type: 'object',
+            properties: {
+              key: sshKeySchema,
+              privateKey: { type: 'string' },
+              filename: { type: 'string', const: 'cake_ed25519' },
+            },
+            required: ['key', 'privateKey', 'filename'],
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      AuthService.assertSignedIn(request.actor)
+
+      return reply.code(201).send(await sshKeys.generate(request.body.name))
+    },
+  )
+
+  server.delete<{ Params: { keyId: string } }>(
+    '/account/ssh-keys/:keyId',
+    { schema: { params: sshKeyIdParams } },
+    async (request, reply) => {
+      AuthService.assertSignedIn(request.actor)
+      if (!(await sshKeys.remove(request.params.keyId))) {
+        throw new AppError('the SSH key does not exist', { statusCode: 404, code: 'SSH_KEY_NOT_FOUND' })
+      }
+
+      return reply.code(204).send()
+    },
+  )
 
   // The only route a session with `pending === 'password'` may reach: the password an admin set is about to be replaced.
   server.post('/auth/password/initial', { schema: { body: initialPasswordSchema } }, async (request, reply) => {
