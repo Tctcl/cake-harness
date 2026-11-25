@@ -1,6 +1,10 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
+/* Streamdown renders Markdown with Tailwind classes of its own (list bullets, table borders, heading sizes). Tailwind
+   does not scan node_modules, so without this those classes are never generated and lists render without bullets. */
+@source '../node_modules/streamdown/dist/*.js';
+
 /* Every component reads these, so the palette is the only place a theme is defined. Light is the default and `dark`
    overrides it; `lib/theme.ts` puts that class on `html` before the first paint. */
 @theme inline {
