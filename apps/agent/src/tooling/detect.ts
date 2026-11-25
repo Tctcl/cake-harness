@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 
 import type { InstalledTool } from './contract.js'
+import type { RecordedTool } from './record.js'
 
 interface Detector {
   readonly command: string
@@ -47,23 +48,33 @@ const resolveCommandPath = (command: string): string | null => {
 }
 
 /**
- * Reports what is actually on disk. Everything found at this point came from the
- * image: the reconciler records its own installs in a manifest it can consult,
- * and that manifest does not exist yet.
+ * Reports what is actually on disk. A tool the installer recorded keeps that
+ * provenance even though the probe still decides its version: the record says
+ * where it came from, the probe says what is there now. Everything else was
+ * shipped by the base image.
  */
-export const detectInstalled = (ids: readonly string[]): InstalledTool[] => {
+export const detectInstalled = (
+  ids: readonly string[],
+  record: ReadonlyMap<string, RecordedTool>,
+): InstalledTool[] => {
   const installed: InstalledTool[] = []
   for (const id of ids) {
     const detector = DETECTORS[id]
     if (!detector) {
       continue
     }
+    const recorded = record.get(id)
     const output = run(detector.command, detector.args)
     const version = output === null ? null : parseToolVersion(id, output)
     if (version === null) {
       continue
     }
-    installed.push({ id, version, path: resolveCommandPath(detector.command), source: 'image' })
+    installed.push({
+      id,
+      version,
+      path: resolveCommandPath(detector.command) ?? recorded?.path ?? null,
+      source: recorded === undefined ? 'image' : 'installed',
+    })
   }
   return installed
 }

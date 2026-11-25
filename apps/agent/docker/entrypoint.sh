@@ -18,11 +18,17 @@ fi
 
 # Bootstrap runs as the development user so anything it writes belongs to dev.
 # A failing bootstrap stops the container: a half-configured environment that
-# accepts SSH would be worse than one that refuses to start.
-if [ -f "${DEV_ENV_CONFIG_DIR}/desired-tooling.json" ]; then
-  sudo -u dev -H DEV_ENV_CONFIG_DIR="${DEV_ENV_CONFIG_DIR}" node /opt/dev-env/dist/index.js
+# accepts SSH would be worse than one that refuses to start. `env` is used rather
+# than `--preserve-env` because it passes exactly these three variables and
+# nothing else from the root environment.
+if [ -n "${DEV_ENV_MANIFEST_URL:-}" ]; then
+  sudo -u dev -H env \
+    DEV_ENV_MANIFEST_URL="${DEV_ENV_MANIFEST_URL}" \
+    DEV_ENV_STATE_URL="${DEV_ENV_STATE_URL:-}" \
+    DEV_ENV_INSTALL_RECORD="${DEV_ENV_INSTALL_RECORD:-/var/lib/dev-env/installed.json}" \
+    node /opt/dev-env/dist/index.js
 else
-  echo "{\"level\":\"warn\",\"event\":\"entrypoint.no_config\",\"configDir\":\"${DEV_ENV_CONFIG_DIR}\"}"
+  echo '{"level":"warn","event":"entrypoint.no_manifest_url"}'
 fi
 
 # sshd stays in the foreground as PID 1 and keeps the container alive.

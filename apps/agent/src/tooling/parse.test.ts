@@ -1,18 +1,18 @@
-import { fileURLToPath } from 'node:url'
-
 import { describe, expect, it } from 'vitest'
 
-import { loadJsonDocument } from '../config.js'
-import { parseDesiredTooling, parseToolingState } from './parse.js'
-
-const desiredPath = fileURLToPath(new URL('../../dev/desired-tooling.json', import.meta.url))
+import { parseDesiredTooling } from './parse.js'
 
 describe('parseDesiredTooling', () => {
-  it('accepts the dummy document shipped for local development', () => {
-    const config = loadJsonDocument(desiredPath, parseDesiredTooling)
+  it('accepts a document with exact versions', () => {
+    const config = parseDesiredTooling({
+      schemaVersion: 1,
+      tools: [
+        { id: 'node', version: '26.13.1' },
+        { id: 'python', version: '3.13.4' },
+      ],
+    })
 
-    expect(config.schemaVersion).toBe(1)
-    expect(config.tools.map((tool) => tool.id)).toEqual(['node', 'python', 'go', 'rust', 'php'])
+    expect(config.tools.map((tool) => tool.id)).toEqual(['node', 'python'])
     expect(config.tools.every((tool) => /^\d+\.\d+\.\d+$/.test(tool.version))).toBe(true)
   })
 
@@ -30,27 +30,5 @@ describe('parseDesiredTooling', () => {
     expect(() => parseDesiredTooling({ schemaVersion: 1, tools: [{ id: 'node', version: '' }] })).toThrow(
       /must be a non-empty string/,
     )
-  })
-})
-
-describe('parseToolingState', () => {
-  it('accepts a report with a null path', () => {
-    const state = parseToolingState({
-      schemaVersion: 1,
-      reportedAt: '2026-11-23T12:00:00.000Z',
-      tools: [{ id: 'node', version: '26.13.1', path: null, source: 'installed' }],
-    })
-
-    expect(state.tools[0]).toEqual({ id: 'node', version: '26.13.1', path: null, source: 'installed' })
-  })
-
-  it('rejects an unknown source', () => {
-    expect(() =>
-      parseToolingState({
-        schemaVersion: 1,
-        reportedAt: '2026-11-23T12:00:00.000Z',
-        tools: [{ id: 'node', version: '26.13.1', path: null, source: 'downloaded' }],
-      }),
-    ).toThrow(/source must be "image" or "installed"/)
   })
 })

@@ -1,4 +1,4 @@
-import type { DesiredTool, InstalledTool, ToolingConfig, ToolingState } from './contract.js'
+import type { DesiredTool, ToolingConfig } from './contract.js'
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -49,31 +49,6 @@ export const parseDesiredTooling = (value: unknown): ToolingConfig => {
     schemaVersion: requireSchemaVersion(record['schemaVersion'], 'tooling config'),
     tools: requireArray(record['tools'], 'tooling config.tools').map((tool, index) =>
       parseDesiredTool(tool, `tooling config.tools[${index}]`),
-    ),
-  }
-}
-
-const parseInstalledTool = (value: unknown, where: string): InstalledTool => {
-  const record = requireRecord(value, where)
-  const desired = parseDesiredTool(record, where)
-  const path = record['path']
-  if (path !== null && typeof path !== 'string') {
-    throw new Error(`${where}.path must be a string or null`)
-  }
-  const source = record['source']
-  if (source !== 'image' && source !== 'installed') {
-    throw new Error(`${where}.source must be "image" or "installed", got ${JSON.stringify(source)}`)
-  }
-  return { ...desired, path, source }
-}
-
-export const parseToolingState = (value: unknown): ToolingState => {
-  const record = requireRecord(value, 'tooling state')
-  return {
-    schemaVersion: requireSchemaVersion(record['schemaVersion'], 'tooling state'),
-    reportedAt: requireString(record['reportedAt'], 'tooling state.reportedAt'),
-    tools: requireArray(record['tools'], 'tooling state.tools').map((tool, index) =>
-      parseInstalledTool(tool, `tooling state.tools[${index}]`),
     ),
   }
 }

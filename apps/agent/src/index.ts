@@ -1,42 +1,46 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
 
-import { loadJsonDocument, readBootstrapConfig } from './config.js'
+import { readBootstrapConfig } from './config.js'
 import { applyCredentials } from './credentials/apply.js'
-import { parseCredentialDocument } from './credentials/parse.js'
+import { fetchDocuments } from './documents.js'
 import { log } from './log.js'
-import { DETECTORS, detectInstalled } from './tooling/detect.js'
+import { reportState } from './report.js'
 import type { ToolingState } from './tooling/contract.js'
-import { parseDesiredTooling } from './tooling/parse.js'
+import { DETECTORS, detectInstalled } from './tooling/detect.js'
 import { planReconcile } from './tooling/plan.js'
+import { readInstallRecord } from './tooling/record.js'
 
-const desiredToolingPath = (configDir: string): string => join(configDir, 'desired-tooling.json')
-const credentialPath = (configDir: string): string => join(configDir, 'credentials.json')
-
-const main = (): void => {
+const main = async (): Promise<void> => {
   const config = readBootstrapConfig(process.env)
-  log.info('bootstrap.start', { configDir: config.configDir })
+  log.info('bootstrap.start', { manifestUrl: config.manifestUrl })
 
-  const desired = loadJsonDocument(desiredToolingPath(config.configDir), parseDesiredTooling)
-  const credentials = loadJsonDocument(credentialPath(config.configDir), parseCredentialDocument)
+  const documents = await fetchDocuments(config.manifestUrl)
+  log.info('documents.loaded', {
+    tools: documents.tooling.tools.map((tool) => tool.id),
+    credentials: documents.credentials.credentials.map((credential) => credential.id),
+  })
 
-  const detectable = desired.tools.filter((tool) => DETECTORS[tool.id] !== undefined).map((tool) => tool.id)
-  const undetectable = desired.tools.filter((tool) => DETECTORS[tool.id] === undefined).map((tool) => tool.id)
+  const record = await readInstallRecord(config.installRecordPath)
+  const detectable = documents.tooling.tools.filter((tool) => DETECTORS[tool.id] !== undefined)
+  const undetectable = documents.tooling.tools.filter((tool) => DETECTORS[tool.id] === undefined)
   if (undetectable.length > 0) {
-    log.warn('tooling.undetectable', { ids: undetectable })
+    log.warn('tooling.undetectable', { ids: undetectable.map((tool) => tool.id) })
   }
 
   const actual: ToolingState = {
     schemaVersion: 1,
     reportedAt: new Date().toISOString(),
-    tools: detectInstalled(detectable),
+    tools: detectInstalled(
+      detectable.map((tool) => tool.id),
+      record,
+    ),
   }
   log.info('tooling.actual', {
     reportedAt: actual.reportedAt,
     tools: actual.tools.map((tool) => `${tool.id}@${tool.version} (${tool.source})`),
   })
 
-  const plan = planReconcile(desired, actual)
+  const plan = planReconcile(documents.tooling, actual)
   log.info('tooling.plan', {
     install: plan.install.map((tool) => `${tool.id}@${tool.version}`),
     replace: plan.replace.map((entry) => `${entry.desired.id}:${entry.installed.version}->${entry.desired.version}`),
@@ -44,15 +48,24 @@ const main = (): void => {
     extra: plan.extra.map((tool) => `${tool.id}@${tool.version}`),
   })
 
-  const applied = applyCredentials(credentials, homedir())
+  const applied = applyCredentials(documents.credentials, homedir())
   log.info('credentials.applied', { ids: applied.ids, envFile: applied.envFile, files: applied.files })
+
+  if (config.stateUrl === null) {
+    log.info('state.unreported', { reason: 'DEV_ENV_STATE_URL is not set' })
+  } else {
+    const report = await reportState(config.stateUrl, actual)
+    if (report.delivered) {
+      log.info('state.reported', { url: config.stateUrl })
+    } else {
+      log.warn('state.report_failed', { url: config.stateUrl, status: report.status })
+    }
+  }
 
   log.info('bootstrap.done', { changed: plan.install.length + plan.replace.length })
 }
 
-try {
-  main()
-} catch (error) {
+void main().catch((error: unknown) => {
   log.error('bootstrap.failed', { message: error instanceof Error ? error.message : String(error) })
   process.exitCode = 1
-}
+})

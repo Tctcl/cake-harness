@@ -6,7 +6,7 @@
 FROM node:22-bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    DEV_ENV_CONFIG_DIR=/etc/dev-env
+    DEV_ENV_INSTALL_RECORD=/var/lib/dev-env/installed.json
 
 # hadolint ignore=DL3008 — versions are deliberately unpinned: this image is rebuilt
 # often, and a pinned apt version disappears from the mirror before long.
@@ -46,8 +46,8 @@ RUN printf '%s\n' \
 COPY docker/sshd_config /etc/ssh/sshd_config
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 0755 /usr/local/bin/entrypoint.sh \
- && mkdir -p /run/sshd /etc/dev-env /home/dev/workspace \
- && chown dev:dev /home/dev/workspace
+ && mkdir -p /run/sshd /etc/dev-env /var/lib/dev-env /home/dev/workspace \
+ && chown dev:dev /var/lib/dev-env /home/dev/workspace
 
 # Compiled bootstrap. Rebuild with `pnpm build` in apps/agent before `docker build`.
 COPY dist /opt/dev-env/dist

@@ -1,38 +1,50 @@
-import { readFileSync } from 'node:fs'
-
-/** Where the backend's documents are mounted for this container. */
-const DEFAULT_CONFIG_DIR = '/etc/dev-env'
+/** Where the record of everything reconciliation installed lives. */
+const DEFAULT_INSTALL_RECORD = '/var/lib/dev-env/installed.json'
 
 export interface BootstrapConfig {
-  readonly configDir: string
+  /** The environment's manifest, served by the backend. Required: there is nothing to reconcile without it. */
+  readonly manifestUrl: string
+  /** Where the report goes back to. Absent means the environment runs without a backend to tell. */
+  readonly stateUrl: string | null
+  /** What reconciliation installed last time, so a recorded install is not mistaken for an image tool. */
+  readonly installRecordPath: string
 }
 
-export const readBootstrapConfig = (env: NodeJS.ProcessEnv): BootstrapConfig => {
-  const configDir = env['DEV_ENV_CONFIG_DIR']?.trim() ?? ''
-  return { configDir: configDir.length === 0 ? DEFAULT_CONFIG_DIR : configDir }
-}
+const requireUrl = (name: string, raw: string | undefined): string | null => {
+  const value = raw?.trim() ?? ''
+  if (value.length === 0) {
+    return null
+  }
 
-const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    throw new Error(`${name} is not a URL: ${value}`)
+  }
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`${name} must be http or https, got ${url.protocol}`)
+  }
+
+  return url.toString()
+}
 
 /**
- * Reads and validates one document. Configuration enters the process here, so
- * this is where a malformed file has to stop the boot rather than surface later
- * as a missing tool the reconciler cannot explain.
+ * Reads the whole environment once, at startup. The container has no other
+ * configuration: what it installs and who may log in both arrive over the wire.
  */
-export const loadJsonDocument = <T>(path: string, parse: (value: unknown) => T): T => {
-  let text: string
-  try {
-    text = readFileSync(path, 'utf8')
-  } catch (error) {
-    throw new Error(`cannot read ${path}: ${messageOf(error)}`)
+export const readBootstrapConfig = (env: NodeJS.ProcessEnv): BootstrapConfig => {
+  const manifestUrl = requireUrl('DEV_ENV_MANIFEST_URL', env['DEV_ENV_MANIFEST_URL'])
+  if (manifestUrl === null) {
+    throw new Error('DEV_ENV_MANIFEST_URL is required')
   }
 
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(text)
-  } catch (error) {
-    throw new Error(`${path} is not valid JSON: ${messageOf(error)}`)
-  }
+  const recordPath = env['DEV_ENV_INSTALL_RECORD']?.trim() ?? ''
 
-  return parse(parsed)
+  return {
+    manifestUrl,
+    stateUrl: requireUrl('DEV_ENV_STATE_URL', env['DEV_ENV_STATE_URL']),
+    installRecordPath: recordPath.length === 0 ? DEFAULT_INSTALL_RECORD : recordPath,
+  }
 }
