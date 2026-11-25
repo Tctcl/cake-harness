@@ -116,7 +116,17 @@ const FailureNotice = ({ failure }: { failure: ChatRunFailure }) => (
   </div>
 )
 
-export function LiveRun({ live, streaming }: { live: ChatLive; streaming: boolean }) {
+export function LiveRun({
+  live,
+  streaming,
+  failureShown = false,
+}: {
+  live: ChatLive
+  streaming: boolean
+  /** The newest transcript line already carries this run's error, so a second notice would only repeat it. */
+  failureShown?: boolean
+}) {
+  const failure = failureShown ? null : live.failure
   const segments = segmentsOf(live.blocks)
   const toolsById = new Map(live.tools.map((tool) => [tool.id, tool]))
   const blockCallIds = new Set(
@@ -126,7 +136,7 @@ export function LiveRun({ live, streaming }: { live: ChatLive; streaming: boolea
   const working = streaming || live.compacting > 0
 
   // Nothing is in flight and nothing failed: the view has nothing to say, and the transcript speaks for itself.
-  const busy = live.blocks.length > 0 || live.tools.length > 0 || live.failure !== null || working
+  const busy = live.blocks.length > 0 || live.tools.length > 0 || failure !== null || working
 
   if (!busy) return null
 
@@ -157,7 +167,7 @@ export function LiveRun({ live, streaming }: { live: ChatLive; streaming: boolea
         </p>
       ) : null}
 
-      {live.failure === null ? null : <FailureNotice failure={live.failure} />}
+      {failure === null ? null : <FailureNotice failure={failure} />}
     </div>
   )
 }

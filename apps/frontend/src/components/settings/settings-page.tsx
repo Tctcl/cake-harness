@@ -23,7 +23,7 @@ const SECTIONS: readonly Section[] = [
     label: 'Application settings',
     icon: SettingsIcon,
     title: 'Application settings',
-    description: 'How the app itself looks and behaves, for this browser.',
+    description: 'How Cake looks in this browser, and the system prompt every agent starts from.',
   },
   {
     id: 'credentials',

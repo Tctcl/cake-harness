@@ -287,7 +287,7 @@ function Transcript({
           )}
 
           <MessageScrollerItem messageId="live">
-            <LiveRun live={state.live} streaming={streaming} />
+            <LiveRun live={state.live} streaming={streaming} failureShown={newestLineFailed(state.messages)} />
           </MessageScrollerItem>
           </div>
         </MessageScrollerContent>
@@ -460,6 +460,13 @@ function Line({
       </MessageContent>
     </Message>
   )
+}
+
+/** Whether the newest line is an answer that ended in an error, which already shows the run's failure on the line. */
+function newestLineFailed(messages: readonly ChatMessage[]): boolean {
+  const newest = messages.at(-1)
+
+  return newest?.role === 'assistant' && (newest.stopReason === 'error' || newest.errorMessage !== null)
 }
 
 /** The optimistic lines sent before anything was stored: they precede every message. */
