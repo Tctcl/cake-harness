@@ -66,6 +66,7 @@ Dockerfile                           product image: Fastify + the compiled SPA
 infrastructure/                      host-side systemd units for the update socket
 .github/workflows/                   gates, commits (PR title), release, images, bundle
 .github/ISSUE_TEMPLATE/, PULL_REQUEST_TEMPLATE.md, dependabot.yml
+renovate.json                        npm/pnpm update PRs (Dependabot cannot run Node 26)
 CONTRIBUTING.md                      workflow, commit convention, releases
 CODE_OF_CONDUCT.md                   Contributor Covenant 3.0
 SECURITY.md                          private vulnerability reporting
