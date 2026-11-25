@@ -7,6 +7,10 @@ docs
 deploy
 infrastructure
 
+# The website has its own root-context Dockerfile and GHCR-independent deployment.
+# apps/website/Dockerfile.dockerignore overrides this exclusion for that build only.
+apps/website
+
 node_modules
 **/node_modules
 

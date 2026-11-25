@@ -56,6 +56,7 @@ about. Start it with `pnpm dev:agent` when you want that box.
 | `apps/agent` | `@cake-harness/agent` | Workspace development image and its bootstrap |
 | `apps/backend` | `backend` | Fastify HTTP service: identity, workspaces, agents, environments, terminals, capabilities and providers over Postgres |
 | `apps/frontend` | `frontend` | React + Vite web client: conversations, workspace settings, credentials and a container terminal |
+| `apps/website` | `website` | Astro + Starlight marketing and documentation site, deployed independently of the product |
 | `packages/typescript-config` | `@cake-harness/typescript-config` | Shared `tsconfig` presets |
 | `packages/oxlint-config` | `@cake-harness/oxlint-config` | Shared oxlint presets |
 | `packages/vitest-config` | `@cake-harness/vitest-config` | Shared Vitest presets |

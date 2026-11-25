@@ -1,0 +1,16 @@
+{
+  "extends": "@cake-harness/typescript-config/base.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "jsx": "preserve",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "target": "ES2023",
+    "types": ["astro/client", "node"],
+    "verbatimModuleSyntax": true
+  },
+  "include": [".astro/types.d.ts", "src/**/*", "astro.config.mjs", "vitest.config.ts"],
+  "exclude": ["dist"]
+}

@@ -62,6 +62,7 @@ not describe these as features anywhere, and do not assume an API here is stable
 apps/agent        @cake-harness/agent        Node ESM process, emits dist/ via tsc
 apps/backend      backend            Fastify service, tsx in dev, tsc build
 apps/frontend     frontend           React 19 + Vite 8, vite build
+apps/website      website            Astro + Starlight marketing and documentation site
 packages/typescript-config           shared tsconfig presets (JSON only)
 packages/oxlint-config               shared oxlint presets (JSON only)
 packages/vitest-config               shared Vitest presets (base + react)

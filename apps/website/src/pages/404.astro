@@ -1,0 +1,41 @@
+---
+import '../styles/landing.css'
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Page not found — Cake</title>
+    <script is:inline>
+      (() => {
+        const stored = typeof localStorage !== 'undefined' && localStorage.getItem('starlight-theme')
+        const theme = stored || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+        document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark'
+      })()
+    </script>
+  </head>
+  <body>
+    <main class="error-page">
+      <div>
+        <svg class="cake-mark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+          <path d="M8 21.5 38 12v25H8v-15.5Z" fill="currentColor" />
+          <path class="mark-cream" d="m8 21.5 30-9.5v7L8 29v-7.5Z" />
+          <path d="M8 21.5 38 12v25H8v-15.5Z" stroke="var(--ink)" stroke-width="2.2" stroke-linejoin="round" />
+          <path d="M24 16V9" stroke="var(--ink)" stroke-width="2.2" stroke-linecap="round" />
+          <path class="mark-flame" d="M24 3c3 3 3 5 0 7-3-2-3-4 0-7Z" />
+        </svg>
+        <p class="kicker">404 · No slice here</p>
+        <h1>This page is missing.</h1>
+        <p>The link may be stale, or the page may have moved.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="/">Back to Cake</a>
+          <a class="button button-secondary" href="/docs">Open the docs</a>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

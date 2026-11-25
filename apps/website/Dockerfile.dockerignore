@@ -1,0 +1,24 @@
+# This file overrides the root .dockerignore for apps/website/Dockerfile.
+# The root ignores apps/website so the product build cannot include it; this
+# website build needs that directory while keeping machine-local state out.
+.git
+.github
+docs
+deploy
+infrastructure
+
+node_modules
+**/node_modules
+
+dist
+**/dist
+
+.turbo
+**/.turbo
+
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+.env
+.env.*
+apps/agent/dev
