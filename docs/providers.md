@@ -160,9 +160,10 @@ because they decide how much of this is configuration and how much is a fork:
 
 1. **`StreamOptions.apiKey`** (types.d.ts:52) — the key can be passed per request, so
    "which credential pays" needs no environment variable and no process restart.
-   Today `apps/backend/src/agent.ts` opens the provider once
-   (`models.setProvider(opencodeGoProvider())`, agent.ts:499–500) and the key comes
-   from `OPENCODE_API_KEY`. That call becomes per-workspace.
+   Today `apps/backend/src/agent.ts` opens the provider once, with a credential store
+   (`providers/stored-credentials.ts`) that answers the owner's newest stored OpenCode
+   Go key; `OPENCODE_API_KEY` is only the fallback when none is stored. One key serves
+   every chat. Choosing the key per workspace is still to come.
 2. **`StreamOptions.sessionId`** (types.d.ts:144) becomes the `x-opencode-session`
    header (`dist/providers/opencode-headers.js`), which Go asks every client to send
    so it can route and cache per conversation. We pass nothing today, so every
