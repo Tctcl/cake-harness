@@ -1,4 +1,5 @@
 import type { ChatThread, WorkspaceSummary } from '../../lib/chat-api.ts'
+import { DelegationsPanel } from '../chat/delegations-panel.tsx'
 import { ProviderUsagePanel } from './provider-usage.tsx'
 import { ScrollArea } from '../ui/scroll-area.tsx'
 import { TerminalPanel } from './terminal-panel.tsx'
@@ -22,7 +23,15 @@ function RightPanel({ kind, width, thread, workspace, terminalWorkspaceId }: Rig
     <aside
       className="flex shrink-0 flex-col border-l bg-background text-foreground"
       style={{ width }}
-      aria-label={kind === 'info' ? 'Conversation info' : kind === 'terminal' ? 'Terminal' : 'Provider usage'}
+      aria-label={
+        kind === 'info'
+          ? 'Conversation info'
+          : kind === 'subagents'
+            ? 'Sub agents'
+            : kind === 'terminal'
+              ? 'Terminal'
+              : 'Provider usage'
+      }
     >
       {kind === 'info' ? (
         <ScrollArea className="min-h-0 flex-1">
@@ -30,6 +39,8 @@ function RightPanel({ kind, width, thread, workspace, terminalWorkspaceId }: Rig
             <ThreadInfoSidebar thread={thread} workspace={workspace} />
           </div>
         </ScrollArea>
+      ) : kind === 'subagents' ? (
+        <DelegationsPanel thread={thread} workspace={workspace} />
       ) : kind === 'usage' ? (
         <ScrollArea className="min-h-0 flex-1">
           <div className="flex flex-col p-3">

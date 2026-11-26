@@ -1,4 +1,4 @@
-import type { ChatLive, ChatMessage, ChatRun, ChatToolCall, ChatUpdate, ChatUsage } from './chat-api.ts'
+import type { ChatDelegation, ChatLive, ChatMessage, ChatRun, ChatToolCall, ChatUpdate, ChatUsage } from './chat-api.ts'
 import { readMessages, sendMessage, streamPath } from './chat-api.ts'
 import { HttpError } from './http.ts'
 
@@ -42,6 +42,8 @@ export interface ThreadSnapshot {
   readonly usage: ChatUsage
   /** What the conversation is doing right now: streaming reasoning and text, running tools, or why a run died. */
   readonly live: ChatLive
+  /** Compact child conversations started by this thread, in the server's start order. */
+  readonly delegations: readonly ChatDelegation[]
 }
 
 const NO_USAGE: ChatUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, cost: 0 }
@@ -65,6 +67,7 @@ const EMPTY: ThreadSnapshot = {
   run: null,
   usage: NO_USAGE,
   live: NO_LIVE,
+  delegations: [],
 }
 
 /**
@@ -181,6 +184,7 @@ function openStream(threadId: string): void {
       run: payload.run,
       usage: payload.usage,
       live: payload.live ?? NO_LIVE,
+      delegations: payload.delegations ?? [],
       status: 'live',
       error: null,
       errorCode: null,

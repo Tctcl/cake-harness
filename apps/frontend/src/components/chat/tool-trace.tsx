@@ -21,7 +21,50 @@ const oneLine = (value: string, max: number) => {
   return flat.length > max ? `${flat.slice(0, max)}…` : flat
 }
 
-function ToolCallItem({ call, active, threadId }: { call: ChatToolCall; active: boolean; threadId: string }) {
+const EMPTY_SUBAGENT_NAMES: ReadonlyMap<string, string> = new Map()
+
+/** Delegate arguments name an id; the conversation's profile catalog supplies its readable name. */
+function presentationOf(call: ChatToolCall, subagentNames: ReadonlyMap<string, string>): {
+  readonly title: string
+  readonly summary: string | null
+} {
+  if (call.name !== 'delegate') {
+    return { title: call.name, summary: call.arguments === null ? null : oneLine(call.arguments, 60) }
+  }
+
+  let subagentId: string | undefined
+  let task: string | undefined
+  if (call.arguments !== null) {
+    try {
+      const parsed: unknown = JSON.parse(call.arguments)
+      if (typeof parsed === 'object' && parsed !== null) {
+        const args = parsed as Record<string, unknown>
+        if (typeof args.subagentId === 'string') subagentId = args.subagentId
+        if (typeof args.task === 'string') task = args.task
+      }
+    } catch {
+      // An incomplete live JSON string still gets the generic argument summary until it can be parsed.
+    }
+  }
+
+  const name = subagentId === undefined ? 'sub agent' : subagentNames.get(subagentId) ?? subagentId
+  return {
+    title: `Delegated to ${name}`,
+    summary: task === undefined ? (call.arguments === null ? null : oneLine(call.arguments, 60)) : oneLine(task, 60),
+  }
+}
+
+function ToolCallItem({
+  call,
+  active,
+  threadId,
+  subagentNames,
+}: {
+  call: ChatToolCall
+  active: boolean
+  threadId: string
+  subagentNames: ReadonlyMap<string, string>
+}) {
   const [open, setOpen] = useState(false)
   const [fullDetails, setFullDetails] = useState<ChatToolCallDetails | null>(null)
   const [loadingFullDetails, setLoadingFullDetails] = useState(false)
@@ -56,6 +99,7 @@ function ToolCallItem({ call, active, threadId }: { call: ChatToolCall; active: 
 
   const argumentsText = fullDetails?.arguments ?? call.arguments
   const resultText = fullDetails?.result ?? call.result
+  const presentation = presentationOf(call, subagentNames)
 
   return (
     <TraceCollapsible
@@ -70,9 +114,9 @@ function ToolCallItem({ call, active, threadId }: { call: ChatToolCall; active: 
       <TraceCollapsibleTrigger>
         <TraceLine status={running ? 'running' : call.status === 'error' ? 'error' : undefined}>
           <TraceIcon>{call.status === 'error' ? <AlertTriangleIcon /> : <WrenchIcon />}</TraceIcon>
-          <TraceTitle>{call.name}</TraceTitle>
-          {call.arguments === null ? null : (
-            <TraceDescription>{oneLine(call.arguments, 60)}</TraceDescription>
+          <TraceTitle>{presentation.title}</TraceTitle>
+          {presentation.summary === null ? null : (
+            <TraceDescription>{presentation.summary}</TraceDescription>
           )}
           {missingResult ? <span className="shrink-0 text-xs">No result recorded</span> : null}
           {call.durationMs === null ? null : (
@@ -112,10 +156,20 @@ function ToolCallItem({ call, active, threadId }: { call: ChatToolCall; active: 
 }
 
 /** One settled or unresolved tool row, placed at the call's position in its turn. */
-export function ToolCallRow({ call, active, threadId }: { call: ChatToolCall; active: boolean; threadId: string }) {
+export function ToolCallRow({
+  call,
+  active,
+  threadId,
+  subagentNames = EMPTY_SUBAGENT_NAMES,
+}: {
+  call: ChatToolCall
+  active: boolean
+  threadId: string
+  subagentNames?: ReadonlyMap<string, string>
+}) {
   return (
-    <Trace aria-label={`Tool call: ${call.name}`}>
-      <ToolCallItem call={call} active={active} threadId={threadId} />
+    <Trace aria-label={`Tool call: ${presentationOf(call, subagentNames).title}`}>
+      <ToolCallItem call={call} active={active} threadId={threadId} subagentNames={subagentNames} />
     </Trace>
   )
 }
@@ -125,17 +179,25 @@ export function ToolTrace({
   calls,
   active,
   threadId,
+  subagentNames = EMPTY_SUBAGENT_NAMES,
 }: {
   calls: readonly ChatToolCall[]
   active: boolean
   threadId: string
+  subagentNames?: ReadonlyMap<string, string>
 }) {
   if (calls.length === 0) return null
 
   return (
     <Trace aria-label="Tool calls">
       {calls.map((call) => (
-        <ToolCallItem key={call.id} call={call} active={active} threadId={threadId} />
+        <ToolCallItem
+          key={call.id}
+          call={call}
+          active={active}
+          threadId={threadId}
+          subagentNames={subagentNames}
+        />
       ))}
     </Trace>
   )

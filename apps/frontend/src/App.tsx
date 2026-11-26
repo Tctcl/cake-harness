@@ -30,12 +30,18 @@ import { readCollapsed, writeCollapsed } from './lib/workspace-groups.ts'
 const SIDEBAR_WIDTHS = {
   threads: { min: 200, max: 420, open: 260 },
   info: { min: 240, max: 420, open: 280 },
+  subagents: { min: 280, max: 600, open: 380 },
   terminal: { min: 320, max: 640, open: 460 },
   usage: { min: 240, max: 460, open: 300 },
 } satisfies Record<string, SidebarWidths>
 
 /** What the full-screen panel is called on a narrow screen, where the topbar icon that opened it is covered. */
-const PANEL_TITLES: Record<PanelKind, string> = { info: 'Conversation info', terminal: 'Terminal', usage: 'Usage' }
+const PANEL_TITLES: Record<PanelKind, string> = {
+  info: 'Conversation info',
+  subagents: 'Sub agents',
+  terminal: 'Terminal',
+  usage: 'Usage',
+}
 
 /** A failure the shell shows above the chat, with the backend's code when there is one so it can offer the fix. */
 interface Problem {
@@ -87,6 +93,7 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
   // Each right panel keeps the width it was dragged to: switching between them is not a reason to forget one.
   const [rightWidths, setRightWidths] = useState<Record<PanelKind, number>>({
     info: SIDEBAR_WIDTHS.info.open,
+    subagents: SIDEBAR_WIDTHS.subagents.open,
     terminal: SIDEBAR_WIDTHS.terminal.open,
     usage: SIDEBAR_WIDTHS.usage.open,
   })

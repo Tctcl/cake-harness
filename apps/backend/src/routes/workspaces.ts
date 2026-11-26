@@ -5,6 +5,7 @@ import type { AgentInput, AgentPatch, AgentProfile } from '../agents/agent-repos
 import { THINKING_LEVELS } from '../agents/agent-repository.js'
 import { AppError } from '../errors.js'
 import type { Workspace, WorkspacePatch } from '../workspaces/workspace-repository.js'
+import type { SubagentInput, SubagentPatch, SubagentProfile } from '../subagents/subagent-repository.js'
 
 const uuid = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 
@@ -19,6 +20,13 @@ const agentIdParams = {
   type: 'object',
   properties: { workspaceId: { type: 'string', pattern: uuid }, agentId: { type: 'string', pattern: uuid } },
   required: ['workspaceId', 'agentId'],
+  additionalProperties: false,
+} as const
+
+const subagentIdParams = {
+  type: 'object',
+  properties: { workspaceId: { type: 'string', pattern: uuid }, subagentId: { type: 'string', pattern: uuid } },
+  required: ['workspaceId', 'subagentId'],
   additionalProperties: false,
 } as const
 
@@ -182,6 +190,11 @@ interface AgentIdParams {
   agentId: string
 }
 
+interface SubagentIdParams {
+  workspaceId: string
+  subagentId: string
+}
+
 interface ArchivedQuery {
   archived?: 'true' | 'false'
 }
@@ -200,6 +213,10 @@ type CreateAgentBody = AgentInput
 
 type UpdateAgentBody = AgentPatch
 
+type CreateSubagentBody = SubagentInput
+
+type UpdateSubagentBody = SubagentPatch
+
 const notFound = (message: string, code: string): AppError =>
   new AppError(message, { statusCode: 404, code })
 
@@ -216,6 +233,84 @@ const toAgent = (agent: AgentProfile) => ({
   archivedAt: agent.archivedAt === null ? null : agent.archivedAt.toISOString(),
   createdAt: agent.createdAt.toISOString(),
   updatedAt: agent.updatedAt.toISOString(),
+})
+
+const subagentProperties = {
+  id: { type: 'string' },
+  workspaceId: { type: 'string' },
+  name: { type: 'string' },
+  description: { type: 'string' },
+  allowAll: { type: 'boolean' },
+  systemPromptAppend: { type: 'string' },
+  instructions: { type: 'string' },
+  credentialId: { anyOf: [{ type: 'string', pattern: uuid }, { type: 'null' }] },
+  modelId: { type: 'string', minLength: 1, maxLength: 200 },
+  thinkingLevel: { type: 'string', enum: [...THINKING_LEVELS] },
+  allowedModels: {
+    type: 'array',
+    items: { type: 'string', minLength: 1, maxLength: 200 },
+    minItems: 1,
+    uniqueItems: true,
+  },
+  callableBy: { type: 'array', items: { type: 'string', pattern: uuid }, uniqueItems: true },
+  archivedAt: { type: ['string', 'null'] },
+  createdAt: { type: 'string' },
+  updatedAt: { type: 'string' },
+} as const
+
+const subagentSchema = {
+  type: 'object',
+  properties: subagentProperties,
+  required: [
+    'id',
+    'workspaceId',
+    'name',
+    'description',
+    'allowAll',
+    'systemPromptAppend',
+    'instructions',
+    'credentialId',
+    'modelId',
+    'thinkingLevel',
+    'allowedModels',
+    'callableBy',
+    'archivedAt',
+    'createdAt',
+    'updatedAt',
+  ],
+} as const
+
+const subagentListSchema = {
+  type: 'object',
+  properties: { subagents: { type: 'array', items: subagentSchema } },
+  required: ['subagents'],
+} as const
+
+const createSubagentBody = {
+  type: 'object',
+  properties: {
+    name: { type: 'string', minLength: 1 },
+    description: subagentProperties.description,
+    allowAll: subagentProperties.allowAll,
+    systemPromptAppend: subagentProperties.systemPromptAppend,
+    instructions: subagentProperties.instructions,
+    credentialId: subagentProperties.credentialId,
+    modelId: subagentProperties.modelId,
+    thinkingLevel: subagentProperties.thinkingLevel,
+    allowedModels: subagentProperties.allowedModels,
+    callableBy: subagentProperties.callableBy,
+  },
+  required: ['name', 'modelId', 'allowedModels'],
+  additionalProperties: false,
+} as const
+
+const updateSubagentBody = { ...createSubagentBody, required: [] } as const
+
+const toSubagent = (subagent: SubagentProfile) => ({
+  ...subagent,
+  archivedAt: subagent.archivedAt === null ? null : subagent.archivedAt.toISOString(),
+  createdAt: subagent.createdAt.toISOString(),
+  updatedAt: subagent.updatedAt.toISOString(),
 })
 
 export const workspaceRoutes: FastifyPluginAsync<{ agent: Agent }> = async (server, options) => {
@@ -371,6 +466,70 @@ export const workspaceRoutes: FastifyPluginAsync<{ agent: Agent }> = async (serv
     async (request, reply) => {
       const removed = await options.agent.deleteAgent(request.params.agentId)
       if (!removed) throw notFound('the agent does not exist', 'AGENT_NOT_FOUND')
+
+      return reply.code(204).send()
+    },
+  )
+
+  server.get<{ Params: WorkspaceIdParams; Querystring: ArchivedQuery }>(
+    '/workspaces/:workspaceId/subagents',
+    { schema: { params: workspaceIdParams, querystring: archivedQuery, response: { 200: subagentListSchema } } },
+    async (request) => ({
+      subagents: (
+        await options.agent.subagents(request.params.workspaceId, { archived: request.query.archived === 'true' })
+      ).map(toSubagent),
+    }),
+  )
+
+  server.post<{ Params: WorkspaceIdParams; Body: CreateSubagentBody }>(
+    '/workspaces/:workspaceId/subagents',
+    {
+      config: { permission: 'agents.create' },
+      schema: { params: workspaceIdParams, body: createSubagentBody, response: { 201: subagentSchema } },
+    },
+    async (request, reply) =>
+      reply.code(201).send(toSubagent(await options.agent.createSubagent(request.params.workspaceId, request.body))),
+  )
+
+  server.patch<{ Params: SubagentIdParams; Body: UpdateSubagentBody }>(
+    '/workspaces/:workspaceId/subagents/:subagentId',
+    { schema: { params: subagentIdParams, body: updateSubagentBody, response: { 200: subagentSchema } } },
+    async (request) => {
+      const subagent = await options.agent.updateSubagent(request.params.subagentId, request.body)
+      if (subagent === undefined) throw notFound('the sub agent does not exist', 'SUBAGENT_NOT_FOUND')
+
+      return toSubagent(subagent)
+    },
+  )
+
+  server.post<{ Params: SubagentIdParams }>(
+    '/workspaces/:workspaceId/subagents/:subagentId/archive',
+    { schema: { params: subagentIdParams, response: { 200: subagentSchema } } },
+    async (request) => {
+      const subagent = await options.agent.archiveSubagent(request.params.subagentId)
+      if (subagent === undefined) throw notFound('the sub agent does not exist', 'SUBAGENT_NOT_FOUND')
+
+      return toSubagent(subagent)
+    },
+  )
+
+  server.post<{ Params: SubagentIdParams }>(
+    '/workspaces/:workspaceId/subagents/:subagentId/restore',
+    { schema: { params: subagentIdParams, response: { 200: subagentSchema } } },
+    async (request) => {
+      const subagent = await options.agent.restoreSubagent(request.params.subagentId)
+      if (subagent === undefined) throw notFound('the sub agent does not exist', 'SUBAGENT_NOT_FOUND')
+
+      return toSubagent(subagent)
+    },
+  )
+
+  server.delete<{ Params: SubagentIdParams }>(
+    '/workspaces/:workspaceId/subagents/:subagentId',
+    { schema: { params: subagentIdParams } },
+    async (request, reply) => {
+      const removed = await options.agent.deleteSubagent(request.params.subagentId)
+      if (!removed) throw notFound('the sub agent does not exist', 'SUBAGENT_NOT_FOUND')
 
       return reply.code(204).send()
     },

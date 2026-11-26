@@ -72,6 +72,7 @@ function stubBackend() {
     if (path.endsWith('/grants')) {
       return reply({ tools: ['t1', 't2'], skills: [], mcpServers: [] })
     }
+    if (path.includes('/subagents')) return reply({ subagents: [] })
     if (path.includes('/agents')) return reply({ agents })
     if (path.includes('/messages')) return reply({ messages: [], nextCursor: null })
     if (init?.method === 'PATCH') {
@@ -243,8 +244,12 @@ describe('App', () => {
       screen.getByRole('complementary', { name: 'Conversation info' }),
     ).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sub agents' }))
     expect(screen.queryByRole('complementary', { name: 'Conversation info' })).not.toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Sub agents' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
+    expect(screen.queryByRole('complementary', { name: 'Sub agents' })).not.toBeInTheDocument()
     expect(screen.getByRole('complementary', { name: 'Terminal' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))

@@ -43,6 +43,8 @@ export type PostgresSchema = {
     readonly chatThreads: string
     readonly workspaces: string
     readonly agents: string
+    readonly subagentCallers: string
+    readonly delegations: string
     readonly devEnvironments: string
     readonly workspaceEnvironments: string
     readonly agentEnvironments: string
@@ -96,6 +98,9 @@ export type PostgresSchema = {
     readonly oneDefaultWorkspace: string
     readonly agentsByWorkspace: string
     readonly oneDefaultAgent: string
+    readonly subagentCallersByAgent: string
+    readonly delegationsByThread: string
+    readonly delegationsByStatus: string
     readonly devEnvironmentsByOwner: string
     readonly agentEnvironmentsOnePerAgent: string
     readonly workspaceEnvironmentsOnePerWorkspace: string
@@ -138,6 +143,8 @@ const PLATFORM_TABLE_NAMES = {
   chatThreads: 'chat_threads',
   workspaces: 'workspaces',
   agents: 'agents',
+  subagentCallers: 'subagent_callers',
+  delegations: 'delegations',
   devEnvironments: 'dev_environments',
   workspaceEnvironments: 'workspace_environments',
   agentEnvironments: 'agent_environments',
@@ -196,6 +203,9 @@ const PLATFORM_INDEX_NAMES = {
   oneDefaultWorkspace: 'workspaces_one_default',
   agentsByWorkspace: 'agents_by_workspace',
   oneDefaultAgent: 'agents_one_default',
+  subagentCallersByAgent: 'subagent_callers_by_agent',
+  delegationsByThread: 'delegations_by_thread',
+  delegationsByStatus: 'delegations_by_status',
   devEnvironmentsByOwner: 'dev_environments_by_owner',
   // One environment per agent, for now: the index is the constraint, so lifting it later drops the index and
   // nothing else. The model beneath it is already many-to-many, which is what the composite primary key says.
@@ -1094,6 +1104,52 @@ const persistentToolingMigration = (schema: PostgresSchema): readonly string[] =
     ADD COLUMN git_email text`,
 ]
 
+/** Sub agents reuse agent rows and grants, and are callable only by linked parent agents. */
+const subagentMigration = (schema: PostgresSchema): readonly string[] => {
+  const { tables, indexes } = schema
+
+  return [
+    `ALTER TABLE ${tables.agents} ADD COLUMN kind text NOT NULL DEFAULT 'agent'
+      CHECK (kind IN ('agent', 'subagent'))`,
+    `CREATE TABLE ${tables.subagentCallers} (
+      subagent_id uuid NOT NULL REFERENCES ${tables.agents} (id) ON DELETE CASCADE,
+      agent_id uuid NOT NULL REFERENCES ${tables.agents} (id) ON DELETE CASCADE,
+      PRIMARY KEY (subagent_id, agent_id)
+    )`,
+    `CREATE INDEX ${indexes.subagentCallersByAgent} ON ${tables.subagentCallers} (agent_id, subagent_id)`,
+    `CREATE TABLE ${tables.delegations} (
+      id uuid PRIMARY KEY,
+      parent_thread_id uuid NOT NULL REFERENCES ${tables.chatThreads} (id) ON DELETE CASCADE,
+      parent_conversation_id bigint NOT NULL,
+      parent_task_id bigint NOT NULL,
+      parent_call_id text NOT NULL,
+      subagent_id uuid NOT NULL REFERENCES ${tables.agents} (id),
+      child_conversation_id bigint NOT NULL UNIQUE,
+      status text NOT NULL CHECK (status IN ('running', 'done', 'failed')),
+      worktree_path text,
+      worktree_branch text,
+      result_summary text,
+      started_at timestamptz NOT NULL DEFAULT now(),
+      finished_at timestamptz
+    )`,
+    `CREATE INDEX ${indexes.delegationsByThread} ON ${tables.delegations} (parent_thread_id, started_at)`,
+    `CREATE INDEX ${indexes.delegationsByStatus} ON ${tables.delegations} (status, started_at)`,
+  ]
+}
+
+/** A sub agent's default model and thinking level use the existing run-setting columns; its model ceiling is new. */
+const subagentModelsMigration = (schema: PostgresSchema): readonly string[] => [
+  `ALTER TABLE ${schema.tables.agents} ADD COLUMN allowed_models text[]`,
+  `ALTER TABLE ${schema.tables.agents} ADD CONSTRAINT subagent_model_settings CHECK (
+    kind = 'agent' OR (
+      model_id IS NOT NULL
+      AND allowed_models IS NOT NULL
+      AND cardinality(allowed_models) > 0
+      AND model_id = ANY(allowed_models)
+    )
+  )`,
+]
+
 /** Ordered schema history: a released version is never edited, a change appends one. */
 export const MIGRATIONS: readonly { version: number; statements: (schema: PostgresSchema) => readonly string[] }[] = [
   { version: 1, statements: migration },
@@ -1120,6 +1176,8 @@ export const MIGRATIONS: readonly { version: number; statements: (schema: Postgr
   { version: 22, statements: generalEnvironmentDescriptionMigration },
   { version: 23, statements: sshAccessMigration },
   { version: 24, statements: persistentToolingMigration },
+  { version: 25, statements: subagentMigration },
+  { version: 26, statements: subagentModelsMigration },
 ]
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0

@@ -10,12 +10,12 @@ import type { EnvironmentApi } from './api.js'
 import type { DaemonInstaller } from './daemon-installer.js'
 import type { ThreadRepository } from '../threads/thread-repository.js'
 import type { WorkspaceRepository } from '../workspaces/workspace-repository.js'
+import type { DelegationRepository } from '../delegations/delegation-repository.js'
 
 const WORKSPACE_CWD = '/home/dev/workspace'
 
 interface CachedEnvironment {
   readonly connection: Connection
-  readonly env: RemoteExecutionEnv
 }
 
 class ObservedConnection extends Connection {
@@ -37,8 +37,9 @@ class ObservedConnection extends Connection {
 }
 
 export interface ExecutionEnvironmentOptions {
-  readonly threads: Pick<ThreadRepository, 'findByConversation'>
+  readonly threads: Pick<ThreadRepository, 'findByConversation' | 'find'>
   readonly workspaces: Pick<WorkspaceRepository, 'find'>
+  readonly delegations: Pick<DelegationRepository, 'findByChildConversation'>
   readonly environments: Pick<EnvironmentApi, 'ofWorkspace' | 'start'>
   readonly installer: DaemonInstaller
 }
@@ -77,12 +78,7 @@ export const createExecutionEnvironment = (
         connection.close()
       },
     )
-    const env = new RemoteExecutionEnv({
-      connection,
-      id: `pi-env:${environmentId}`,
-      cwd: WORKSPACE_CWD,
-    })
-    const entry: CachedEnvironment = { connection, env }
+    const entry: CachedEnvironment = { connection }
 
     try {
       // This performs the PI-ENV token sync and hello before a tool can see the environment.
@@ -116,7 +112,13 @@ export const createExecutionEnvironment = (
   return {
     async open(target, context) {
       if (closed) return undefined
-      const thread = await options.threads.findByConversation(Number(target.conversationId))
+      const direct = await options.threads.findByConversation(Number(target.conversationId))
+      const delegation = direct === undefined
+        ? await options.delegations.findByChildConversation(Number(target.conversationId))
+        : undefined
+      const thread = direct ?? (delegation === undefined
+        ? undefined
+        : await options.threads.find(delegation.parentThreadId))
       if (thread === undefined) return undefined
       const workspace = await options.workspaces.find(thread.workspaceId)
       if (workspace === undefined) return undefined
@@ -125,7 +127,14 @@ export const createExecutionEnvironment = (
       const environment = (await options.environments.ofWorkspace(workspace.id))[0]
       if (environment === undefined) return undefined
 
-      return (await forEnvironment(environment.id, context)).env
+      const { connection } = await forEnvironment(environment.id, context)
+
+      // cwd is per conversation, not per container: a shared mutable env would race parallel worktree delegations.
+      return new RemoteExecutionEnv({
+        connection,
+        id: `pi-env:${environment.id}`,
+        cwd: target.cwd ?? WORKSPACE_CWD,
+      })
     },
 
     async close() {

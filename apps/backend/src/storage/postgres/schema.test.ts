@@ -18,17 +18,17 @@ if (url === undefined) {
   const created: string[] = []
 
   describe('Postgres migrations', () => {
-    it('applies version 24 and drops the prompt catalog and grant tables', async () => {
+    it('applies every migration and drops the prompt catalog and grant tables', async () => {
       const prefix = `migration_${Math.random().toString(36).slice(2, 8)}_`
       const storage = await openPostgresStorage(url, { prefix })
       const schema = createSchema(prefix)
       created.push(...Object.values(schema.tables))
       try {
-        expect(CURRENT_SCHEMA_VERSION).toBe(24)
+        expect(CURRENT_SCHEMA_VERSION).toBe(26)
         const versions = await storage.pool.query<{ version: number }>(
           `SELECT version FROM ${schema.tables.durableSchema} ORDER BY version`,
         )
-        expect(versions.rows.at(-1)?.version).toBe(24)
+        expect(versions.rows.at(-1)?.version).toBe(26)
 
         for (const table of [schema.tables.prompts, schema.tables.workspacePrompts, schema.tables.agentPrompts]) {
           const result = await storage.pool.query<{ table_name: string | null }>(

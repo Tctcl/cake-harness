@@ -18,6 +18,7 @@ export type ThinkingLevel = (typeof THINKING_LEVELS)[number]
  */
 export interface AgentProfile {
   readonly id: string
+  readonly kind: 'agent' | 'subagent'
   readonly workspaceId: string
   readonly name: string
   readonly description: string
@@ -50,6 +51,7 @@ export type AgentPatch = Partial<AgentInput>
 
 interface AgentRow {
   readonly id: string
+  readonly kind: 'agent' | 'subagent'
   readonly workspace_id: string
   readonly name: string
   readonly description: string
@@ -71,6 +73,7 @@ interface WorkspaceRow {
 
 const toAgent = (row: AgentRow): AgentProfile => ({
   id: row.id,
+  kind: row.kind,
   workspaceId: row.workspace_id,
   name: row.name,
   description: row.description,
@@ -86,7 +89,7 @@ const toAgent = (row: AgentRow): AgentProfile => ({
   updatedAt: row.updated_at,
 })
 
-const COLUMNS = `id, workspace_id, name, description, is_default, allow_all,
+const COLUMNS = `id, kind, workspace_id, name, description, is_default, allow_all,
   system_prompt_append, instructions, credential_id, model_id, thinking_level, archived_at, created_at, updated_at`
 
 const immutable = (): AppError =>
@@ -140,7 +143,7 @@ export class AgentRepository {
   ): Promise<AgentProfile[]> {
     const visible = options.archived === true ? 'archived_at IS NOT NULL' : 'archived_at IS NULL'
     const text = `SELECT ${COLUMNS} FROM ${this.#schema.tables.agents}
-      WHERE workspace_id = $1 AND ${visible} ORDER BY name`
+      WHERE workspace_id = $1 AND kind = 'agent' AND ${visible} ORDER BY name`
 
     return (await this.#select(text, [workspaceId])).map(toAgent)
   }
@@ -148,7 +151,7 @@ export class AgentRepository {
   /** The agent a new thread gets when it names none. Seeded with the workspace, so it exists whenever the one does. */
   async default(workspaceId: string): Promise<AgentProfile | undefined> {
     const text = `SELECT ${COLUMNS} FROM ${this.#schema.tables.agents}
-      WHERE workspace_id = $1 AND is_default AND archived_at IS NULL`
+      WHERE workspace_id = $1 AND kind = 'agent' AND is_default AND archived_at IS NULL`
 
     return this.#one(text, [workspaceId])
   }

@@ -26,6 +26,24 @@ const agent = {
   thinkingLevel: 'low' as const,
 }
 
+const subagent = {
+  id: 'subagent-1',
+  workspaceId: workspace.id,
+  name: 'Reviewer',
+  description: 'Reviews changes',
+  allowAll: true,
+  systemPromptAppend: '',
+  instructions: '',
+  credentialId: null,
+  modelId: 'model-1',
+  thinkingLevel: 'high' as const,
+  allowedModels: ['model-1'],
+  callableBy: [agent.id],
+  archivedAt: null,
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
+}
+
 const tools = [
   { id: 'read-id', name: 'read', description: 'Read a file' },
   { id: 'write-id', name: 'write', description: 'Write a file' },
@@ -45,6 +63,8 @@ describe('WorkspaceAgents tools', () => {
 
       let result: unknown = {}
       if (url === '/workspaces/workspace-1/agents?archived=true') result = { agents: [] }
+      else if (url === '/workspaces/workspace-1/subagents?archived=true') result = { subagents: [] }
+      else if (url === '/workspaces/workspace-1/subagents') result = { subagents: [subagent] }
       else if (url === '/workspaces/workspace-1/agents') result = method === 'GET' ? { agents: [agent] } : agent
       else if (url === '/workspaces/workspace-1/agents/agent-1') result = agent
       else if (url === '/providers/logins') result = { logins: [{ id: 'key', label: 'Work' }] }
@@ -69,6 +89,7 @@ describe('WorkspaceAgents tools', () => {
     expect(read).toBeDisabled()
     expect(write).toBeDisabled()
     expect(web).toBeEnabled()
+    expect(screen.getByText('Can delegate to: Reviewer')).toBeInTheDocument()
     expect(screen.getAllByText('Unavailable to General’s agent')).toHaveLength(2)
 
     fireEvent.click(web)
@@ -89,6 +110,8 @@ describe('WorkspaceAgents tools', () => {
 
       let result: unknown = {}
       if (url === '/workspaces/workspace-1/agents?archived=true') result = { agents: [] }
+      else if (url === '/workspaces/workspace-1/subagents?archived=true') result = { subagents: [] }
+      else if (url === '/workspaces/workspace-1/subagents') result = { subagents: [subagent] }
       else if (url === '/workspaces/workspace-1/agents') {
         // The reload after a save takes a network round trip in the app; without it the stale list never shows.
         if (saved) await new Promise((resolve) => setTimeout(resolve, 100))

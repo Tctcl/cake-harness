@@ -8,10 +8,12 @@ import { WorkspaceEnvironmentPanel } from './workspace-environment.tsx'
 import { WorkspaceMcp } from './workspace-mcp.tsx'
 import { WorkspaceOverview } from './workspace-overview.tsx'
 import { WorkspaceProviders } from './workspace-providers.tsx'
+import { WorkspaceSubagents } from './workspace-subagents.tsx'
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'agents', label: 'Agents' },
+  { id: 'subagents', label: 'Sub agents' },
   { id: 'providers', label: 'Providers' },
   { id: 'environment', label: 'Environment' },
   { id: 'mcp', label: 'MCP' },
@@ -118,6 +120,9 @@ export function WorkspaceDetail({
         {tab === 'skills' ? <WorkspaceCapabilities workspaceId={workspace.id} /> : null}
         {tab === 'agents' ? (
           <WorkspaceAgents workspace={workspace} onOpenProviders={() => setTab('providers')} />
+        ) : null}
+        {tab === 'subagents' ? (
+          <WorkspaceSubagents workspace={workspace} onOpenProviders={() => setTab('providers')} />
         ) : null}
         {tab === 'providers' ? (
           <WorkspaceProviders workspace={workspace} onOpenCredentials={onOpenCredentials} />

@@ -1,9 +1,11 @@
 import { ArrowDownIcon } from 'lucide-react'
-import { Fragment, useCallback, useEffect, useRef, useSyncExternalStore, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 
 import type { ChatAgent, ChatLive, ChatMessage, ChatThread, ChatToolCall } from '../../lib/chat-api.ts'
 import { getWorkspace, listAgents, readThread } from '../../lib/chat-api.ts'
 import { getWorkspaceProviders, listProviderLogins, listProviderModels } from '../../lib/provider-api.ts'
+import { listWorkspaceSubagents } from '../../lib/subagent-api.ts'
+import { useThreadSnapshot } from '../../lib/use-thread-snapshot.ts'
 import { choicesOf } from '../../lib/workspace-choices.ts'
 import type { Choices } from '../../lib/workspace-choices.ts'
 import type { PendingInput, ThreadSnapshot } from '../../lib/chat-store.ts'
@@ -13,8 +15,6 @@ import {
   openThread,
   retry,
   send,
-  snapshotOf,
-  subscribeToThread,
 } from '../../lib/chat-store.ts'
 import { Bubble, BubbleContent } from '../ui/bubble.tsx'
 import { Button } from '../ui/button.tsx'
@@ -40,10 +40,12 @@ interface RunControlState {
   readonly thread: ChatThread
   readonly agent: ChatAgent
   readonly choices: Choices
+  readonly subagentNames: ReadonlyMap<string, string>
 }
 
 /** How close to the top the viewport has to be before older lines are asked for. */
 const LOAD_OLDER_THRESHOLD = 160
+const EMPTY_SUBAGENT_NAMES: ReadonlyMap<string, string> = new Map()
 
 /**
  * One conversation. The transcript comes from the thread store rather than from this component, so a run keeps going
@@ -58,12 +60,7 @@ export function ChatPane({
   /** Where the fix for a missing key or model lives: the workspace manager. */
   onSetUpKeys?: (() => void) | undefined
 }) {
-  const subscribe = useCallback(
-    (listener: () => void) => (threadId === null ? () => {} : subscribeToThread(threadId, listener)),
-    [threadId],
-  )
-  const read = useCallback(() => snapshotOf(threadId), [threadId])
-  const state = useSyncExternalStore(subscribe, read)
+  const state = useThreadSnapshot(threadId)
   const [runControls, setRunControls] = useState<RunControlState | null>(null)
   const [runSettingsFailure, setRunSettingsFailure] = useState<{
     readonly threadId: string
@@ -80,18 +77,25 @@ export function ChatPane({
     let cancelled = false
     const load = async (): Promise<void> => {
       const thread = await readThread(threadId)
-      const [workspace, agents, logins, models, providers] = await Promise.all([
+      const [workspace, agents, logins, models, providers, subagents, archivedSubagents] = await Promise.all([
         getWorkspace(thread.workspaceId),
         listAgents(thread.workspaceId),
         listProviderLogins(),
         listProviderModels(),
         getWorkspaceProviders(thread.workspaceId),
+        listWorkspaceSubagents(thread.workspaceId),
+        listWorkspaceSubagents(thread.workspaceId, true),
       ])
       const agent = agents.find((candidate) => candidate.id === thread.agentId)
       if (agent === undefined) throw new Error('the conversation’s agent could not be loaded')
       if (cancelled) return
 
-      setRunControls({ thread, agent, choices: choicesOf(workspace, logins, models, providers) })
+      setRunControls({
+        thread,
+        agent,
+        choices: choicesOf(workspace, logins, models, providers),
+        subagentNames: new Map([...subagents, ...archivedSubagents].map((subagent) => [subagent.id, subagent.name])),
+      })
     }
     void load().catch((failure: unknown) => {
       if (!cancelled) {
@@ -122,7 +126,13 @@ export function ChatPane({
       <MessageScrollerProvider>
         <MessageScroller>
           {/* Keyed: a new conversation starts at its newest line rather than inheriting where the last one was read. */}
-          <Transcript key={threadId} threadId={threadId} state={state} streaming={streaming} />
+          <Transcript
+            key={threadId}
+            threadId={threadId}
+            state={state}
+            streaming={streaming}
+            subagentNames={visibleRunControls?.subagentNames ?? EMPTY_SUBAGENT_NAMES}
+          />
         </MessageScroller>
       </MessageScrollerProvider>
 
@@ -182,10 +192,12 @@ function Transcript({
   threadId,
   state,
   streaming,
+  subagentNames,
 }: {
   threadId: string
   state: ThreadSnapshot
   streaming: boolean
+  subagentNames: ReadonlyMap<string, string>
 }) {
   const { scrollToEnd } = useMessageScroller()
   const [pinned, setPinned] = useState(true)
@@ -264,6 +276,7 @@ function Transcript({
                   streaming={streaming}
                   firstContext={message.id === firstContextId}
                   threadId={threadId}
+                  subagentNames={subagentNames}
                 />
               </MessageScrollerItem>
 
@@ -282,7 +295,12 @@ function Transcript({
 
           {trailingTools.length === 0 ? null : (
             <MessageScrollerItem messageId="tools">
-              <ToolTrace calls={trailingTools} active={streaming} threadId={threadId} />
+              <ToolTrace
+                calls={trailingTools}
+                active={streaming}
+                threadId={threadId}
+                subagentNames={subagentNames}
+              />
             </MessageScrollerItem>
           )}
 
@@ -333,12 +351,14 @@ function Line({
   streaming,
   firstContext,
   threadId,
+  subagentNames,
 }: {
   message: ChatMessage
   tools: ReadonlyMap<string, ChatToolCall>
   streaming: boolean
   firstContext: boolean
   threadId: string
+  subagentNames: ReadonlyMap<string, string>
 }) {
   if (message.role === 'user') {
     return (
@@ -460,7 +480,15 @@ function Line({
                 }
               : { ...settled, arguments: block.arguments }
 
-          return <ToolCallRow key={block.callId} call={call} active={streaming} threadId={threadId} />
+          return (
+            <ToolCallRow
+              key={block.callId}
+              call={call}
+              active={streaming}
+              threadId={threadId}
+              subagentNames={subagentNames}
+            />
+          )
         })}
       </MessageContent>
     </Message>

@@ -43,6 +43,10 @@ vi.mock('../../lib/chat-api.ts', async (importOriginal) => {
   }
 })
 
+vi.mock('../../lib/subagent-api.ts', () => ({
+  listWorkspaceSubagents: async () => [],
+}))
+
 vi.mock('../../lib/provider-api.ts', () => ({
   listProviderLogins: async () => [
     { id: 'key-1', provider: 'opencode-go', label: 'Work key', createdAt: '2026-01-01T00:00:00.000Z' },

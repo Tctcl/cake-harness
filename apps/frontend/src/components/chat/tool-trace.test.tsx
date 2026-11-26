@@ -42,4 +42,33 @@ describe('ToolCallRow', () => {
       .toBeInTheDocument()
     expect(fetch).toHaveBeenCalledTimes(1)
   })
+
+  it('labels delegate with the sub agent name and task, then expands arguments and result as usual', () => {
+    const call: ChatToolCall = {
+      id: 'delegate-1',
+      entryId: 9,
+      name: 'delegate',
+      arguments: JSON.stringify({ subagentId: 'subagent-1', task: 'Review the diff', worktree: true }),
+      status: 'ok',
+      result: 'The diff is correct.',
+      durationMs: 25,
+      truncated: false,
+      fullByteLength: 0,
+    }
+
+    render(
+      <ToolCallRow
+        call={call}
+        active={false}
+        threadId="thread-1"
+        subagentNames={new Map([['subagent-1', 'Reviewer']])}
+      />,
+    )
+
+    expect(screen.getByText('Delegated to Reviewer')).toBeInTheDocument()
+    expect(screen.getByText('Review the diff')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Delegated to Reviewer/ }))
+    expect(screen.getByText(call.arguments ?? '')).toBeInTheDocument()
+    expect(screen.getByText('The diff is correct.')).toBeInTheDocument()
+  })
 })

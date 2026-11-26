@@ -12,8 +12,17 @@ const settingsSchema = {
     requireTwoFactor: { type: 'boolean' },
     systemPrompt: { type: 'string' },
     defaultSystemPrompt: { type: 'string' },
+    subagentSystemPrompt: { type: 'string' },
+    defaultSubagentSystemPrompt: { type: 'string' },
   },
-  required: ['singleUser', 'requireTwoFactor', 'systemPrompt', 'defaultSystemPrompt'],
+  required: [
+    'singleUser',
+    'requireTwoFactor',
+    'systemPrompt',
+    'defaultSystemPrompt',
+    'subagentSystemPrompt',
+    'defaultSubagentSystemPrompt',
+  ],
 } as const
 
 const patchSchema = {
@@ -22,15 +31,19 @@ const patchSchema = {
     singleUser: { type: 'boolean' },
     requireTwoFactor: { type: 'boolean' },
     systemPrompt: { type: 'string' },
+    subagentSystemPrompt: { type: 'string' },
   },
   additionalProperties: false,
 } as const
 
-type SettingsPatch = Partial<Pick<Settings, 'singleUser' | 'requireTwoFactor' | 'systemPrompt'>>
+type SettingsPatch = Partial<
+  Pick<Settings, 'singleUser' | 'requireTwoFactor' | 'systemPrompt' | 'subagentSystemPrompt'>
+>
 
 const withDefaultPrompt = (settings: Settings) => ({
   ...settings,
   defaultSystemPrompt: DEFAULT_SETTINGS.systemPrompt,
+  defaultSubagentSystemPrompt: DEFAULT_SETTINGS.subagentSystemPrompt,
 })
 
 export const settingsRoutes: FastifyPluginAsync<{ agent: Agent }> = async (server, options) => {

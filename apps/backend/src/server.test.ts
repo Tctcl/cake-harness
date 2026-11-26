@@ -18,6 +18,8 @@ import { buildServer } from './server.js'
 import { LOCAL_USER_ID } from './threads/local-user.js'
 import type { ChatThread } from './threads/thread-repository.js'
 import type { Workspace } from './workspaces/workspace-repository.js'
+import type { SubagentProfile } from './subagents/subagent-repository.js'
+import type { DelegationRecord } from './delegations/delegation-repository.js'
 
 // The server is built from a validated Config, so the URL only has to parse; no connection is opened in these tests.
 const DATABASE_URL = 'postgres://test:test@localhost:5432/cake_test'
@@ -29,6 +31,7 @@ const WORKSPACE_ID = '3b2c1d4e-5f6a-4b8c-9d0e-1f2a3b4c5d6e'
 const AGENT_ID = '4c3d2e5f-6a7b-4c9d-8e1f-2a3b4c5d6e7f'
 const SUBMISSION_ID = 'sub_01'
 const ENVIRONMENT_ID = '5d4e3f60-7b8c-4d1e-9f2a-3b4c5d6e7f80'
+const SUBAGENT_ID = '6e5f4a3b-2c1d-4e5f-8a9b-0c1d2e3f4a5b'
 
 // Every field is spelled out once, so a test that cares about one of them overrides just that one.
 const workspaceOf = (overrides: Partial<Workspace> = {}): Workspace => ({
@@ -46,6 +49,7 @@ const workspaceOf = (overrides: Partial<Workspace> = {}): Workspace => ({
 
 const agentOf = (overrides: Partial<AgentProfile> = {}): AgentProfile => ({
   id: AGENT_ID,
+  kind: 'agent',
   workspaceId: WORKSPACE_ID,
   name: 'General',
   description: '',
@@ -56,6 +60,25 @@ const agentOf = (overrides: Partial<AgentProfile> = {}): AgentProfile => ({
   credentialId: null,
   modelId: null,
   thinkingLevel: 'low',
+  archivedAt: null,
+  createdAt: new Date(0),
+  updatedAt: new Date(0),
+  ...overrides,
+})
+
+const subagentOf = (overrides: Partial<SubagentProfile> = {}): SubagentProfile => ({
+  id: SUBAGENT_ID,
+  workspaceId: WORKSPACE_ID,
+  name: 'Reviewer',
+  description: 'Reviews code',
+  allowAll: false,
+  systemPromptAppend: '',
+  instructions: '',
+  credentialId: null,
+  modelId: 'deepseek-v4.1-flash',
+  thinkingLevel: 'medium',
+  allowedModels: ['deepseek-v4.1-flash', 'kimi-k3'],
+  callableBy: [AGENT_ID],
   archivedAt: null,
   createdAt: new Date(0),
   updatedAt: new Date(0),
@@ -215,6 +238,13 @@ function stubAgent(overrides: Partial<Agent> = {}): Agent {
     archiveAgent: async () => undefined,
     restoreAgent: async () => undefined,
     deleteAgent: async () => false,
+    subagents: async () => [],
+    createSubagent: unused,
+    updateSubagent: async () => undefined,
+    archiveSubagent: async () => undefined,
+    restoreSubagent: async () => undefined,
+    deleteSubagent: async () => false,
+    delegations: async () => [],
     threads: async () => [],
     thread: async () => undefined,
     archiveThread: async () => undefined,
@@ -1709,6 +1739,107 @@ describe('update routes', () => {
       expect(response.statusCode).toBe(200)
       expect(response.json()).toEqual(checked)
       expect(checkForUpdates).toHaveBeenCalledOnce()
+    } finally {
+      await server.close()
+    }
+  })
+})
+
+describe('subagent and delegation routes', () => {
+  it('creates and lists subagents with their model and caller contract', async () => {
+    const createSubagent = vi.fn(async () => subagentOf())
+    const server = buildServer(config, {
+      agent: stubAgent({ createSubagent, subagents: async () => [subagentOf()] }),
+    })
+
+    try {
+      const created = await server.inject({
+        method: 'POST',
+        url: `/workspaces/${WORKSPACE_ID}/subagents`,
+        payload: {
+          name: 'Reviewer',
+          modelId: 'deepseek-v4.1-flash',
+          allowedModels: ['deepseek-v4.1-flash', 'kimi-k3'],
+          callableBy: [AGENT_ID],
+        },
+      })
+      expect(created.statusCode).toBe(201)
+      expect(created.json()).toMatchObject({
+        id: SUBAGENT_ID,
+        modelId: 'deepseek-v4.1-flash',
+        thinkingLevel: 'medium',
+        allowedModels: ['deepseek-v4.1-flash', 'kimi-k3'],
+        callableBy: [AGENT_ID],
+      })
+      expect(createSubagent).toHaveBeenCalledOnce()
+
+      const listed = await server.inject({ method: 'GET', url: `/workspaces/${WORKSPACE_ID}/subagents` })
+      expect(listed.statusCode).toBe(200)
+      expect(listed.json()).toMatchObject({ subagents: [{ id: SUBAGENT_ID }] })
+      const invalid = await server.inject({
+        method: 'POST',
+        url: `/workspaces/${WORKSPACE_ID}/subagents`,
+        payload: { name: 'Broken', modelId: 'deepseek-v4.1-flash', allowedModels: [] },
+      })
+      expect(invalid.statusCode).toBe(400)
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('edits, archives, restores and deletes a subagent through the mirrored routes', async () => {
+    const server = buildServer(config, {
+      agent: stubAgent({
+        updateSubagent: async () => subagentOf({ modelId: 'kimi-k3' }),
+        archiveSubagent: async () => subagentOf({ archivedAt: new Date(0) }),
+        restoreSubagent: async () => subagentOf(),
+        deleteSubagent: async () => true,
+      }),
+    })
+
+    try {
+      const path = `/workspaces/${WORKSPACE_ID}/subagents/${SUBAGENT_ID}`
+      const updated = await server.inject({ method: 'PATCH', url: path, payload: { modelId: 'kimi-k3' } })
+      expect(updated.statusCode).toBe(200)
+      expect(updated.json()).toMatchObject({ modelId: 'kimi-k3' })
+      expect((await server.inject({ method: 'POST', url: `${path}/archive` })).statusCode).toBe(200)
+      expect((await server.inject({ method: 'POST', url: `${path}/restore` })).statusCode).toBe(200)
+      expect((await server.inject({ method: 'DELETE', url: path })).statusCode).toBe(204)
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('lists a thread’s delegation records with ISO timestamps', async () => {
+    const delegation: DelegationRecord = {
+      id: '7f6e5d4c-3b2a-4c5d-8e9f-0a1b2c3d4e5f',
+      parentThreadId: THREAD_ID,
+      parentConversationId: 1,
+      parentTaskId: 2,
+      parentCallId: 'call-1',
+      subagentId: SUBAGENT_ID,
+      subagentName: 'Reviewer',
+      childConversationId: 3,
+      status: 'done',
+      worktreePath: '/home/dev/workspace/.cake/worktrees/delegation',
+      worktreeBranch: 'cake/delegation',
+      resultSummary: 'Reviewed',
+      startedAt: new Date(0),
+      finishedAt: new Date(1),
+    }
+    const server = buildServer(config, {
+      agent: stubAgent({ thread: async () => threadOf(), delegations: async () => [delegation] }),
+    })
+
+    try {
+      const response = await server.inject({ method: 'GET', url: `/threads/${THREAD_ID}/delegations` })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual({ delegations: [{
+        ...delegation,
+        startedAt: '1970-01-01T00:00:00.000Z',
+        finishedAt: '1970-01-01T00:00:00.001Z',
+      }] })
     } finally {
       await server.close()
     }
