@@ -18,7 +18,7 @@ export interface DevEnvironment {
   readonly updatedAt: string
 }
 
-export type EnvironmentStatus = 'running' | 'stopped' | 'missing'
+export type EnvironmentStatus = 'running' | 'restarting' | 'stopped' | 'missing'
 
 export interface EnvironmentDetail extends DevEnvironment {
   readonly status: EnvironmentStatus
@@ -74,6 +74,16 @@ export const getEnvironment = async (environmentId: string): Promise<Environment
 /** `null` means no endpoint was published; `running` separately reports the container state. */
 export const getEnvironmentSsh = async (environmentId: string): Promise<SshAccess | null> =>
   await request<SshAccess | null>(`/environments/${environmentId}/ssh`)
+
+/** One line of a container's output, as the backend's log stream sends it. */
+export interface ContainerLogLine {
+  readonly stream: 'stdout' | 'stderr'
+  readonly at: string | null
+  readonly text: string
+}
+
+/** Server-Sent Events: `line` per line (the recent tail first, then live), `end` once the container stops. */
+export const environmentLogsPath = (environmentId: string): string => `/environments/${environmentId}/logs`
 
 export const getEnvironmentPorts = async (environmentId: string): Promise<ListeningPort[]> =>
   (await request<{ ports: ListeningPort[] }>(`/environments/${environmentId}/ports`)).ports

@@ -92,6 +92,7 @@ const environmentOf = (overrides: Partial<DevEnvironment> = {}): DevEnvironment 
 
 // Registration needs every member; a test overrides the one it exercises and the rest stay absent.
 const environmentsOf = (overrides: Partial<EnvironmentApi> = {}): EnvironmentApi => ({
+  followLogs: async () => undefined,
   // Containers authenticate with their bootstrap token; these tests present this one.
   acceptsBootstrapToken: (_id, presented) => presented === 'container-token',
   list: async () => [],
@@ -1476,6 +1477,45 @@ describe('environment routes', () => {
       expect(response.json()).toEqual(manifest)
     } finally {
       await server.close()
+    }
+  })
+
+  it('streams a container log as server-sent events and ends with the container', async () => {
+    const followLogs = vi.fn(async (_id: string, follow: Parameters<EnvironmentApi['followLogs']>[1]) => {
+      follow.onLine({ stream: 'stdout', at: '2026-11-26T00:00:00Z', text: 'bootstrap.start' })
+      follow.onLine({ stream: 'stderr', at: null, text: 'Server listening on 0.0.0.0 port 22.' })
+      // A stopped container's log ends right after its tail.
+      follow.onEnd()
+      return () => {}
+    })
+    const server = buildServer(config, { agent: stubAgent({ environments: environmentsOf({ followLogs }) }) })
+
+    try {
+      const response = await server.inject({ method: 'GET', url: `/environments/${ENVIRONMENT_ID}/logs` })
+
+      expect(response.statusCode).toBe(200)
+      expect(response.headers['content-type']).toContain('text/event-stream')
+      expect(response.body).toContain(
+        'event: line\ndata: {"stream":"stdout","at":"2026-11-26T00:00:00Z","text":"bootstrap.start"}\n\n',
+      )
+      expect(response.body).toContain('"stream":"stderr"')
+      expect(response.body.trimEnd().endsWith('event: end\ndata: {}')).toBe(true)
+      expect(followLogs).toHaveBeenCalledWith(ENVIRONMENT_ID, expect.objectContaining({ tail: 200 }))
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('answers 404 for the log of an unknown environment and 409 before a container exists', async () => {
+    const unknown = buildServer(config, { agent: stubAgent({ environments: environmentsOf({ followLogs: async () => undefined }) }) })
+    const uncreated = buildServer(config, { agent: stubAgent({ environments: environmentsOf({ followLogs: async () => null }) }) })
+
+    try {
+      expect((await unknown.inject({ method: 'GET', url: `/environments/${ENVIRONMENT_ID}/logs` })).statusCode).toBe(404)
+      expect((await uncreated.inject({ method: 'GET', url: `/environments/${ENVIRONMENT_ID}/logs` })).statusCode).toBe(409)
+    } finally {
+      await unknown.close()
+      await uncreated.close()
     }
   })
 

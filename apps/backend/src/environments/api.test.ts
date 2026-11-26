@@ -47,6 +47,11 @@ const runtimeOf = (overrides: Partial<ContainerRuntime> = {}) => {
   const calls: string[] = []
 
   const runtime: ContainerRuntime = {
+    followLogs: async (containerId, follow) => {
+      calls.push(`followLogs:${containerId}:${follow.tail}`)
+      follow.onLine({ stream: 'stdout', at: null, text: 'hello' })
+      return () => {}
+    },
     ensureRunning: async (_request, containerId) => {
       calls.push(`ensureRunning:${containerId ?? 'none'}`)
       return 'created'

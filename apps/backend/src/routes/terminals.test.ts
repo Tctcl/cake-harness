@@ -49,6 +49,7 @@ const environmentOf = (overrides: Partial<DevEnvironment> = {}): DevEnvironment 
 })
 
 const environmentsOf = (overrides: Partial<EnvironmentApi> = {}): EnvironmentApi => ({
+  followLogs: async () => undefined,
   acceptsBootstrapToken: () => false,
   list: async () => [],
   find: async () => undefined,
