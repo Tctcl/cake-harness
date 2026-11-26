@@ -7,11 +7,13 @@ import {
   providerIdFor,
   resolveRunSettings,
   validateRunSettings,
+  validateSubagentRunSettings,
 } from './run-settings.js'
 import type { KeyCatalog, WorkspaceReach } from './run-settings.js'
 
 const agent = (overrides: Partial<AgentProfile> = {}): AgentProfile => ({
   id: 'agent-1',
+  kind: 'agent',
   workspaceId: 'ws-1',
   name: 'Coder',
   description: '',
@@ -108,6 +110,36 @@ describe('resolveRunSettings', () => {
     expect(() => resolveRunSettings(agent({ modelId: 'kimi-k3' }), reach({ loginIds: ['new'] }), keys)).toThrow(
       expect.objectContaining({ code: 'AGENT_MODEL_NOT_ALLOWED', statusCode: 409 }),
     )
+  })
+})
+
+describe('validateSubagentRunSettings', () => {
+  it('requires a unique allowed list containing the default and validates every model and the key', () => {
+    const valid = {
+      credentialId: 'new',
+      modelId: 'deepseek-v4.1-flash',
+      allowedModels: ['deepseek-v4.1-flash', 'kimi-k3'],
+    }
+    expect(() => validateSubagentRunSettings(
+      valid,
+      reach({ loginIds: ['new'], allowedModels: valid.allowedModels }),
+      keys,
+    )).not.toThrow()
+    expect(() => validateSubagentRunSettings(
+      { ...valid, modelId: 'gpt-1', allowedModels: ['deepseek-v4.1-flash'] },
+      reach({ loginIds: ['new'], allowAllModels: true }),
+      keys,
+    )).toThrow(expect.objectContaining({ code: 'SUBAGENT_DEFAULT_MODEL_NOT_ALLOWED' }))
+    expect(() => validateSubagentRunSettings(
+      { ...valid, allowedModels: ['deepseek-v4.1-flash', 'deepseek-v4.1-flash'] },
+      reach({ loginIds: ['new'], allowAllModels: true }),
+      keys,
+    )).toThrow(expect.objectContaining({ code: 'SUBAGENT_MODELS_INVALID' }))
+    expect(() => validateSubagentRunSettings(
+      valid,
+      reach({ loginIds: ['new'], allowedModels: ['deepseek-v4.1-flash'] }),
+      keys,
+    )).toThrow(expect.objectContaining({ code: 'AGENT_MODEL_NOT_ALLOWED' }))
   })
 })
 

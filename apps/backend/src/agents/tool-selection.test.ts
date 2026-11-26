@@ -1,10 +1,10 @@
-import { createRegistry } from '@earendil-works/pi-durable'
+import { createRegistry, defineExtension, defineTool } from '@earendil-works/pi-durable'
 import { createCodemodeExtension } from '@earendil-works/pi-durable/codemode'
 import { createCodingTools } from '@earendil-works/pi-durable/tools'
 import { CodemodeSandbox } from '@earendil-works/pi-codemode'
 import { afterAll, describe, expect, it } from 'vitest'
 
-import { createCakeExtension } from './cake-extension.js'
+import { createCakeExtension, createSubagentCakeExtension } from './cake-extension.js'
 import { createAskUserExtension } from '../capabilities/ask-user.js'
 import { createReadonlyToolsExtension } from '../capabilities/readonly-tools.js'
 import { createWebExtension } from '../capabilities/web.js'
@@ -15,11 +15,21 @@ const registry = createRegistry()
 const sandbox = new CodemodeSandbox({ memoryLimitBytes: 256 * 1024 * 1024 })
 // The same order agent.ts installs them in, so "registry order" below is the order a real run offers tools.
 registry.install(createCakeExtension(async () => 'Cake prompt'))
+registry.install(createSubagentCakeExtension(async () => 'Subagent prompt'))
 registry.install(createCodingTools())
 registry.install(createReadonlyToolsExtension())
 registry.install(createWebExtension())
 registry.install(createCodemodeExtension({ sandbox, models: false }))
 registry.install(createAskUserExtension())
+registry.install(defineExtension({
+  name: 'delegate',
+  tools: [defineTool({
+    name: 'delegate',
+    description: 'Delegate work',
+    parameters: { type: 'object' },
+    execute: async () => ({ output: [] }),
+  })],
+}))
 const snapshot = registry.snapshot()
 const catalog = new Map([
   ['read-id', 'read'],
@@ -39,12 +49,16 @@ const input = (overrides: {
   workspace?: Partial<ToolSelectionInput['workspace']>
   agent?: Partial<ToolSelectionInput['agent']>
   hasEnvironment?: boolean
+  subagent?: boolean
+  canDelegate?: boolean
 } = {}): ToolSelectionInput => ({
   workspace: { isDefault: false, ...overrides.workspace },
   agent: { allowAll: true, toolGrants: [], ...overrides.agent },
   hasEnvironment: overrides.hasEnvironment ?? true,
   catalog,
   registry: snapshot,
+  ...(overrides.subagent === undefined ? {} : { subagent: overrides.subagent }),
+  ...(overrides.canDelegate === undefined ? {} : { canDelegate: overrides.canDelegate }),
 })
 
 const names = (selection: ReturnType<typeof selectTools>): string[] =>
@@ -114,5 +128,23 @@ describe('selectTools', () => {
 
     expect(selection.extensions.map(({ name }) => name)).toEqual(['cake'])
     expect(selection.tools).toEqual([])
+  })
+
+  it('offers delegate only to an ordinary agent with callable sub agents', () => {
+    expect(names(selectTools(input()))).not.toContain('delegate')
+    const selection = selectTools(input({ canDelegate: true }))
+
+    expect(names(selection)).toContain('delegate')
+    expect(selection.extensions.map(({ name }) => name)).toContain('delegate')
+  })
+
+  it('uses the subagent prompt and strips ask_user and delegate even when granted', () => {
+    const selection = selectTools(input({ subagent: true, canDelegate: true }))
+
+    expect(names(selection)).not.toContain('ask_user')
+    expect(names(selection)).not.toContain('delegate')
+    expect(selection.extensions.map(({ name }) => name)).toContain('cake-subagent')
+    expect(selection.extensions.map(({ name }) => name)).not.toContain('cake')
+    expect(selection.extensions.map(({ name }) => name)).not.toContain('delegate')
   })
 })

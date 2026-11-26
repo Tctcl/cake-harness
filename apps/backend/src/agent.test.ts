@@ -3,7 +3,7 @@ import { CompactionEntry, ResetEntry, SystemEntry } from '@earendil-works/pi-dur
 import type { AssistantMessage, Message } from '@earendil-works/pi-ai'
 import { describe, expect, it } from 'vitest'
 
-import { chatMessages, toolCalls } from './agent.js'
+import { chatMessages, resolveThreadTarget, toolCalls } from './agent.js'
 
 const USAGE = {
   input: 1,
@@ -35,6 +35,17 @@ const assistant = (
 })
 
 const user = (content: string): Message => ({ role: 'user', content, timestamp: 0 })
+
+describe('resolveThreadTarget', () => {
+  it('does not allow a subagent to own a user-facing chat thread', async () => {
+    await expect(resolveThreadTarget(
+      { find: async () => ({ id: 'workspace', archivedAt: null }) } as never,
+      { find: async () => ({ id: 'subagent', kind: 'subagent', workspaceId: 'workspace', archivedAt: null }) } as never,
+      'owner',
+      { title: null, workspaceId: 'workspace', agentId: 'subagent' },
+    )).rejects.toMatchObject({ code: 'AGENT_NOT_FOUND', statusCode: 404 })
+  })
+})
 
 describe('chatMessages', () => {
   it('keeps thinking and text blocks in their original order, including redacted thinking', () => {

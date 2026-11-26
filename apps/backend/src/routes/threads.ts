@@ -5,6 +5,7 @@ import { THINKING_LEVELS } from '../agents/agent-repository.js'
 import type { RunSettingsPatch } from '../agents/run-settings.js'
 import { AppError } from '../errors.js'
 import type { ChatThread } from '../threads/thread-repository.js'
+import type { DelegationRecord } from '../delegations/delegation-repository.js'
 
 const uuid = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 
@@ -283,6 +284,54 @@ const toThread = (thread: ChatThread) => ({
   updatedAt: thread.updatedAt.toISOString(),
 })
 
+const delegationSchema = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    parentThreadId: { type: 'string' },
+    parentConversationId: { type: 'number' },
+    parentTaskId: { type: 'number' },
+    parentCallId: { type: 'string' },
+    subagentId: { type: 'string' },
+    subagentName: { type: 'string' },
+    childConversationId: { type: 'number' },
+    status: { type: 'string', enum: ['running', 'done', 'failed'] },
+    worktreePath: { type: ['string', 'null'] },
+    worktreeBranch: { type: ['string', 'null'] },
+    resultSummary: { type: ['string', 'null'] },
+    startedAt: { type: 'string' },
+    finishedAt: { type: ['string', 'null'] },
+  },
+  required: [
+    'id',
+    'parentThreadId',
+    'parentConversationId',
+    'parentTaskId',
+    'parentCallId',
+    'subagentId',
+    'subagentName',
+    'childConversationId',
+    'status',
+    'worktreePath',
+    'worktreeBranch',
+    'resultSummary',
+    'startedAt',
+    'finishedAt',
+  ],
+} as const
+
+const delegationListSchema = {
+  type: 'object',
+  properties: { delegations: { type: 'array', items: delegationSchema } },
+  required: ['delegations'],
+} as const
+
+const toDelegation = (delegation: DelegationRecord) => ({
+  ...delegation,
+  startedAt: delegation.startedAt.toISOString(),
+  finishedAt: delegation.finishedAt === null ? null : delegation.finishedAt.toISOString(),
+})
+
 const notFound = (): AppError =>
   new AppError('the thread does not exist', { statusCode: 404, code: 'THREAD_NOT_FOUND' })
 
@@ -366,6 +415,16 @@ export const threadRoutes: FastifyPluginAsync<{ agent: Agent }> = async (server,
       if (thread === undefined) throw notFound()
 
       return toThread(thread)
+    },
+  )
+
+  server.get<{ Params: ThreadIdParams }>(
+    '/threads/:threadId/delegations',
+    { schema: { params: threadIdParams, response: { 200: delegationListSchema } } },
+    async (request) => {
+      if ((await options.agent.thread(request.params.threadId)) === undefined) throw notFound()
+
+      return { delegations: (await options.agent.delegations(request.params.threadId)).map(toDelegation) }
     },
   )
 

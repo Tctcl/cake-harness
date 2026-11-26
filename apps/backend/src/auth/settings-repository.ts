@@ -2,7 +2,7 @@ import type { Pool } from 'pg'
 
 import { withClient } from '../storage/postgres/db.js'
 import type { PostgresSchema } from '../storage/postgres/schema.js'
-import { DEFAULT_SYSTEM_PROMPT } from '../agents/base-prompt.js'
+import { DEFAULT_SUBAGENT_SYSTEM_PROMPT, DEFAULT_SYSTEM_PROMPT } from '../agents/base-prompt.js'
 
 /**
  * The two switches that decide how the install treats people. Both live in the database rather than in the environment:
@@ -15,17 +15,21 @@ export interface Settings {
   readonly requireTwoFactor: boolean
   /** The app-wide system context; a missing or invalid row uses the built-in prompt. */
   readonly systemPrompt: string
+  /** The separate app-wide context used only by throwaway sub agent conversations. */
+  readonly subagentSystemPrompt: string
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   singleUser: true,
   requireTwoFactor: false,
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
+  subagentSystemPrompt: DEFAULT_SUBAGENT_SYSTEM_PROMPT,
 }
 
 const SINGLE_USER = 'single_user'
 const REQUIRE_TWO_FACTOR = 'require_two_factor'
 const SYSTEM_PROMPT = 'system_prompt'
+const SUBAGENT_SYSTEM_PROMPT = 'subagent_system_prompt'
 
 interface SettingRow {
   readonly key: string
@@ -54,6 +58,10 @@ export class SettingsRepository {
       singleUser: booleanOr(values.get(SINGLE_USER), DEFAULT_SETTINGS.singleUser),
       requireTwoFactor: booleanOr(values.get(REQUIRE_TWO_FACTOR), DEFAULT_SETTINGS.requireTwoFactor),
       systemPrompt: stringOr(values.get(SYSTEM_PROMPT), DEFAULT_SETTINGS.systemPrompt),
+      subagentSystemPrompt: stringOr(
+        values.get(SUBAGENT_SYSTEM_PROMPT),
+        DEFAULT_SETTINGS.subagentSystemPrompt,
+      ),
     }
   }
 
@@ -62,6 +70,9 @@ export class SettingsRepository {
     if (patch.singleUser !== undefined) entries.push([SINGLE_USER, patch.singleUser])
     if (patch.requireTwoFactor !== undefined) entries.push([REQUIRE_TWO_FACTOR, patch.requireTwoFactor])
     if (patch.systemPrompt !== undefined) entries.push([SYSTEM_PROMPT, patch.systemPrompt])
+    if (patch.subagentSystemPrompt !== undefined) {
+      entries.push([SUBAGENT_SYSTEM_PROMPT, patch.subagentSystemPrompt])
+    }
 
     for (const [key, value] of entries) {
       await withClient(this.#pool, (client) => client.query(this.#upsert, [key, JSON.stringify(value)]))

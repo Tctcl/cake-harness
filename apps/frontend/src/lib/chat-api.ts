@@ -97,6 +97,18 @@ export interface ChatLive {
   readonly failure: ChatRunFailure | null
 }
 
+/** A compact child conversation embedded in its parent's stream frame. */
+export interface ChatDelegation {
+  readonly id: string
+  readonly subagentId: string
+  readonly subagentName: string
+  readonly status: 'running' | 'done' | 'failed'
+  readonly worktreePath: string | null
+  readonly worktreeBranch: string | null
+  readonly live: ChatLive
+  readonly messages: readonly ChatMessage[]
+}
+
 /** One frame of the stream: the visible window, its tool traffic, and the sums that describe the run. */
 export interface ChatUpdate {
   readonly messages: ChatMessage[]
@@ -105,6 +117,7 @@ export interface ChatUpdate {
   readonly usage: ChatUsage
   /** Absent only from a server that predates the live view; the client then treats the run as idle. */
   readonly live?: ChatLive
+  readonly delegations: readonly ChatDelegation[]
 }
 
 export interface RunSettingsOverrides {

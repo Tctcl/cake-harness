@@ -93,6 +93,32 @@ export const validateRunSettings = (
   }
 }
 
+/** Validate a sub agent's complete model ceiling and its default before the profile is written. */
+export const validateSubagentRunSettings = (
+  settings: {
+    readonly credentialId: string | null
+    readonly modelId: string
+    readonly allowedModels: readonly string[]
+  },
+  reach: WorkspaceReach,
+  keys: KeyCatalog,
+): void => {
+  if (settings.allowedModels.length === 0 || new Set(settings.allowedModels).size !== settings.allowedModels.length) {
+    throw new AppError('allowedModels must contain each model at most once', {
+      statusCode: 400,
+      code: 'SUBAGENT_MODELS_INVALID',
+    })
+  }
+  if (!settings.allowedModels.includes(settings.modelId)) {
+    throw new AppError('the default model must be in allowedModels', {
+      statusCode: 400,
+      code: 'SUBAGENT_DEFAULT_MODEL_NOT_ALLOWED',
+    })
+  }
+  validateRunSettings({ credentialId: settings.credentialId }, reach, keys)
+  for (const modelId of settings.allowedModels) validateRunSettings({ modelId }, reach, keys)
+}
+
 /**
  * What a run uses, filling the agent's gaps: its own key, else the newest key the workspace links, else (in a workspace
  * that reaches everything) the owner's newest key; its own model, else the default. Refuses with a message that says

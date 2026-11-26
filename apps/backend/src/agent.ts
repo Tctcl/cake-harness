@@ -57,7 +57,13 @@ import type { ProviderApi } from './providers/api.js'
 import { checkKey, fetchModels } from './providers/provider-client.js'
 import { ProviderRepository } from './providers/provider-repository.js'
 import { registerKeyProvider, storedCredentials } from './providers/stored-credentials.js'
-import { PROVIDER, mergeRunSettings, resolveRunSettings, validateRunSettings } from './agents/run-settings.js'
+import {
+  PROVIDER,
+  mergeRunSettings,
+  resolveRunSettings,
+  validateRunSettings,
+  validateSubagentRunSettings,
+} from './agents/run-settings.js'
 import type {
   KeyCatalog,
   RunSettings,
@@ -68,7 +74,12 @@ import type {
 import { selectTools } from './agents/tool-selection.js'
 import { syncToolCatalog } from './agents/tool-catalog.js'
 import { composeAgentInstructions } from './agents/base-prompt.js'
-import { createCakeExtension } from './agents/cake-extension.js'
+import { createCakeExtension, createSubagentCakeExtension } from './agents/cake-extension.js'
+import { SubagentRepository } from './subagents/subagent-repository.js'
+import type { SubagentInput, SubagentPatch, SubagentProfile } from './subagents/subagent-repository.js'
+import { DelegationRepository } from './delegations/delegation-repository.js'
+import type { DelegationRecord } from './delegations/delegation-repository.js'
+import { createDelegateExtension } from './delegations/delegate.js'
 import { environmentBootstrapToken } from './environments/bootstrap-token.js'
 import { AuthService } from './auth/service.js'
 import { ToolRepository } from './capabilities/tool-repository.js'
@@ -175,12 +186,24 @@ export interface UsageTotals {
 }
 
 /** One frame of a thread's stream: the window, its tool traffic, and the sums that describe the run. */
+export interface DelegationUpdate {
+  readonly id: string
+  readonly subagentId: string
+  readonly subagentName: string
+  readonly status: 'running' | 'done' | 'failed'
+  readonly worktreePath: string | null
+  readonly worktreeBranch: string | null
+  readonly live: LiveActivity
+  readonly messages: ChatMessage[]
+}
+
 export interface ThreadUpdate {
   readonly messages: ChatMessage[]
   readonly tools: ToolCallView[]
   readonly run: RunInfo | null
   readonly usage: UsageTotals
   readonly live: LiveActivity
+  readonly delegations: DelegationUpdate[]
 }
 
 /** Which slice of the transcript to read. The cursor is the opaque `nextCursor` of the page before it. */
@@ -236,6 +259,13 @@ export interface Agent {
   archiveAgent(id: string): Promise<AgentProfile | undefined>
   restoreAgent(id: string): Promise<AgentProfile | undefined>
   deleteAgent(id: string): Promise<boolean>
+  subagents(workspaceId: string, query?: ArchiveQuery): Promise<SubagentProfile[]>
+  createSubagent(workspaceId: string, input: SubagentInput): Promise<SubagentProfile>
+  updateSubagent(id: string, patch: SubagentPatch): Promise<SubagentProfile | undefined>
+  archiveSubagent(id: string): Promise<SubagentProfile | undefined>
+  restoreSubagent(id: string): Promise<SubagentProfile | undefined>
+  deleteSubagent(id: string): Promise<boolean>
+  delegations(threadId: string): Promise<DelegationRecord[]>
   /** The catalog of tools, skills and MCP servers, and who may reach which of them. */
   capabilities: CapabilityApi
   /** The containers a workspace can run in, and which of them an agent works in. */
@@ -322,6 +352,39 @@ const compactionReason = (entry: EntryRecord): string | null => {
   if (typeof data !== 'object' || data === null || Array.isArray(data) || !('reason' in data)) return null
 
   return typeof data.reason === 'string' ? data.reason : null
+}
+
+const DELEGATION_MESSAGE_LIMIT = 6
+
+/** The compact child view embedded in a parent frame; committed lines are newest-last and capped for the UI. */
+export const readDelegationUpdate = async (
+  harness: Pick<Harness, 'conversation' | 'snapshot'>,
+  delegation: DelegationRecord,
+  entries?: readonly EntryRecord[],
+): Promise<DelegationUpdate> => {
+  const child = entries === undefined
+    ? await harness.conversation(idFromNumber<ConversationId>(delegation.childConversationId), CONTEXT)
+    : undefined
+  const page = child === undefined
+    ? undefined
+    : await child.entries({ order: 'descending' }, DELEGATION_MESSAGE_LIMIT, undefined, CONTEXT)
+  const committed = entries ?? page?.items.toReversed() ?? []
+  const live = await harness.snapshot(
+    LiveDoc,
+    idFromNumber<ConversationId>(delegation.childConversationId),
+    CONTEXT,
+  )
+
+  return {
+    id: delegation.id,
+    subagentId: delegation.subagentId,
+    subagentName: delegation.subagentName,
+    status: delegation.status,
+    worktreePath: delegation.worktreePath,
+    worktreeBranch: delegation.worktreeBranch,
+    live: liveActivity(live),
+    messages: chatMessages(committed).slice(-DELEGATION_MESSAGE_LIMIT),
+  }
 }
 
 const textLine = (entry: EntryRecord, role: 'compaction' | 'reset'): ChatMessage => {
@@ -670,7 +733,7 @@ const conversationFor = async (
  * without an agent uses that workspace's default agent, because a user-created workspace has no agents until one is
  * made and a thread without a profile has nothing to run.
  */
-const resolveThreadTarget = async (
+export const resolveThreadTarget = async (
   workspaces: WorkspaceRepository,
   agents: AgentRepository,
   ownerId: string,
@@ -704,7 +767,7 @@ const resolveThreadTarget = async (
   }
 
   const agent = await agents.find(input.agentId)
-  if (agent === undefined) {
+  if (agent === undefined || agent.kind !== 'agent') {
     throw new AppError('the agent does not exist', { statusCode: 404, code: 'AGENT_NOT_FOUND' })
   }
   if (agent.workspaceId !== workspace.id) {
@@ -734,6 +797,8 @@ export async function createAgent(config: Config): Promise<Agent> {
   const threads = new ThreadRepository(postgres.pool, postgres.schema)
   const workspaces = new WorkspaceRepository(postgres.pool, postgres.schema, config.sshPortRange)
   const agents = new AgentRepository(postgres.pool, postgres.schema)
+  const subagents = new SubagentRepository(postgres.pool, postgres.schema, agents)
+  const delegations = new DelegationRepository(postgres.pool, postgres.schema)
   const tools = new ToolRepository(postgres.pool, postgres.schema)
   const skills = new SkillRepository(postgres.pool, postgres.schema)
   const servers = new WorkspaceMcpServerRepository(postgres.pool, postgres.schema)
@@ -796,16 +861,37 @@ export async function createAgent(config: Config): Promise<Agent> {
     loginIds: (await providerRepository.logins(ownerId)).map((login) => login.id),
     modelIds: chatModels,
   })
+  const validateSubagentSettings = async (
+    workspaceId: string,
+    settings: {
+      readonly credentialId: string | null
+      readonly modelId: string
+      readonly allowedModels: readonly string[]
+    },
+  ): Promise<void> => {
+    const [reach, keys] = await Promise.all([reachOf(workspaceId), keyCatalog()])
+    validateSubagentRunSettings(settings, reach, keys)
+  }
   const auth = new AuthService({ pool: postgres.pool, schema: postgres.schema, secrets: config.secrets })
   // One registry for the process, so startup and every session agree about which tools exist.
   const codemodeSandbox = new CodemodeSandbox({ memoryLimitBytes: 256 * 1024 * 1024 })
   const registry = createRegistry()
   registry.install(createCakeExtension(async () => (await auth.currentSettings()).systemPrompt))
+  registry.install(createSubagentCakeExtension(async () => (await auth.currentSettings()).subagentSystemPrompt))
   registry.install(createCodingTools())
   registry.install(createReadonlyToolsExtension())
   registry.install(createWebExtension())
   registry.install(createCodemodeExtension({ sandbox: codemodeSandbox, models: false }))
   registry.install(createAskUserExtension())
+  registry.install(createDelegateExtension({
+    threads,
+    agents,
+    subagents,
+    delegations,
+    toolSelection: async (profile) => toolSelectionOf(profile),
+    runSettings: async (profile, modelId, thinkingLevel) =>
+      runSettingsOf(profile, { credentialId: null, modelId, thinkingLevel }),
+  }))
 
   // The catalog is maintained automatically: agent grants and Plan's seeded grants must never need a manual sync.
   await syncToolCatalog(tools, ownerId, registry.snapshot())
@@ -858,6 +944,7 @@ export async function createAgent(config: Config): Promise<Agent> {
   const executionEnvironment = createExecutionEnvironment({
     threads,
     workspaces,
+    delegations,
     environments,
     installer: new DockerDaemonInstaller(config.docker),
   })
@@ -881,12 +968,16 @@ export async function createAgent(config: Config): Promise<Agent> {
       environments.ofWorkspace(workspace.id),
     ])
 
+    const canDelegate = profile.kind === 'agent' && (await subagents.callableBy(profile.id)).length > 0
+
     return selectTools({
       workspace: { isDefault: workspace.isDefault },
       agent: { allowAll: profile.allowAll, toolGrants: agentGrants.tools },
       hasEnvironment: attached.length > 0,
       catalog: new Map(catalog.map((tool) => [tool.id, tool.name])),
       registry: registry.snapshot(),
+      subagent: profile.kind === 'subagent',
+      canDelegate,
     })
   }
 
@@ -981,22 +1072,73 @@ export async function createAgent(config: Config): Promise<Agent> {
 
     async updateAgent(id, patch) {
       const existing = await agents.find(id)
-      if (existing === undefined) return undefined
+      if (existing === undefined || existing.kind !== 'agent') return undefined
       validateRunSettings(patch, await reachOf(existing.workspaceId), await keyCatalog())
 
       return agents.update(id, patch)
     },
 
-    archiveAgent(id) {
+    async archiveAgent(id) {
+      const existing = await agents.find(id)
+      if (existing?.kind !== 'agent') return undefined
+
       return agents.archive(id)
     },
 
-    restoreAgent(id) {
+    async restoreAgent(id) {
+      const existing = await agents.find(id)
+      if (existing?.kind !== 'agent') return undefined
+
       return agents.restore(id)
     },
 
-    deleteAgent(id) {
+    async deleteAgent(id) {
+      const existing = await agents.find(id)
+      if (existing?.kind !== 'agent') return false
+
       return agents.remove(id)
+    },
+
+    subagents(workspaceId, query) {
+      return subagents.list(workspaceId, { archived: query?.archived })
+    },
+
+    async createSubagent(workspaceId, input) {
+      await validateSubagentSettings(workspaceId, {
+        credentialId: input.credentialId ?? null,
+        modelId: input.modelId,
+        allowedModels: input.allowedModels,
+      })
+
+      return subagents.create(workspaceId, input)
+    },
+
+    async updateSubagent(id, patch) {
+      const existing = await subagents.find(id)
+      if (existing === undefined) return undefined
+      await validateSubagentSettings(existing.workspaceId, {
+        credentialId: patch.credentialId === undefined ? existing.credentialId : patch.credentialId,
+        modelId: patch.modelId ?? existing.modelId,
+        allowedModels: patch.allowedModels ?? existing.allowedModels,
+      })
+
+      return subagents.update(id, patch)
+    },
+
+    archiveSubagent(id) {
+      return subagents.archive(id)
+    },
+
+    restoreSubagent(id) {
+      return subagents.restore(id)
+    },
+
+    deleteSubagent(id) {
+      return subagents.remove(id)
+    },
+
+    delegations(threadId) {
+      return delegations.listForThread(threadId)
     },
 
     threads(query) {
@@ -1190,13 +1332,43 @@ export async function createAgent(config: Config): Promise<Agent> {
           min: STREAM_WINDOW,
           max: STREAM_WINDOW * 2,
         })
+        const childEntries = new Map<number, readonly EntryRecord[]>()
+        const childWatches = new Map<number, () => Promise<void>>()
+        let entries = watch.value.entries
+        let pending = false
+        let stopped = false
+        let draining: Promise<void> | undefined
 
-        // Read per emission: the model and the ledger change with every answer, and both are what the panel shows.
-        const emit = async (entries: readonly EntryRecord[]): Promise<void> => {
-          const [usage, live] = await Promise.all([
+        // Parent and child commits share one serialized frame queue, so a fast child cannot emit an older parent frame
+        // after a newer one. Child watches are attached as delegation rows appear in the parent's tool traffic.
+        const emit = async (): Promise<void> => {
+          const records = await delegations.listForThread(threadId)
+          await Promise.all(records.map(async (record) => {
+            if (childWatches.has(record.childConversationId)) return
+            const child = await harness.conversation(
+              idFromNumber<ConversationId>(record.childConversationId),
+              CONTEXT,
+            )
+            if (child === undefined || stopped) return
+            const childWatch = await child.watch(CONTEXT, { min: 8, max: 16 })
+            childEntries.set(record.childConversationId, childWatch.value.entries)
+            childWatches.set(record.childConversationId, async () => {
+              await childWatch.stop()
+            })
+            childWatch.start(async (call) => {
+              if (call.kind !== 'value') return
+              childEntries.set(record.childConversationId, call.value.entries)
+              schedule()
+            })
+          }))
+          const [usage, live, children] = await Promise.all([
             harness.snapshot(UsageDoc, conversation.id, CONTEXT),
             harness.snapshot(LiveDoc, conversation.id, CONTEXT),
+            Promise.all(records.map((record) =>
+              readDelegationUpdate(harness, record, childEntries.get(record.childConversationId)),
+            )),
           ])
+          if (stopped) return
 
           onChange({
             messages: chatMessages(entries),
@@ -1204,19 +1376,42 @@ export async function createAgent(config: Config): Promise<Agent> {
             run: runInfoOf(entries),
             usage: usageTotals(usage),
             live: liveActivity(live),
+            delegations: children,
+          })
+        }
+        const schedule = (): void => {
+          if (stopped) return
+          if (draining !== undefined) {
+            pending = true
+            return
+          }
+          draining = (async () => {
+            do {
+              pending = false
+              await emit()
+            } while (pending && !stopped)
+          })().catch((error: unknown) => {
+            if (error instanceof SessionFailed) supervisor.discard()
+          }).finally(() => {
+            draining = undefined
           })
         }
 
-        await emit(watch.value.entries)
+        await emit()
         watch.start(async (call) => {
-          if (call.kind === 'value') await emit(call.value.entries)
+          if (call.kind !== 'value') return
+          entries = call.value.entries
+          schedule()
         })
 
-        return () =>
-          watch.stop().then(
-            () => undefined,
-            () => undefined,
-          )
+        return async () => {
+          stopped = true
+          await Promise.allSettled([
+            (async () => { await watch.stop() })(),
+            ...[...childWatches.values()].map((stop) => stop()),
+          ])
+          await draining
+        }
       } catch (error) {
         if (error instanceof SessionFailed) supervisor.discard()
 

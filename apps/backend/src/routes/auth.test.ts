@@ -123,6 +123,42 @@ if (url === undefined) {
         await server.close()
       }
     })
+
+    it('serves, saves and resets the separate global subagent system prompt', async () => {
+      const { server } = await install()
+      try {
+        const initial = await server.inject({ method: 'GET', url: '/settings' })
+        expect(initial.statusCode).toBe(200)
+        expect(initial.json()).toMatchObject({
+          subagentSystemPrompt: DEFAULT_SETTINGS.subagentSystemPrompt,
+          defaultSubagentSystemPrompt: DEFAULT_SETTINGS.subagentSystemPrompt,
+        })
+
+        const changed = await server.inject({
+          method: 'PUT',
+          url: '/settings',
+          payload: { subagentSystemPrompt: 'Report only verified results.' },
+        })
+        expect(changed.statusCode).toBe(200)
+        expect(changed.json()).toMatchObject({
+          systemPrompt: DEFAULT_SETTINGS.systemPrompt,
+          subagentSystemPrompt: 'Report only verified results.',
+        })
+
+        const reset = await server.inject({
+          method: 'PUT',
+          url: '/settings',
+          payload: { subagentSystemPrompt: DEFAULT_SETTINGS.subagentSystemPrompt },
+        })
+        expect(reset.statusCode).toBe(200)
+        expect(reset.json()).toMatchObject({
+          subagentSystemPrompt: DEFAULT_SETTINGS.subagentSystemPrompt,
+          defaultSubagentSystemPrompt: DEFAULT_SETTINGS.subagentSystemPrompt,
+        })
+      } finally {
+        await server.close()
+      }
+    })
   })
 
   describe('bootstrapOwner', () => {
