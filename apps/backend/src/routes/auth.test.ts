@@ -69,6 +69,25 @@ if (url === undefined) {
       }
     })
 
+    it('stores the owner git identity used by environment manifests', async () => {
+      const { server } = await install()
+      try {
+        const saved = await server.inject({
+          method: 'PUT',
+          url: '/account/git',
+          payload: { name: 'A Developer', email: 'dev@example.com' },
+        })
+        expect(saved.statusCode).toBe(200)
+        expect(saved.json()).toEqual({ name: 'A Developer', email: 'dev@example.com' })
+        await expect(server.inject({ method: 'GET', url: '/account/git' })).resolves.toMatchObject({
+          statusCode: 200,
+          body: JSON.stringify({ name: 'A Developer', email: 'dev@example.com' }),
+        })
+      } finally {
+        await server.close()
+      }
+    })
+
     it('serves the built-in system prompt and saves or resets an override through settings routes', async () => {
       const { server } = await install()
       try {

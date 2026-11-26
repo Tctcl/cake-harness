@@ -36,6 +36,20 @@ if (url === undefined) {
     }
   }
 
+  describe('EnvironmentRepository tooling', () => {
+    it('persists desired packages with the environment', async () => {
+      await withRepository(async (repository, ownerId) => {
+        const created = await repository.create(ownerId, { name: 'Tools', image: IMAGE })
+        expect(created.tooling).toEqual([])
+        const tooling = [{ kind: 'apt', name: 'jq', version: 'latest' }] as const
+        const updated = await repository.update(created.id, { tooling })
+
+        expect(updated?.tooling).toEqual(tooling)
+        await expect(repository.find(created.id)).resolves.toMatchObject({ tooling })
+      })
+    })
+  })
+
   describe('EnvironmentRepository SSH ports', () => {
     it('allocates the lowest free port at creation, reuses a freed port, and keeps them unique', async () => {
       await withRepository(async (repository, ownerId) => {

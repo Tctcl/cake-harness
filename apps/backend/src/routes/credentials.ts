@@ -21,7 +21,7 @@ const credentialIdParams = {
 const createBody = {
   type: 'object',
   properties: {
-    kind: { type: 'string', enum: ['opencode-go', 'mcp'] },
+    kind: { type: 'string', enum: ['opencode-go', 'mcp', 'github-token'] },
     name: { type: 'string', minLength: 1, maxLength: 200 },
     value: { type: 'string', minLength: 1, maxLength: 4096 },
     expiresAt: { type: ['string', 'null'], format: 'date-time' },
@@ -35,7 +35,7 @@ const createBody = {
 
 const credentialProperties = {
   id: { type: 'string' },
-  kind: { type: 'string', enum: ['opencode-go', 'mcp'] },
+  kind: { type: 'string', enum: ['opencode-go', 'mcp', 'github-token'] },
   name: { type: 'string' },
   expiresAt: { type: ['string', 'null'] },
   email: { type: ['string', 'null'] },
@@ -81,6 +81,8 @@ const toInput = (body: {
 
     return { ...base, email }
   }
+
+  if (body.kind === 'github-token') return base
 
   if (typeof body.mcpId !== 'string' || body.mcpId.trim() === '') {
     throw badRequest('an mcp key names the server it answers for', 'CREDENTIAL_MCP_REQUIRED')

@@ -1077,6 +1077,23 @@ const sshAccessMigration = (schema: PostgresSchema): readonly string[] => [
     ON ${schema.tables.userSshKeys} (owner_id, created_at)`,
 ]
 
+/** Desired apt/npm packages, edited independently of the container's last reported state. */
+const persistentToolingMigration = (schema: PostgresSchema): readonly string[] => [
+  `ALTER TABLE ${schema.tables.devEnvironments} ADD COLUMN tooling jsonb NOT NULL DEFAULT '[]'::jsonb`,
+  `ALTER TABLE ${schema.tables.userCredentials} DROP CONSTRAINT ${schema.prefix}user_credentials_kind_check`,
+  `ALTER TABLE ${schema.tables.userCredentials} ADD CONSTRAINT user_credentials_kind_check
+    CHECK (kind IN ('opencode-go', 'mcp', 'github-token'))`,
+  `ALTER TABLE ${schema.tables.userCredentials} DROP CONSTRAINT user_credentials_fields`,
+  `ALTER TABLE ${schema.tables.userCredentials} ADD CONSTRAINT user_credentials_fields CHECK (
+    (kind = 'opencode-go' AND mcp_id IS NULL)
+    OR (kind = 'mcp' AND mcp_id IS NOT NULL AND email IS NULL)
+    OR (kind = 'github-token' AND mcp_id IS NULL AND email IS NULL)
+  )`,
+  `ALTER TABLE ${schema.tables.users}
+    ADD COLUMN git_name text,
+    ADD COLUMN git_email text`,
+]
+
 /** Ordered schema history: a released version is never edited, a change appends one. */
 export const MIGRATIONS: readonly { version: number; statements: (schema: PostgresSchema) => readonly string[] }[] = [
   { version: 1, statements: migration },
@@ -1102,6 +1119,7 @@ export const MIGRATIONS: readonly { version: number; statements: (schema: Postgr
   { version: 21, statements: agentPromptAppendMigration },
   { version: 22, statements: generalEnvironmentDescriptionMigration },
   { version: 23, statements: sshAccessMigration },
+  { version: 24, statements: persistentToolingMigration },
 ]
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0

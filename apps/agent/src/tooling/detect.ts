@@ -74,6 +74,7 @@ export const detectInstalled = (
       version,
       path: resolveCommandPath(detector.command) ?? recorded?.path ?? null,
       source: recorded === undefined ? 'image' : 'installed',
+      status: 'installed',
     })
   }
   return installed

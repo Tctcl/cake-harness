@@ -33,10 +33,16 @@ const requireSchemaVersion = (value: unknown, where: string): 1 => {
 
 const parseDesiredTool = (value: unknown, where: string): DesiredTool => {
   const record = requireRecord(value, where)
-  return {
+  const base = {
     id: requireString(record['id'], `${where}.id`),
     version: requireString(record['version'], `${where}.version`),
   }
+  if (record['kind'] === undefined && record['name'] === undefined) return base
+  if (record['kind'] !== 'apt' && record['kind'] !== 'npm') {
+    throw new Error(`${where}.kind must be apt or npm`)
+  }
+
+  return { ...base, kind: record['kind'], name: requireString(record['name'], `${where}.name`) }
 }
 
 /**

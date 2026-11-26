@@ -6,7 +6,7 @@
 import { request } from './http.ts'
 
 /** What a credential is for. The two kinds carry different fields, and the form asks for whichever applies. */
-export type CredentialKind = 'opencode-go' | 'mcp'
+export type CredentialKind = 'opencode-go' | 'mcp' | 'github-token'
 
 export interface Credential {
   readonly id: string

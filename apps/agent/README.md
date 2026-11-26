@@ -4,11 +4,10 @@ The workspace environment: a container image that boots a machine wired for a
 single workspace, and the bootstrap that reconciles that machine against the
 desired tooling the backend serves.
 
-**Status: first slice.** The bootstrap reads the desired tooling and credential
-documents, reports what is actually installed, plans the work, and materialises
-the credentials. It does not install anything yet, and the agent message loop
-does not exist. See `docs/remote-development.md` for the design and
-`docs/deferred.md` for what is deliberately postponed.
+The bootstrap reads the desired tooling and credential documents, installs apt
+and global npm packages, reports their outcomes, and materialises credentials.
+The agent message loop does not exist. See `docs/remote-development.md` for the
+design and `docs/deferred.md` for what is deliberately postponed.
 
 ## Scripts
 
@@ -30,14 +29,14 @@ does not exist. See `docs/remote-development.md` for the design and
    backend at `GET /environments/:id/manifest`, and validate both documents in it.
    A malformed document fails the boot — a machine that starts half-configured is
    worse than one that refuses to start.
-2. Detect what is installed (`src/tooling/detect.ts`) and report it. A tool named
-   in `DEV_ENV_INSTALL_RECORD` is reported as `installed`, everything else as
-   `image`.
-3. Diff desired against actual (`src/tooling/plan.ts`): `install`, `replace`,
-   `keep`, `extra`. Installing is not implemented; the plan is the output.
+2. Detect the image's runtimes (`src/tooling/detect.ts`). A tool named in
+   `DEV_ENV_INSTALL_RECORD` is reported as `installed`, everything else as `image`.
+3. Diff desired against actual (`src/tooling/plan.ts`), then install desired apt
+   packages in one boot-time batch and missing npm globals one by one
+   (`src/tooling/install.ts`). A failure is recorded and does not stop the others.
 4. Materialise credentials (`src/credentials/apply.ts`) as `0600` files for the
    development user, never into the bootstrap's own environment.
-5. Send the actual state to `DEV_ENV_STATE_URL` (`src/report.ts`). A backend that
+5. Send installed, failed and missing state to `DEV_ENV_STATE_URL` (`src/report.ts`). A backend that
    refuses the report is logged, not thrown: the environment works either way.
 
 Everything is logged as JSON lines by `src/log.ts`; no log line carries a
@@ -54,8 +53,9 @@ src/log.ts                the only logger
 src/tooling/contract.ts   desired tooling, actual tooling
 src/tooling/parse.ts      runtime validation of the desired document
 src/tooling/detect.ts     version detection table + probes
-src/tooling/record.ts     what reconciliation installed, keyed by tool id
-src/tooling/plan.ts       pure reconcile plan
+src/tooling/record.ts     persistent successful-install record, keyed by tool id
+src/tooling/plan.ts       pure image-runtime reconcile plan
+src/tooling/install.ts    apt batch and npm global reconciliation
 src/credentials/contract.ts  credential document, env map + files
 src/credentials/parse.ts     runtime validation
 src/credentials/apply.ts     writes env file and credential files
@@ -79,7 +79,7 @@ compose.dev.yml           local harness: build, run, port 2222
   (the bearer token Cake starts the container with; both calls send it, and the
   backend refuses them without it, because the manifest carries the credentials
   the container sets up), and `DEV_ENV_INSTALL_RECORD` (default
-  `/var/lib/dev-env/installed.json`). Cake
+  `/home/dev/.local/share/cake/installed.json`). Cake
   installs SSH authorized keys with `docker exec` after the container starts;
   the standalone `compose.dev.yml` harness has no backend key delivery, so it
   does not accept SSH connections until a key is manually installed.
@@ -92,7 +92,7 @@ pnpm dev:agent
 
 That is the container's dev task: it compiles the bootstrap and runs
 `docker compose -f compose.dev.yml up --build`. The process is not meant to run on
-the host — it creates the `dev` user, installs into `/var/lib/dev-env` and reads a
+the host — it creates the `dev` user, installs into `/home/dev/.local` and reads a
 manifest that only exists inside the stack — so the dev task starts the container
 that has those things. Docker is required, and so are the SSH keys below.
 

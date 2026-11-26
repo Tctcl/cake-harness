@@ -5,11 +5,36 @@
 
 import { request } from './http.ts'
 
+export type ToolKind = 'apt' | 'npm'
+
+export interface DesiredTool {
+  readonly kind: ToolKind
+  readonly name: string
+  readonly version: string
+}
+
+export interface ToolReport {
+  readonly id: string
+  readonly version: string
+  readonly kind?: ToolKind
+  readonly name?: string
+  readonly status?: 'installed' | 'failed' | 'missing'
+  readonly error?: string
+  readonly path: string | null
+  readonly source: 'image' | 'installed'
+}
+
+export interface ReportedEnvironmentState {
+  readonly reportedAt: string | null
+  readonly state: { readonly tools: readonly ToolReport[] } | null
+}
+
 export interface DevEnvironment {
   readonly id: string
   readonly name: string
   /** The image the container is created from, e.g. `node:26`. */
   readonly image: string
+  readonly tooling: readonly DesiredTool[]
   /** The running container, or null until it is first started. */
   readonly containerId: string | null
   /** The stable host port assigned to this environment's SSH service. */
@@ -74,6 +99,15 @@ export const getEnvironment = async (environmentId: string): Promise<Environment
 /** `null` means no endpoint was published; `running` separately reports the container state. */
 export const getEnvironmentSsh = async (environmentId: string): Promise<SshAccess | null> =>
   await request<SshAccess | null>(`/environments/${environmentId}/ssh`)
+
+export const getEnvironmentState = async (environmentId: string): Promise<ReportedEnvironmentState> =>
+  await request<ReportedEnvironmentState>(`/environments/${environmentId}/state`)
+
+export const setEnvironmentTooling = async (
+  environmentId: string,
+  tooling: readonly DesiredTool[],
+): Promise<DevEnvironment> =>
+  await request<DevEnvironment>(`/environments/${environmentId}`, json('PATCH', { tooling }))
 
 /** One line of a container's output, as the backend's log stream sends it. */
 export interface ContainerLogLine {

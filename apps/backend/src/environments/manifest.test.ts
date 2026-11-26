@@ -29,8 +29,26 @@ describe('buildManifest', () => {
     expect(npm?.files[0]).toEqual({
       path: '~/.npmrc',
       mode: '0600',
-      content: '//registry.npmjs.org/:_authToken=npm_test\n',
+      content: 'prefix=/home/dev/.local\n//registry.npmjs.org/:_authToken=npm_test\n',
     })
+  })
+
+  it('includes user-selected packages, git identity and a user-owned GitHub token', async () => {
+    const manifest = await buildManifest(noSecrets, {
+      tooling: [{ kind: 'apt', name: 'jq', version: 'latest' }, { kind: 'npm', name: 'cowsay', version: '1.6.0' }],
+      githubToken: 'ghp_user',
+      gitIdentity: { name: 'A Developer', email: 'dev@example.com' },
+    })
+
+    expect(manifest.tooling.tools.slice(1)).toEqual([
+      { id: 'apt:jq', kind: 'apt', name: 'jq', version: 'latest' },
+      { id: 'npm:cowsay', kind: 'npm', name: 'cowsay', version: '1.6.0' },
+    ])
+    const github = manifest.credentials.credentials.find((entry) => entry.id === 'github')
+    expect(github?.env).toEqual({ GH_TOKEN: 'ghp_user', GITHUB_TOKEN: 'ghp_user' })
+    expect(github?.files.map((file) => file.path)).toEqual(['~/.config/gh/hosts.yml', '~/.gitconfig'])
+    expect(github?.files[1]?.content).toContain('name = "A Developer"')
+    expect(github?.files[1]?.content).toContain('helper = !gh auth git-credential')
   })
 
   it('drops a credential whose secret is missing instead of failing the boot', async () => {

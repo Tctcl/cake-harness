@@ -14,6 +14,8 @@ export interface UserRecord {
   readonly id: string
   readonly username: string | null
   readonly displayName: string
+  readonly gitName: string | null
+  readonly gitEmail: string | null
   readonly disabled: boolean
   readonly passwordHash: string | null
   readonly roleId: string | null
@@ -31,6 +33,8 @@ interface UserRow {
   readonly id: string
   readonly username: string | null
   readonly display_name: string
+  readonly git_name: string | null
+  readonly git_email: string | null
   readonly disabled: boolean
   readonly password_hash: string | null
   readonly role_id: string | null
@@ -46,6 +50,8 @@ const toUser = (row: UserRow): UserRecord => ({
   id: row.id,
   username: row.username,
   displayName: row.display_name,
+  gitName: row.git_name,
+  gitEmail: row.git_email,
   disabled: row.disabled,
   passwordHash: row.password_hash,
   roleId: row.role_id,
@@ -79,12 +85,13 @@ export class UserRepository {
   readonly #setRole: string
   readonly #setDisabled: string
   readonly #rename: string
+  readonly #setGitIdentity: string
 
   constructor(pool: Pool, schema: PostgresSchema) {
     const { users, roles } = schema.tables
     this.#pool = pool
     this.#schema = schema
-    this.#select = `SELECT u.id, u.username, u.display_name, u.disabled, u.password_hash, u.role_id,
+    this.#select = `SELECT u.id, u.username, u.display_name, u.git_name, u.git_email, u.disabled, u.password_hash, u.role_id,
         r.name AS role_name, r.grants_all, u.totp_secret, u.totp_confirmed_at, u.must_change_password, u.created_at
       FROM ${users} u LEFT JOIN ${roles} r ON r.id = u.role_id`
     this.#setPassword = `UPDATE ${users} SET password_hash = $2, must_change_password = $3 WHERE id = $1`
@@ -93,6 +100,7 @@ export class UserRepository {
     this.#setRole = `UPDATE ${users} SET role_id = $2 WHERE id = $1`
     this.#setDisabled = `UPDATE ${users} SET disabled = $2 WHERE id = $1`
     this.#rename = `UPDATE ${users} SET username = $2, display_name = $3 WHERE id = $1`
+    this.#setGitIdentity = `UPDATE ${users} SET git_name = $2, git_email = $3 WHERE id = $1`
   }
 
   async findById(id: string): Promise<UserRecord | undefined> {
@@ -170,5 +178,11 @@ export class UserRepository {
     await withClient(this.#pool, (client) =>
       client.query(this.#rename, [id, normaliseUsername(username), displayName]),
     )
+  }
+
+  async setGitIdentity(id: string, name: string, email: string): Promise<UserRecord | undefined> {
+    await withClient(this.#pool, (client) => client.query(this.#setGitIdentity, [id, name, email]))
+
+    return this.findById(id)
   }
 }

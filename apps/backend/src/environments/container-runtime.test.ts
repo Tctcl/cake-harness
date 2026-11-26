@@ -157,6 +157,7 @@ describe('DockerContainers.ensureRunning', () => {
 
     await expect(containers.ensureRunning(request, 'abc')).resolves.toBe('created-id')
     expect(calls.removedContainers).toEqual(['abc'])
+    expect(calls.removedVolumes).toEqual([])
     expect(calls.created).toHaveLength(1)
     expect(warnings[0]).toContain('SSH mounts or port binding are outdated')
   })

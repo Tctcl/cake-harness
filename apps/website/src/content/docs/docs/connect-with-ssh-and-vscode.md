@@ -19,7 +19,9 @@ You can test the connection from a terminal with the displayed `ssh cake-<slug>`
 
 ## 3. Open in VS Code
 
-Install Microsoft’s **Remote - SSH** extension, then select **Open in VS Code** in the Environment tab. VS Code connects to `/home/dev/workspace`. The workspace home and SSH host keys persist across container recreation.
+Install Microsoft’s **Remote - SSH** extension, then select **Open in VS Code** in the Environment tab. VS Code connects to `/home/dev/workspace`. The workspace home and SSH host keys persist across container recreation. That includes `~/.vscode-server`: restarting or recreating the container reattaches the same home volume. Deleting the environment also deletes that volume, and host-level volume pruning is outside Cake's control.
+
+The container already provides pnpm, GitHub CLI, ripgrep, jq, unzip, and build tools. Additional apt and npm packages can be selected under **Environment → Tooling** and are applied on the next start. Global npm installs also work directly as `dev`, without sudo, and are stored under the persistent home directory.
 
 The Environment tab lists listening TCP ports. Use the displayed `ssh -N -L <port>:localhost:<port> cake-<slug>` command for a manual forward. VS Code detects and forwards development-server ports automatically.
 

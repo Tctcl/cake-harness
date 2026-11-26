@@ -11,6 +11,7 @@ const environment = (id: string, containerId: string | null): DevEnvironment => 
   id,
   name: id,
   image: 'cake-harness/dev-env:dev',
+  tooling: [],
   containerId,
   sshPort: 22_000,
   createdAt: new Date(0),

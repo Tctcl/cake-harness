@@ -26,7 +26,9 @@ export interface ReconcilePlan {
  * part worth testing exhaustively, and it must not touch the network or the disk.
  */
 export const planReconcile = (desired: ToolingConfig, actual: ToolingState): ReconcilePlan => {
-  const installedById = new Map(actual.tools.map((tool) => [tool.id, tool]))
+  const installedById = new Map(
+    actual.tools.filter((tool) => tool.status === undefined || tool.status === 'installed').map((tool) => [tool.id, tool]),
+  )
   const desiredIds = new Set(desired.tools.map((tool) => tool.id))
 
   const install: DesiredTool[] = []

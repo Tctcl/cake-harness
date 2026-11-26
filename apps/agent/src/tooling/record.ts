@@ -1,12 +1,13 @@
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
 
 /** One tool reconciliation installed, as it recorded it at the time. */
 export interface RecordedTool {
   readonly id: string
   /** The version the installer put on disk. */
   readonly version: string
-  /** Absolute path of the installed binary. */
-  readonly path: string
+  /** Absolute path of the installed binary, or null when a package manager has no single binary path. */
+  readonly path: string | null
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -18,11 +19,23 @@ const recordedTool = (value: unknown, where: string): RecordedTool => {
   }
 
   const { id, version, path } = value
-  if (typeof id !== 'string' || typeof version !== 'string' || typeof path !== 'string') {
-    throw new Error(`${where} must carry string id, version and path`)
+  if (typeof id !== 'string' || typeof version !== 'string' || (typeof path !== 'string' && path !== null)) {
+    throw new Error(`${where} must carry string id, version and path (path may be null)`)
   }
 
   return { id, version, path }
+}
+
+/** Persist successful installs atomically so a reboot never mistakes them for image tools. */
+export const writeInstallRecord = async (
+  path: string,
+  record: ReadonlyMap<string, RecordedTool>,
+): Promise<void> => {
+  const tools = [...record.values()].sort((a, b) => a.id.localeCompare(b.id))
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+  const temporary = `${path}.${process.pid}.tmp`
+  await writeFile(temporary, `${JSON.stringify({ schemaVersion: 1, tools }, null, 2)}\n`, { mode: 0o600 })
+  await rename(temporary, path)
 }
 
 /**
