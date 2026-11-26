@@ -41,6 +41,7 @@ const environmentOf = (overrides: Partial<DevEnvironment> = {}): DevEnvironment 
   id: ENVIRONMENT_ID,
   name: 'Node',
   image: 'ghcr.io/tctcl/cake-harness/workspace:1.0.0',
+  tooling: [],
   containerId: 'container-one',
   sshPort: 22_000,
   createdAt: new Date(0),

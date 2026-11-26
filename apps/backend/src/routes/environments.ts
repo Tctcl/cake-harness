@@ -57,10 +57,22 @@ const workspaceAgentParams = {
   additionalProperties: false,
 } as const
 
+const desiredToolSchema = {
+  type: 'object',
+  properties: {
+    kind: { type: 'string', enum: ['apt', 'npm'] },
+    name: { type: 'string', minLength: 1, maxLength: 200 },
+    version: { type: 'string', minLength: 1, maxLength: 200 },
+  },
+  required: ['kind', 'name', 'version'],
+  additionalProperties: false,
+} as const
+
 const environmentProperties = {
   id: { type: 'string' },
   name: { type: 'string' },
   image: { type: 'string' },
+  tooling: { type: 'array', items: desiredToolSchema },
   containerId: { type: ['string', 'null'] },
   sshPort: { type: 'integer' },
   createdAt: { type: 'string' },
@@ -70,7 +82,7 @@ const environmentProperties = {
 const environmentSchema = {
   type: 'object',
   properties: environmentProperties,
-  required: ['id', 'name', 'image', 'containerId', 'sshPort', 'createdAt', 'updatedAt'],
+  required: ['id', 'name', 'image', 'tooling', 'containerId', 'sshPort', 'createdAt', 'updatedAt'],
 } as const
 
 const environmentListSchema = {
@@ -83,7 +95,7 @@ const environmentListSchema = {
 const environmentDetailSchema = {
   type: 'object',
   properties: { ...environmentProperties, status: { type: 'string', enum: [...containerStatuses] } },
-  required: ['id', 'name', 'image', 'containerId', 'sshPort', 'createdAt', 'updatedAt', 'status'],
+  required: ['id', 'name', 'image', 'tooling', 'containerId', 'sshPort', 'createdAt', 'updatedAt', 'status'],
 } as const
 
 // Bytes and a percentage, so a client formats them and the wire stays free of units.
@@ -160,7 +172,11 @@ const createEnvironmentBody = {
 // an environment without an image has nothing to start.
 const updateEnvironmentBody = {
   type: 'object',
-  properties: { name: { type: 'string', minLength: 1 }, image: { type: 'string', minLength: 1 } },
+  properties: {
+    name: { type: 'string', minLength: 1 },
+    image: { type: 'string', minLength: 1 },
+    tooling: { type: 'array', items: desiredToolSchema, maxItems: 100 },
+  },
   additionalProperties: false,
 } as const
 
@@ -203,7 +219,16 @@ interface WorkspaceAgentParams {
 interface ToolingStateBody {
   schemaVersion: 1
   reportedAt: string
-  tools: { id: string; version: string; path: string | null; source: 'image' | 'installed' }[]
+  tools: {
+    id: string
+    version: string
+    path: string | null
+    source: 'image' | 'installed'
+    status?: 'installed' | 'failed' | 'missing'
+    error?: string
+    kind?: 'apt' | 'npm'
+    name?: string
+  }[]
 }
 
 const toolingStateBody = {
@@ -220,6 +245,10 @@ const toolingStateBody = {
           version: { type: 'string', minLength: 1 },
           path: { type: ['string', 'null'] },
           source: { type: 'string', enum: ['image', 'installed'] },
+          status: { type: 'string', enum: ['installed', 'failed', 'missing'] },
+          error: { type: 'string' },
+          kind: { type: 'string', enum: ['apt', 'npm'] },
+          name: { type: 'string' },
         },
         required: ['id', 'version', 'path', 'source'],
         additionalProperties: false,

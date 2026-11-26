@@ -35,6 +35,7 @@ const environmentOf = (overrides: Partial<DevEnvironment> = {}): DevEnvironment 
   id: ENVIRONMENT_ID,
   name: 'Node',
   image: IMAGE,
+  tooling: [],
   containerId: null,
   sshPort: 22_000,
   createdAt: new Date(0),
@@ -306,6 +307,28 @@ describe('EnvironmentApi', () => {
     })
     expect(requests[0]?.network).toBe('cake-workspaces')
     expect(requests[0]?.sshPort).toBe(22_000)
+  })
+
+  it('builds a manifest from this environment and the owner identity', async () => {
+    const api = createEnvironmentApi({
+      ownerId: OWNER_ID,
+      environments: repositoryOf({
+        find: async () => environmentOf({ tooling: [{ kind: 'npm', name: 'cowsay', version: '1.6.0' }] }),
+      }),
+      containers: runtimeOf().runtime,
+      image: IMAGE,
+      secrets: noSecrets,
+      backendUrl: null,
+      network: null,
+      githubToken: async () => 'ghp_user',
+      gitIdentity: async () => ({ name: 'Dev', email: 'dev@example.com' }),
+    })
+
+    const manifest = await api.manifest(ENVIRONMENT_ID)
+    expect(manifest?.tooling.tools[1]).toEqual({
+      id: 'npm:cowsay', kind: 'npm', name: 'cowsay', version: '1.6.0',
+    })
+    expect(manifest?.credentials.credentials[0]?.files.map((file) => file.path)).toContain('~/.gitconfig')
   })
 
   it('leaves the container without documents when no backend URL is configured', async () => {

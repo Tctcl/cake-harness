@@ -754,9 +754,10 @@ export async function createAgent(config: Config): Promise<Agent> {
   for (const login of await providerRepository.logins(ownerId)) registerKeyProvider(models, login.id)
   // The user's own keys, apart from the MCP credentials a server definition carries: a key outlives the server it serves.
   // A provider key is checked upstream before it is stored, and its models are loaded from it.
+  const credentialRepository = new CredentialRepository(postgres.pool, postgres.schema, config.secrets)
   const userCredentials = createCredentialApi({
     ownerId,
-    credentials: new CredentialRepository(postgres.pool, postgres.schema, config.secrets),
+    credentials: credentialRepository,
     providerKeys: {
       check: checkKey,
       stored: async (credentialId, key) => {
@@ -844,6 +845,11 @@ export async function createAgent(config: Config): Promise<Agent> {
     bootstrapToken: (environmentId) => environmentBootstrapToken(config.secrets, environmentId),
     // No configured store is a reader that knows nothing: the manifest still serves tooling, and no credential.
     secrets: config.ciphergate === undefined ? noSecrets : createCipherGateSecrets(config.ciphergate),
+    githubToken: () => credentialRepository.readGithubToken(ownerId),
+    gitIdentity: async () => {
+      const user = await auth.users.findById(ownerId)
+      return user === undefined ? undefined : { name: user.gitName ?? user.displayName, email: user.gitEmail ?? '' }
+    },
   })
 
   // Connection has no env option for its child: dockerode reads DOCKER_HOST in the bridge, so publish the validated

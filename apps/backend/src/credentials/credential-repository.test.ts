@@ -102,6 +102,17 @@ if (url === undefined) {
       })
     })
 
+    it('opens the newest GitHub token only for container delivery', async () => {
+      await withCredentials(async (credentials, ownerId) => {
+        await credentials.create(ownerId, { kind: 'github-token', name: 'old', value: 'ghp_old' })
+        const created = await credentials.create(ownerId, { kind: 'github-token', name: 'current', value: 'ghp_current' })
+
+        expect(created).not.toHaveProperty('value')
+        await expect(credentials.readGithubToken(ownerId)).resolves.toBe('ghp_current')
+        expect(JSON.stringify(await credentials.list(ownerId))).not.toContain('ghp_current')
+      })
+    })
+
     it('lists newest first and removes only the key it was given', async () => {
       await withCredentials(async (credentials, ownerId) => {
         const first = await credentials.create(ownerId, {

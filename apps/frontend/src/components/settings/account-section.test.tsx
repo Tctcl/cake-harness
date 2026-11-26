@@ -20,8 +20,10 @@ const session = (overrides: Record<string, unknown> = {}) => ({
 const backend = (state: { session: ReturnType<typeof session>; totp: boolean }) => {
   const posted: { path: string; body: unknown }[] = []
   const fetch = vi.fn(async (path: string, init?: RequestInit) => {
-    if (init?.method === 'POST') posted.push({ path, body: JSON.parse(String(init.body)) })
+    if (init?.method === 'POST' || init?.method === 'PUT') posted.push({ path, body: JSON.parse(String(init.body)) })
     if (path === '/auth/session') return json(200, state.session)
+    if (path === '/account/git' && init === undefined) return json(200, { name: 'Initial Name', email: 'initial@example.com' })
+    if (path === '/account/git' && init?.method === 'PUT') return json(200, JSON.parse(String(init.body)))
     if (path === '/users') return json(200, [{ id: 'u1', username: 'admin', name: 'admin', totp: state.totp }])
     if (path === '/auth/password/change') {
       const body = JSON.parse(String(init?.body)) as { current: string }
@@ -52,6 +54,23 @@ describe('AccountSection', () => {
 
     expect(await screen.findByRole('region', { name: 'Single-user mode' })).toBeInTheDocument()
     expect(screen.queryByLabelText('Current password')).not.toBeInTheDocument()
+  })
+
+  it('saves the git identity delivered to workspace containers', async () => {
+    const { fetch, posted } = backend({ session: session(), totp: false })
+    vi.stubGlobal('fetch', fetch)
+    render(<AccountSection />)
+
+    await screen.findByLabelText('Name')
+    type('Name', 'A Developer')
+    type('Email', 'dev@example.com')
+    fireEvent.click(await screen.findByRole('button', { name: 'Save git identity' }))
+
+    expect(await screen.findByText(/Git identity saved/)).toBeInTheDocument()
+    expect(posted.at(-1)).toEqual({
+      path: '/account/git',
+      body: { name: 'A Developer', email: 'dev@example.com' },
+    })
   })
 
   it('changes the password, and shows why it was refused', async () => {

@@ -16,6 +16,7 @@ import { Spinner } from '../ui/spinner.tsx'
 import { EnvironmentSsh } from './environment-ssh.tsx'
 import { EnvironmentLogs } from './environment-logs.tsx'
 import { EnvironmentResources } from './environment-resources.tsx'
+import { EnvironmentTooling } from './environment-tooling.tsx'
 
 interface EnvironmentSnapshot {
   readonly environment: EnvironmentDetail | null
@@ -275,10 +276,12 @@ export function WorkspaceEnvironmentPanel({
         onOpenSshKeys={onOpenSshKeys}
       />
 
-      <section aria-label="Tooling — coming next" className="rounded-md border border-dashed p-4">
-        <h2 className="font-medium">Tooling — coming next</h2>
-        <p className="mt-1 text-muted-foreground">Tool installation and environment configuration will be managed here.</p>
-      </section>
+      <EnvironmentTooling
+        environmentId={environment.id}
+        tools={environment.tooling}
+        restarting={busy === 'restart'}
+        onRestart={async () => await changeState('restart')}
+      />
 
       {error === null ? null : <p role="alert" className="text-destructive">{error}</p>}
     </div>

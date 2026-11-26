@@ -3,14 +3,11 @@
 The goal this repository is building toward, written down so it can be reviewed
 before it is implemented.
 
-Status: **first slice built.** Sections 2, 4 and 9 partially exist in `apps/agent`:
-a development image, public-key SSH, a bootstrap that reads the tooling and
-credential documents, reports what is installed and plans the reconcile, and
-credential materialisation. Installing, reporting to the backend, tunnels and the
-workspace model do not exist. `infrastructure/` holds a single `.gitkeep`. The gap
-between this document and the code is tracked in [`docs/deferred.md`](./deferred.md),
-items 2 (grants do not yet drive the run), 3 (workspaces get no container) and 10
-(`apps/agent` does not run the harness).
+Status: the development image, public-key SSH, tooling reconciliation, state
+reporting and credential materialisation exist in `apps/agent`. The Environment
+tab edits desired apt/npm packages and shows the last report. Tunnels and the
+in-container agent message loop remain separate work tracked in
+[`docs/deferred.md`](./deferred.md).
 
 ## Goal: a universal remote development environment
 
@@ -63,8 +60,9 @@ The backend database is the source of truth for the desired development
 environment configuration.
 
 Each environment retrieves its tooling configuration from the backend during
-startup. The configuration contains exact tool versions, not floating version
-requirements.
+startup. Package entries name an installer (`apt` or `npm`), package name and version.
+Versions may be exact or `latest`; exact versions are preferable when a workspace
+needs a reproducible toolchain.
 
 The container must:
 
@@ -213,9 +211,9 @@ and sourced by its profile, rather than exported into the bootstrap's own
 environment, and why the actual-state report never echoes a credential value —
 only which credential ids were applied.
 
-One gap this leaves open: `~/.profile` is read by login shells, so
-`ssh dev@host gh pr list` would run without the variables. Wiring the environment
-for non-login shells is part of the next slice.
+Login shells source the credential environment through `~/.profile`. Git and
+GitHub CLI also read their persistent configuration files directly, so non-login
+Git HTTPS commands use the same authentication without printing the token.
 
 Status: both halves are implemented. `apps/backend/src/environments/manifest.ts`
 builds the manifest from CipherGate through `apps/backend/src/secrets/ciphergate.ts`
@@ -223,7 +221,10 @@ and is served at `GET /environments/:id/manifest`; the container fetches it from
 `DEV_ENV_MANIFEST_URL` and materialises it. A credential whose secret the store
 will not hand over is left out of the manifest rather than failing the boot: a
 workspace without `GH_TOKEN` is usable, a workspace that refuses to start is not.
-Installing the tools those credentials belong to is still pending.
+GitHub CLI receives `~/.config/gh/hosts.yml`; git receives `~/.gitconfig` with
+`user.name`, `user.email` and the `gh` credential helper from Account settings.
+The owner's newest GitHub-token credential takes precedence over a store-wide
+`GITHUB_TOKEN`. Secret values never appear in logs or actual-state reports.
 
 ## Where this stands
 
@@ -232,9 +233,13 @@ Two halves meet here. The backend serves an environment's manifest at
 secrets store will hand over — and records what a container reports at
 `PUT /environments/:id/state`, straight onto `dev_environments.reported_state`.
 The container boots from that manifest (`DEV_ENV_MANIFEST_URL`), reads
-`/var/lib/dev-env/installed.json` to tell an installed tool from an image one,
-plans the reconcile work, materialises credentials as `0600` files and reports
-what it found back.
+`/home/dev/.local/share/cake/installed.json` to tell an installed tool from an
+image one, installs the desired packages, materialises credentials as `0600` files
+and reports the outcome back. Apt packages are installed in one batch on every
+boot, with one apt-list refresh at most, because the root filesystem is replaced
+with the container. Global npm packages live in `/home/dev/.local` and are skipped
+when present. A package failure is logged and reported without stopping later
+packages or sshd.
 
 `apps/agent/compose.dev.yml` runs the container without a backend, so no manifest
 URL is set and the bootstrap is skipped: what remains is the image's floor over
@@ -242,8 +247,10 @@ SSH. The deployed stack passes `WORKSPACE_BACKEND_URL` and `WORKSPACE_NETWORK`, 
 backend adds both to the container it creates, and the container joins
 `cake-workspaces`, from where `app` is the only thing it can reach.
 
-The next slice is the part that changes the machine: apply the plan instead of
-logging it, and write what it installed into the record the next boot reads.
+The base image supplies pnpm through Corepack, GitHub CLI, ripgrep, jq, unzip and
+build-essential. `/home/dev/.local/bin` is on PATH for Docker exec, login shells
+and interactive non-login bash; dev's npm prefix is `/home/dev/.local`, so global
+npm installs need neither root nor sudo and persist with the home volume.
 
 The outcome this is aiming at: a reusable remote development environment that
 feels like a full Linux development machine per workspace, reachable by both AI

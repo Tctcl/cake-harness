@@ -29,6 +29,20 @@ export const readSession = async (): Promise<Session | null> => {
   }
 }
 
+export interface GitIdentity {
+  readonly name: string
+  readonly email: string
+}
+
+export const readGitIdentity = async (): Promise<GitIdentity> => await request<GitIdentity>('/account/git')
+
+export const saveGitIdentity = async (identity: GitIdentity): Promise<GitIdentity> =>
+  await request<GitIdentity>('/account/git', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(identity),
+  })
+
 export const signIn = async (username: string, password: string): Promise<Session> =>
   await request<Session>('/auth/login', post({ username, password }))
 

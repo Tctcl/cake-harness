@@ -28,6 +28,14 @@ The workspace image comes from `WORKSPACE_IMAGE`. A production install sets it t
 
 The **Environment** tab reports running, stopped, or missing state; starts, stops, and restarts the container; samples CPU, memory, network, and disk use; opens its terminal; and provides SSH configuration, a VS Code Remote-SSH link, and a live list of listening development ports. SSH uses a stable host port assigned to the environment. The owner's public keys are written to the container when it starts and when keys are added or removed.
 
+## Persistent tooling
+
+The image includes pnpm (through Corepack), GitHub CLI, ripgrep, jq, unzip, and a C/C++ build toolchain. The development user's npm global prefix is `/home/dev/.local`, so `npm install --global <package>` works without sudo and survives container recreation. The whole `/home/dev` directory is a named volume, including VS Code's server and package-manager caches; the container's root filesystem is not persistent.
+
+Use **Environment → Tooling** to add or remove apt and npm packages. Choose an exact package version or leave `latest`, then save and restart. Apt packages are installed together on every boot because they live on the root filesystem. Global npm packages are installed only when missing because their files persist on the home volume. A failed package does not prevent the others or SSH from starting; the table shows the last reported installed, failed, or missing state and any failure text.
+
+For GitHub access, add a **GitHub token** under **Settings → Credentials**. Set your commit name and email under **Settings → Account → Git identity**. On the next container start, Cake writes git's identity and GitHub credential helper plus GitHub CLI authentication for `gh` and Git HTTPS operations. Secrets are never returned by the credentials API.
+
 See [Connect with SSH and VS Code](/docs/connect-with-ssh-and-vscode) for setup steps and port forwarding.
 
 ## Tools belong to each agent

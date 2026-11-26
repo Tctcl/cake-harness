@@ -54,6 +54,7 @@ const attachedEnvironment: DevEnvironment = {
   id: 'environment-1',
   name: 'General',
   image: 'cake-harness/dev-env:dev',
+  tooling: [],
   containerId: null,
   sshPort: 22_000,
   createdAt: new Date(0),

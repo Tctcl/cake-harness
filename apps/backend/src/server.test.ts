@@ -83,6 +83,7 @@ const environmentOf = (overrides: Partial<DevEnvironment> = {}): DevEnvironment 
   id: ENVIRONMENT_ID,
   name: 'Node',
   image: 'ghcr.io/tctcl/cake-harness/workspace:1.0.0',
+  tooling: [],
   containerId: null,
   sshPort: 22_000,
   createdAt: new Date(0),
@@ -1184,6 +1185,7 @@ describe('environment routes', () => {
             id: ENVIRONMENT_ID,
             name: 'Node',
             image: 'ghcr.io/tctcl/cake-harness/workspace:1.0.0',
+            tooling: [],
             containerId: null,
             sshPort: 22_000,
             createdAt: '1970-01-01T00:00:00.000Z',
@@ -1191,6 +1193,36 @@ describe('environment routes', () => {
           },
         ],
       })
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('validates and saves an environment tooling list', async () => {
+    let seen: unknown
+    const tooling = [{ kind: 'apt', name: 'jq', version: 'latest' }] as const
+    const server = buildServer(config, {
+      agent: stubAgent({
+        environments: environmentsOf({
+          update: async (_id, patch) => {
+            seen = patch
+            return environmentOf({ tooling: patch.tooling ?? [] })
+          },
+        }),
+      }),
+    })
+
+    try {
+      const saved = await server.inject({ method: 'PATCH', url: `/environments/${ENVIRONMENT_ID}`, payload: { tooling } })
+      expect(saved.statusCode).toBe(200)
+      expect(seen).toEqual({ tooling })
+      expect(saved.json()).toMatchObject({ tooling })
+      const invalid = await server.inject({
+        method: 'PATCH',
+        url: `/environments/${ENVIRONMENT_ID}`,
+        payload: { tooling: [{ kind: 'curl', name: 'jq', version: 'latest' }] },
+      })
+      expect(invalid.statusCode).toBe(400)
     } finally {
       await server.close()
     }

@@ -10,7 +10,7 @@ import type {
   ReportedState,
 } from './environment-repository.js'
 import { buildManifest } from './manifest.js'
-import type { EnvironmentManifest } from './manifest.js'
+import type { EnvironmentManifest, GitIdentity } from './manifest.js'
 import type { SecretReader } from '../secrets/ciphergate.js'
 
 export interface EnvironmentApiOptions {
@@ -32,6 +32,10 @@ export interface EnvironmentApiOptions {
   readonly authorizedKeys: () => Promise<readonly string[]>
   /** Where the credentials a workspace gets come from; a reader that knows nothing serves a manifest without any. */
   readonly secrets: SecretReader
+  /** The user-owned token takes precedence over a store-wide GITHUB_TOKEN when present. */
+  readonly githubToken?: () => Promise<string | undefined>
+  /** Identity written to the development user's gitconfig on the next boot. */
+  readonly gitIdentity?: () => Promise<GitIdentity | undefined>
   /** The token a container proves itself with when it fetches its manifest and reports its state. */
   readonly bootstrapToken: (environmentId: string) => string
 }
@@ -199,6 +203,15 @@ export const createEnvironmentApi = (options: EnvironmentApiOptions): Environmen
 
     acceptsBootstrapToken: (id, presented) => bootstrapTokenMatches(options.bootstrapToken(id), presented),
 
-    manifest: async (id) => (await environments.find(id)) === undefined ? undefined : buildManifest(options.secrets),
+    manifest: async (id) => {
+      const environment = await environments.find(id)
+      if (environment === undefined) return undefined
+      const [githubToken, gitIdentity] = await Promise.all([
+        options.githubToken?.(),
+        options.gitIdentity?.(),
+      ])
+
+      return buildManifest(options.secrets, { tooling: environment.tooling, githubToken, gitIdentity })
+    },
   }
 }

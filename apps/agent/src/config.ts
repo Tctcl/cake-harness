@@ -1,5 +1,5 @@
 /** Where the record of everything reconciliation installed lives. */
-const DEFAULT_INSTALL_RECORD = '/var/lib/dev-env/installed.json'
+const DEFAULT_INSTALL_RECORD = '/home/dev/.local/share/cake/installed.json'
 
 export interface BootstrapConfig {
   /** The environment's manifest, served by the backend. Required: there is nothing to reconcile without it. */

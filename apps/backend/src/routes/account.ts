@@ -35,6 +35,12 @@ const sshKeyIdParams = {
   additionalProperties: false,
 } as const
 
+const gitIdentitySchema = {
+  type: 'object',
+  properties: { name: { type: 'string' }, email: { type: 'string' } },
+  required: ['name', 'email'],
+} as const
+
 const passwordSchema = {
   type: 'object',
   properties: { current: { type: 'string' }, next: { type: 'string' } },
@@ -66,6 +72,42 @@ const setupSchema = {
 export const accountRoutes: FastifyPluginAsync<{ agent: Agent }> = async (server, options) => {
   const auth = (): AuthService => options.agent.auth
   const sshKeys = options.agent.sshKeys
+
+  server.get('/account/git', { schema: { response: { 200: gitIdentitySchema } } }, async (request) => {
+    AuthService.assertSignedIn(request.actor)
+    const user = await auth().users.findById(request.actor.id)
+
+    return { name: user?.gitName ?? user?.displayName ?? '', email: user?.gitEmail ?? '' }
+  })
+
+  server.put<{ Body: { name: string; email: string } }>(
+    '/account/git',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', maxLength: 200 },
+            email: { type: 'string', maxLength: 320 },
+          },
+          required: ['name', 'email'],
+          additionalProperties: false,
+        },
+        response: { 200: gitIdentitySchema },
+      },
+    },
+    async (request) => {
+      AuthService.assertSignedIn(request.actor)
+      const user = await auth().users.setGitIdentity(
+        request.actor.id,
+        request.body.name.trim(),
+        request.body.email.trim(),
+      )
+      if (user === undefined) throw new AppError('the account does not exist', { statusCode: 404, code: 'ACCOUNT_NOT_FOUND' })
+
+      return { name: user.gitName ?? '', email: user.gitEmail ?? '' }
+    },
+  )
 
   server.get('/account/ssh-keys', { schema: { response: { 200: sshKeyListSchema } } }, async (request) => {
     AuthService.assertSignedIn(request.actor)

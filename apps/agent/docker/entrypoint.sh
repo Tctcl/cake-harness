@@ -28,7 +28,7 @@ if [ -n "${DEV_ENV_MANIFEST_URL:-}" ]; then
     DEV_ENV_MANIFEST_URL="${DEV_ENV_MANIFEST_URL}" \
     DEV_ENV_STATE_URL="${DEV_ENV_STATE_URL:-}" \
     DEV_ENV_TOKEN="${DEV_ENV_TOKEN:-}" \
-    DEV_ENV_INSTALL_RECORD="${DEV_ENV_INSTALL_RECORD:-/var/lib/dev-env/installed.json}" \
+    DEV_ENV_INSTALL_RECORD="${DEV_ENV_INSTALL_RECORD:-/home/dev/.local/share/cake/installed.json}" \
     node /opt/dev-env/dist/index.js
 else
   echo '{"level":"warn","event":"entrypoint.no_manifest_url"}'

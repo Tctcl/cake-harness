@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { EnvironmentStatus } from '../../lib/environment-api.ts'
@@ -11,6 +11,7 @@ const environment = {
   id: ENVIRONMENT_ID,
   name: 'General',
   image: 'cake-harness/dev-env:latest',
+  tooling: [],
   containerId: 'container-1',
   sshPort: 2222,
   createdAt: '2026-01-01T00:00:00.000Z',
@@ -36,6 +37,7 @@ function backend(initialStatus: EnvironmentStatus = 'stopped', exposed = false) 
   return vi.fn((path: string, init?: RequestInit) => {
     if (path === `/workspaces/${WORKSPACE_ID}/environments`) return json({ environments: [environment] })
     if (path === `/environments/${ENVIRONMENT_ID}/metrics`) return json(metrics)
+    if (path === `/environments/${ENVIRONMENT_ID}/state`) return json({ reportedAt: null, state: null })
     if (path === `/environments/${ENVIRONMENT_ID}/ssh`) {
       return json(exposed && status === 'running'
         ? { host: 'dev.example', port: 2222, user: 'dev', command: 'ssh -p 2222 dev@dev.example', running: true }
@@ -50,6 +52,10 @@ function backend(initialStatus: EnvironmentStatus = 'stopped', exposed = false) 
     if (path === `/environments/${ENVIRONMENT_ID}/stop` && init?.method === 'POST') {
       status = 'stopped'
       return json(environment)
+    }
+    if (path === `/environments/${ENVIRONMENT_ID}` && init?.method === 'PATCH') {
+      const body = JSON.parse(String(init.body)) as { tooling?: readonly unknown[] }
+      return json({ ...environment, tooling: body.tooling ?? environment.tooling })
     }
     if (path === `/environments/${ENVIRONMENT_ID}`) return json({ ...environment, status })
 
@@ -102,7 +108,8 @@ describe('WorkspaceEnvironmentPanel', () => {
     vi.stubGlobal('fetch', fetchMock)
     renderPanel()
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Restart' }))
+    const container = await screen.findByRole('region', { name: 'Container status' })
+    fireEvent.click(within(container).getByRole('button', { name: 'Restart' }))
     await waitFor(() => {
       const actions = fetchMock.mock.calls
         .filter(([, init]) => init?.method === 'POST')
@@ -128,13 +135,54 @@ describe('WorkspaceEnvironmentPanel', () => {
     )
   })
 
-  it('shows the tooling placeholder when the container has no SSH data', async () => {
+  it('shows the tooling editor when the container has no SSH data', async () => {
     vi.stubGlobal('fetch', backend())
     renderPanel(() => {}, true)
 
     expect(await screen.findByText('SSH is not available for this container.')).toBeInTheDocument()
     expect(screen.getByText(/General’s agent never uses this container directly/)).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Tooling — coming next' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Tooling' })).toBeInTheDocument()
+  })
+
+  it('adds and saves an npm tool for the next start', async () => {
+    const fetchMock = backend()
+    vi.stubGlobal('fetch', fetchMock)
+    renderPanel()
+
+    fireEvent.change(await screen.findByLabelText('Tool kind'), { target: { value: 'npm' } })
+    fireEvent.change(screen.getByLabelText('Tool package'), { target: { value: 'cowsay' } })
+    fireEvent.change(screen.getByLabelText('Tool version'), { target: { value: '1.6.0' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    expect(screen.getByText('cowsay')).toBeInTheDocument()
+    fireEvent.click(within(screen.getByRole('region', { name: 'Tooling' })).getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => {
+      const saved = fetchMock.mock.calls.find(([path, init]) => path === `/environments/${ENVIRONMENT_ID}` && init?.method === 'PATCH')
+      expect(JSON.parse(String(saved?.[1]?.body))).toEqual({ tooling: [{ kind: 'npm', name: 'cowsay', version: '1.6.0' }] })
+    })
+  })
+
+  it('shows the last tooling failure reported by the container', async () => {
+    const fetchMock = backend()
+    vi.stubGlobal('fetch', vi.fn((path: string, init?: RequestInit) => {
+      if (path === `/workspaces/${WORKSPACE_ID}/environments`) {
+        return json({ environments: [{ ...environment, tooling: [{ kind: 'apt', name: 'jq', version: 'latest' }] }] })
+      }
+      if (path === `/environments/${ENVIRONMENT_ID}` && init === undefined) {
+        return json({ ...environment, status: 'stopped', tooling: [{ kind: 'apt', name: 'jq', version: 'latest' }] })
+      }
+      if (path === `/environments/${ENVIRONMENT_ID}/state`) {
+        return json({
+          reportedAt: '2026-01-01T00:00:00.000Z',
+          state: { tools: [{ id: 'apt:jq', version: 'latest', path: null, source: 'installed', status: 'failed', error: 'apt mirror unavailable' }] },
+        })
+      }
+      return fetchMock(path, init)
+    }))
+    renderPanel()
+
+    expect(await screen.findByText('apt mirror unavailable')).toBeInTheDocument()
+    expect(screen.getByText('failed')).toBeInTheDocument()
   })
 
   it('opens the terminal for this workspace through the callback', async () => {

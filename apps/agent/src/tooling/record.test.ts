@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { readInstallRecord } from './record.js'
+import { readInstallRecord, writeInstallRecord } from './record.js'
 
 let scratch = ''
 
@@ -22,6 +22,21 @@ const writeRecord = async (name: string, body: string): Promise<string> => {
 
   return path
 }
+
+describe('writeInstallRecord', () => {
+  it('persists successful package provenance on the home-volume path', async () => {
+    const path = join(scratch, 'nested', 'installed.json')
+    await writeInstallRecord(path, new Map([
+      ['apt:jq', { id: 'apt:jq', version: 'latest', path: null }],
+      ['npm:cowsay', { id: 'npm:cowsay', version: '1.6.0', path: '/home/dev/.local/lib/node_modules/cowsay' }],
+    ]))
+
+    await expect(readInstallRecord(path)).resolves.toEqual(new Map([
+      ['apt:jq', { id: 'apt:jq', version: 'latest', path: null }],
+      ['npm:cowsay', { id: 'npm:cowsay', version: '1.6.0', path: '/home/dev/.local/lib/node_modules/cowsay' }],
+    ]))
+  })
+})
 
 describe('readInstallRecord', () => {
   it('treats a container with no record as one where nothing was installed', async () => {

@@ -72,6 +72,24 @@ if (url === undefined) {
       }
     })
 
+    it('stores a GitHub token without returning its value', async () => {
+      const server = await serve()
+      try {
+        const created = await server.inject({
+          method: 'POST',
+          url: '/credentials',
+          payload: { kind: 'github-token', name: 'GitHub', value: 'ghp-never-returned' },
+        })
+
+        expect(created.statusCode).toBe(201)
+        expect(created.json()).toMatchObject({ kind: 'github-token', email: null, note: null, mcpId: null })
+        expect(created.body).not.toContain('ghp-never-returned')
+        expect((await server.inject({ method: 'GET', url: '/credentials' })).body).not.toContain('ghp-never-returned')
+      } finally {
+        await server.close()
+      }
+    })
+
     it('takes a provider key without an email, and names the field an MCP key is missing', async () => {
       const server = await serve()
       try {

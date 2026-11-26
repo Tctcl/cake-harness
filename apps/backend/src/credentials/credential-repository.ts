@@ -10,7 +10,7 @@ import type { PostgresSchema } from '../storage/postgres/schema.js'
  * an `mcp` key authenticates one MCP server, which is what `mcpId` says. The two carry different fields, and the table's
  * check constraint keeps a row from carrying both.
  */
-export type CredentialKind = 'opencode-go' | 'mcp'
+export type CredentialKind = 'opencode-go' | 'mcp' | 'github-token'
 
 /** A credential as the API serves it: the secret is written, never read back. */
 export interface Credential {
@@ -125,6 +125,18 @@ export class CredentialRepository {
     if (row === undefined) throw new Error('the credential was not written')
 
     return toCredential(row)
+  }
+
+  /** The newest GitHub token is the one delivered to newly started workspace containers. */
+  async readGithubToken(ownerId: string): Promise<string | undefined> {
+    const { rows } = await this.pool.query<{ readonly value: string }>(
+      `SELECT value FROM ${this.schema.tables.userCredentials}
+        WHERE owner_id = $1 AND kind = 'github-token' ORDER BY created_at DESC, id DESC LIMIT 1`,
+      [ownerId],
+    )
+    const row = rows[0]
+
+    return row === undefined ? undefined : this.secrets.open(row.value)
   }
 
   /** `false` when the id is unknown or belongs to somebody else, which are the same answer at this layer. */

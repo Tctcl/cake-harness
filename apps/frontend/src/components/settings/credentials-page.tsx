@@ -20,6 +20,11 @@ const KINDS: readonly { readonly id: CredentialKind; readonly label: string; rea
     label: 'MCP auth keys',
     description: 'Keys for MCP servers. The server id decides which servers a key is offered to.',
   },
+  {
+    id: 'github-token',
+    label: 'GitHub tokens',
+    description: 'Tokens delivered to workspace containers for gh and Git HTTPS authentication.',
+  },
 ]
 
 interface Draft {
@@ -62,13 +67,16 @@ const toInput = (draft: Draft): CredentialInput => {
     expiresAt: expiresAtOf(draft.expiresOn),
   }
 
-  return draft.kind === 'opencode-go'
-    ? { ...base, email: draft.email.trim() }
-    : { ...base, mcpId: draft.mcpId.trim(), note: draft.note.trim() === '' ? null : draft.note.trim() }
+  if (draft.kind === 'opencode-go') return { ...base, email: draft.email.trim() }
+  if (draft.kind === 'github-token') return base
+
+  return { ...base, mcpId: draft.mcpId.trim(), note: draft.note.trim() === '' ? null : draft.note.trim() }
 }
 
 const isComplete = (draft: Draft): boolean => {
   if (draft.name.trim() === '' || draft.value.trim() === '') return false
+
+  if (draft.kind === 'github-token') return true
 
   return draft.kind === 'opencode-go' ? draft.email.trim() !== '' : draft.mcpId.trim() !== ''
 }
@@ -146,7 +154,10 @@ function DraftForm({
           id="credential-kind"
           className="h-9 w-fit rounded-md border bg-transparent px-2 text-sm"
           value={draft.kind}
-          onChange={(event) => onChange({ kind: event.target.value === 'mcp' ? 'mcp' : 'opencode-go' })}
+          onChange={(event) => {
+            const kind = event.target.value
+            onChange({ kind: kind === 'mcp' || kind === 'github-token' ? kind : 'opencode-go' })
+          }}
         >
           {KINDS.map((kind) => (
             <option key={kind.id} value={kind.id}>
@@ -182,7 +193,7 @@ function DraftForm({
           />
           <span className="text-xs text-muted-foreground">Which OpenCode Go account this key bills.</span>
         </div>
-      ) : (
+      ) : draft.kind === 'mcp' ? (
         <>
           <div className="flex flex-col gap-1">
             <label htmlFor="credential-mcp" className="font-medium">
@@ -211,6 +222,8 @@ function DraftForm({
             />
           </div>
         </>
+      ) : (
+        <span className="text-xs text-muted-foreground">The newest GitHub token is used by newly started containers.</span>
       )}
 
       <div className="flex flex-col gap-1">
@@ -318,7 +331,7 @@ export function CredentialsPage() {
   return (
     <div className="flex flex-col gap-4 text-sm">
       <p className="max-w-3xl text-muted-foreground">
-        Provider and MCP keys are stored once and never shown again. Add a key on the right, or select one to see its
+        Provider, MCP and GitHub keys are stored once and never shown again. Add a key on the right, or select one to see its
         metadata.
       </p>
       {error === null ? null : (

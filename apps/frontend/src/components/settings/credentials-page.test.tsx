@@ -108,6 +108,24 @@ describe('CredentialsPage', () => {
     })
   })
 
+  it('adds a GitHub token without asking for MCP metadata', async () => {
+    const calls = stubFetch([])
+    render(<CredentialsPage />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'New credential' }))
+    fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'github-token' } })
+    expect(screen.queryByLabelText('MCP id')).toBeNull()
+    expect(screen.queryByLabelText('Account email')).toBeNull()
+    fireEvent.change(screen.getByLabelText('Key name'), { target: { value: 'github' } })
+    fireEvent.change(screen.getByLabelText('Key'), { target: { value: 'ghp_secret' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add credential' }))
+
+    await waitFor(() => expect(calls.some((call) => call.init?.method === 'POST')).toBe(true))
+    const posted = calls.find((call) => call.init?.method === 'POST')
+    expect(JSON.parse(String(posted?.init?.body))).toMatchObject({ kind: 'github-token', name: 'github', value: 'ghp_secret' })
+    expect(JSON.parse(String(posted?.init?.body))).not.toHaveProperty('mcpId')
+  })
+
   it('deletes a key from its own row', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
     vi.stubGlobal(

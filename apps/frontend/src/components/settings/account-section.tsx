@@ -6,7 +6,9 @@ import {
   disableSecondFactor,
   enableSecondFactor,
   listAccounts,
+  readGitIdentity,
   readSession,
+  saveGitIdentity,
   startSecondFactor,
 } from '../../lib/auth-api.ts'
 import { Button } from '../ui/button.tsx'
@@ -83,13 +85,14 @@ export function AccountSection() {
 
   if (session === null || session.singleUser) {
     return (
-      <div className="flex max-w-prose flex-col gap-3 text-sm">
+      <div className="flex max-w-prose flex-col gap-4 text-sm">
         <Card title="Single-user mode">
           <p className="text-muted-foreground">
             This install has no sign-in: everyone who can reach it acts as its owner. The installer turns sign-in on and
             creates the first admin; see the Install page of the manual.
           </p>
         </Card>
+        <GitIdentityCard />
       </div>
     )
   }
@@ -102,9 +105,49 @@ export function AccountSection() {
           {session.username === null ? null : <span className="text-muted-foreground"> · {session.username}</span>}
         </p>
       </Card>
+      <GitIdentityCard />
       <PasswordCard />
       <SecondFactorCard accountId={session.id} />
     </div>
+  )
+}
+
+function GitIdentityCard() {
+  const [identity, setIdentity] = useState<{ readonly name: string; readonly email: string } | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const { busy, run, status } = useAction()
+
+  useEffect(() => {
+    void readGitIdentity().then(setIdentity, (failure: unknown) => setLoadError(messageOf(failure, 'git identity failed to load')))
+  }, [])
+
+  return (
+    <Card title="Git identity">
+      <p className="text-muted-foreground">Written to ~/.gitconfig in every workspace container on its next start.</p>
+      {identity === null ? (
+        <p className="flex items-center gap-2 text-muted-foreground">
+          {loadError === null ? <Spinner /> : <span role="alert">{loadError}</span>}
+        </p>
+      ) : (
+        <form className="flex flex-col gap-3" onSubmit={(event) => {
+          event.preventDefault()
+          run(async () => setIdentity(await saveGitIdentity(identity)), 'Git identity saved. Restart a container to apply it.')
+        }}>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="git-name">Name</Label>
+            <Input id="git-name" autoComplete="name" value={identity.name} onChange={(event) => setIdentity({ ...identity, name: event.target.value })} />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="git-email">Email</Label>
+            <Input id="git-email" type="email" autoComplete="email" value={identity.email} onChange={(event) => setIdentity({ ...identity, email: event.target.value })} />
+          </div>
+          {status}
+          <Button type="submit" size="sm" className="w-fit" disabled={busy || ((identity.name.trim() === '') !== (identity.email.trim() === ''))}>
+            Save git identity
+          </Button>
+        </form>
+      )}
+    </Card>
   )
 }
 

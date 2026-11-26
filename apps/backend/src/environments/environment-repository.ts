@@ -12,10 +12,20 @@ import { DEFAULT_SSH_PORT_RANGE, reserveSshPort } from './ssh-ports.js'
  * One development environment: the container an agent works in, named and addressed on its own rather than as a
  * property of a workspace. `containerId` is what Docker called it when it was started, and stays `null` until then.
  */
+export type ToolKind = 'apt' | 'npm'
+
+export interface DesiredTool {
+  readonly kind: ToolKind
+  readonly name: string
+  /** An exact package version, or `latest` to follow the configured package source. */
+  readonly version: string
+}
+
 export interface DevEnvironment {
   readonly id: string
   readonly name: string
   readonly image: string
+  readonly tooling: readonly DesiredTool[]
   readonly containerId: string | null
   /** The stable host port published as this container's SSH endpoint. */
   readonly sshPort: number
@@ -29,12 +39,13 @@ export interface EnvironmentInput {
   readonly image: string
 }
 
-export type EnvironmentPatch = Partial<EnvironmentInput>
+export type EnvironmentPatch = Partial<EnvironmentInput & { readonly tooling: readonly DesiredTool[] }>
 
 interface EnvironmentRow {
   readonly id: string
   readonly name: string
   readonly image: string
+  readonly tooling: DesiredTool[]
   readonly container_id: string | null
   readonly ssh_port: number
   readonly created_at: Date
@@ -45,13 +56,14 @@ const toEnvironment = (row: EnvironmentRow): DevEnvironment => ({
   id: row.id,
   name: row.name,
   image: row.image,
+  tooling: row.tooling,
   containerId: row.container_id,
   sshPort: row.ssh_port,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 })
 
-const COLUMNS = `id, name, image, container_id, ssh_port, created_at, updated_at`
+const COLUMNS = `id, name, image, tooling, container_id, ssh_port, created_at, updated_at`
 
 /** One stored report: the document as the container sent it, and the instant the container said it was produced. */
 export interface ReportedState {
@@ -90,7 +102,7 @@ export class EnvironmentRepository {
 
     const { tables } = schema
     this.#sql = {
-      byWorkspace: `SELECT e.id, e.name, e.image, e.container_id, e.ssh_port, e.created_at, e.updated_at
+      byWorkspace: `SELECT e.id, e.name, e.image, e.tooling, e.container_id, e.ssh_port, e.created_at, e.updated_at
         FROM ${tables.devEnvironments} e
         JOIN ${tables.workspaceEnvironments} w ON w.environment_id = e.id
         WHERE w.workspace_id = $1 ORDER BY e.updated_at DESC`,
@@ -98,7 +110,7 @@ export class EnvironmentRepository {
       attach: `INSERT INTO ${tables.workspaceEnvironments} (workspace_id, environment_id) VALUES ($1, $2)
         ON CONFLICT DO NOTHING`,
       detach: `DELETE FROM ${tables.workspaceEnvironments} WHERE workspace_id = $1 AND environment_id = $2`,
-      byAgent: `SELECT e.id, e.name, e.image, e.container_id, e.ssh_port, e.created_at, e.updated_at
+      byAgent: `SELECT e.id, e.name, e.image, e.tooling, e.container_id, e.ssh_port, e.created_at, e.updated_at
         FROM ${tables.devEnvironments} e
         JOIN ${tables.agentEnvironments} a ON a.environment_id = e.id
         WHERE a.agent_id = $1`,
@@ -163,6 +175,7 @@ export class EnvironmentRepository {
 
     if (patch.name !== undefined) assign('name', patch.name)
     if (patch.image !== undefined) assign('image', patch.image)
+    if (patch.tooling !== undefined) assign('tooling', JSON.stringify(patch.tooling))
     if (assignments.length === 0) return this.find(id)
 
     values.push(id)

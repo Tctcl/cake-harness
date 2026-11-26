@@ -1,13 +1,15 @@
+import type { DesiredTool } from './environment-repository.js'
 import type { SecretReader } from '../secrets/ciphergate.js'
 
-/**
- * The two documents a development environment bootstraps from, in the shapes `apps/agent` parses. They are defined here
- * rather than shared through a package because the wire format is the contract: the container's parser is the authority,
- * and a field this module invented would fail there instead of here.
- */
+/** The wire documents `apps/agent` parses. Kept here rather than shared because the container parser is the authority. */
 export interface ToolingDocument {
   readonly schemaVersion: 1
-  readonly tools: readonly { readonly id: string; readonly version: string }[]
+  readonly tools: readonly {
+    readonly id: string
+    readonly version: string
+    readonly kind?: 'apt' | 'npm'
+    readonly name?: string
+  }[]
 }
 
 export interface CredentialFile {
@@ -32,69 +34,84 @@ export interface EnvironmentManifest {
   readonly credentials: CredentialDocument
 }
 
-/**
- * What every environment gets, not what a user chose: the language versions this repository pins. Node matches
- * `.node-version`, so a workspace runs what CI runs rather than what its base image happened to ship.
- */
-const desiredTooling: ToolingDocument = {
-  schemaVersion: 1,
-  tools: [{ id: 'node', version: '26.13.1' }],
+export interface GitIdentity {
+  readonly name: string
+  readonly email: string
 }
 
-interface Integration {
-  readonly id: string
-  /** The store's name for the value; the store refuses names that are not SCREAMING_SNAKE_CASE. */
-  readonly secret: string
-  /** The credential that carries `value` to the container. */
-  readonly credential: (value: string) => Credential
+export interface ManifestOptions {
+  readonly tooling?: readonly DesiredTool[]
+  readonly githubToken?: string | undefined
+  readonly gitIdentity?: GitIdentity | undefined
 }
 
-/**
- * The integrations a workspace authenticates. The list is fixed until something edits it — the grant tables name what an
- * agent may use, not what a workspace holds — so a missing secret drops the credential instead of failing the manifest:
- * an environment without a GitHub token still has to boot.
- */
-const integrations: readonly Integration[] = [
-  {
-    id: 'github',
-    secret: 'GITHUB_TOKEN',
-    credential: (value) => ({
-      id: 'github',
-      // `gh` reads either; both are set because tools disagree about which one they look for.
-      env: { GH_TOKEN: value, GITHUB_TOKEN: value },
-      files: [
-        {
-          path: '~/.gitconfig-gh',
-          mode: '0600',
-          content: '[credential "https://github.com"]\n\thelper = !gh auth git-credential\n',
-        },
-      ],
-    }),
-  },
-  {
-    id: 'npm',
-    secret: 'NPM_TOKEN',
-    credential: (value) => ({
+/** The runtime floor stays managed by the image/reconciler; user packages are additional entries. */
+const toolFloor = [{ id: 'node', version: '26.13.1' }] as const
+
+const gitConfigValue = (value: string): string => JSON.stringify(value)
+
+const gitConfig = (identity: GitIdentity | undefined, github: boolean): string => {
+  const sections: string[] = []
+  if (identity !== undefined) {
+    const name = identity.name.trim() === '' ? '' : `\tname = ${gitConfigValue(identity.name)}\n`
+    const email = identity.email.trim() === '' ? '' : `\temail = ${gitConfigValue(identity.email)}\n`
+    if (name !== '' || email !== '') sections.push(`[user]\n${name}${email}`)
+  }
+  if (github) sections.push('[credential "https://github.com"]\n\thelper = !gh auth git-credential\n')
+
+  return sections.join('\n')
+}
+
+const githubCredential = (value: string, config: string): Credential => ({
+  id: 'github',
+  env: { GH_TOKEN: value, GITHUB_TOKEN: value },
+  files: [
+    {
+      path: '~/.config/gh/hosts.yml',
+      mode: '0600',
+      content: `github.com:\n  oauth_token: ${JSON.stringify(value)}\n  git_protocol: https\n`,
+    },
+    ...(config === '' ? [] : [{ path: '~/.gitconfig', mode: '0600', content: config }]),
+  ],
+})
+
+/** Builds both boot documents. Secret values are returned only over the environment-token-protected manifest route. */
+export const buildManifest = async (
+  secrets: SecretReader,
+  options: ManifestOptions = {},
+): Promise<EnvironmentManifest> => {
+  const storedGithub = options.githubToken ?? await secrets.read('GITHUB_TOKEN')
+  const npmToken = await secrets.read('NPM_TOKEN')
+  const config = gitConfig(options.gitIdentity, storedGithub !== undefined)
+  const credentials: Credential[] = []
+
+  if (storedGithub !== undefined) credentials.push(githubCredential(storedGithub, config))
+  else if (config !== '') credentials.push({ id: 'git-identity', env: {}, files: [{ path: '~/.gitconfig', mode: '0600', content: config }] })
+  if (npmToken !== undefined) {
+    credentials.push({
       id: 'npm',
       env: {},
-      files: [{ path: '~/.npmrc', mode: '0600', content: `//registry.npmjs.org/:_authToken=${value}\n` }],
-    }),
-  },
-]
-
-/**
- * Reads every credential out of the store and returns what an environment bootstraps from. A reader that is not
- * configured answers `undefined` for every name, so the same path serves an install without a store: it simply serves no
- * credentials instead of pretending to have some.
- */
-export const buildManifest = async (secrets: SecretReader): Promise<EnvironmentManifest> => {
-  const values = await Promise.all(integrations.map(async (integration) => {
-    const value = await secrets.read(integration.secret)
-    return value === undefined ? undefined : integration.credential(value)
-  }))
+      files: [{
+        path: '~/.npmrc',
+        mode: '0600',
+        content: `prefix=/home/dev/.local\n//registry.npmjs.org/:_authToken=${npmToken}\n`,
+      }],
+    })
+  }
 
   return {
-    tooling: desiredTooling,
-    credentials: { schemaVersion: 1, credentials: values.filter((entry) => entry !== undefined) },
+    tooling: {
+      schemaVersion: 1,
+      tools: [
+        ...toolFloor,
+        ...(options.tooling ?? []).map((tool) => ({
+          id: `${tool.kind}:${tool.name}`,
+          kind: tool.kind,
+          name: tool.name,
+          version: tool.version,
+        })),
+      ],
+    },
+    credentials: { schemaVersion: 1, credentials },
   }
 }
