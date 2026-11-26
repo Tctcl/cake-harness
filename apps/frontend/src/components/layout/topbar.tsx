@@ -1,14 +1,15 @@
-import { ChartColumnIcon, ListIcon, MenuIcon, PencilIcon, TerminalIcon } from 'lucide-react'
+import { BotIcon, ChartColumnIcon, ListIcon, MenuIcon, PencilIcon, TerminalIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import type { ChatThread } from '../../lib/chat-api.ts'
 import { renameThread } from '../../lib/chat-api.ts'
+import { useThreadSnapshot } from '../../lib/use-thread-snapshot.ts'
 import { Button } from '../ui/button.tsx'
 import { Input } from '../ui/input.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip.tsx'
 
 /** Which content the right column is showing; `null` means nothing is shown and the column is gone. */
-type PanelKind = 'info' | 'terminal' | 'usage'
+type PanelKind = 'info' | 'subagents' | 'terminal' | 'usage'
 
 type TopbarProps = {
   thread: ChatThread | null
@@ -28,6 +29,8 @@ function Topbar({ thread, panel, onToggle, onRenamed, onOpenMenu }: TopbarProps)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const state = useThreadSnapshot(thread?.id ?? null)
+  const runningDelegations = state.delegations.filter((delegation) => delegation.status === 'running').length
 
   const editing = thread !== null && editingId === thread.id
   const title = thread?.title ?? 'Untitled conversation'
@@ -91,6 +94,29 @@ function Topbar({ thread, panel, onToggle, onRenamed, onOpenMenu }: TopbarProps)
       )}
 
       <div className="ml-auto flex items-center gap-1">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="relative size-7"
+              aria-label="Sub agents"
+              aria-pressed={panel === 'subagents'}
+              onClick={() => onToggle('subagents')}
+            >
+              <BotIcon />
+              {panel === 'subagents' || runningDelegations === 0 ? null : (
+                <span
+                  aria-hidden="true"
+                  className="absolute -top-1 -right-1 flex min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] leading-4 text-primary-foreground"
+                >
+                  {runningDelegations}
+                </span>
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Sub agent delegations</TooltipContent>
+        </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

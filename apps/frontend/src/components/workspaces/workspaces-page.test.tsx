@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { WorkspacesPage } from './workspaces-page.tsx'
@@ -47,9 +47,11 @@ describe('WorkspacesPage', () => {
     const tabs = screen.getByRole('tablist', { name: /platform settings/i })
     expect(tabs).toBeDefined()
     expect(screen.getByRole('tab', { name: 'Overview' }).getAttribute('aria-selected')).toBe('true')
-    for (const label of ['Environment', 'MCP', 'Skills', 'Providers']) {
+    for (const label of ['Agents', 'Sub agents', 'Environment', 'MCP', 'Skills', 'Providers']) {
       expect(screen.getByRole('tab', { name: label })).toBeDefined()
     }
+    const labels = within(tabs).getAllByRole('tab').map((tab) => tab.textContent)
+    expect(labels.indexOf('Sub agents')).toBe(labels.indexOf('Agents') + 1)
     expect(screen.queryByRole('tab', { name: 'Prompts' })).toBeNull()
     expect(screen.queryByRole('tab', { name: 'Tools' })).toBeNull()
 

@@ -13,22 +13,28 @@ const renderPage = () =>
   )
 
 const defaultSystemPrompt = 'The built-in Cake system prompt.'
+const defaultSubagentSystemPrompt = 'Report results and verification tersely.'
 let currentSystemPrompt = defaultSystemPrompt
+let currentSubagentSystemPrompt = defaultSubagentSystemPrompt
 const settings = () => ({
   singleUser: true,
   requireTwoFactor: false,
   systemPrompt: currentSystemPrompt,
   defaultSystemPrompt,
+  subagentSystemPrompt: currentSubagentSystemPrompt,
+  defaultSubagentSystemPrompt,
 })
 
 beforeEach(() => {
   currentSystemPrompt = defaultSystemPrompt
+  currentSubagentSystemPrompt = defaultSubagentSystemPrompt
   vi.stubGlobal(
     'fetch',
     vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.body !== undefined) {
-        const patch = JSON.parse(String(init.body)) as { systemPrompt?: string }
+        const patch = JSON.parse(String(init.body)) as { systemPrompt?: string; subagentSystemPrompt?: string }
         if (patch.systemPrompt !== undefined) currentSystemPrompt = patch.systemPrompt
+        if (patch.subagentSystemPrompt !== undefined) currentSubagentSystemPrompt = patch.subagentSystemPrompt
       }
 
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(settings()) })
@@ -75,7 +81,7 @@ describe('SettingsPage', () => {
 
     const prompt = await screen.findByRole('textbox', { name: 'System prompt' })
     fireEvent.change(prompt, { target: { value: 'A custom system prompt.' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save system prompt' }))
 
     await screen.findByRole('status')
     expect(fetch).toHaveBeenLastCalledWith('/settings', expect.objectContaining({
@@ -83,11 +89,34 @@ describe('SettingsPage', () => {
       body: JSON.stringify({ systemPrompt: 'A custom system prompt.' }),
     }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reset system prompt to default' }))
     await waitFor(() => expect(prompt).toHaveValue(defaultSystemPrompt))
     expect(fetch).toHaveBeenLastCalledWith('/settings', expect.objectContaining({
       method: 'PUT',
       body: JSON.stringify({ systemPrompt: defaultSystemPrompt }),
+    }))
+  })
+
+  it('saves the sub agent prompt and resets it independently', async () => {
+    const fetch = vi.mocked(globalThis.fetch)
+    renderPage()
+
+    const prompt = await screen.findByRole('textbox', { name: 'Sub agent system prompt' })
+    fireEvent.change(prompt, { target: { value: 'Return facts, paths and checks only.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save sub agent system prompt' }))
+
+    await screen.findByText('Sub agent system prompt saved.')
+    expect(fetch).toHaveBeenLastCalledWith('/settings', expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ subagentSystemPrompt: 'Return facts, paths and checks only.' }),
+    }))
+    expect(screen.getByRole('textbox', { name: 'System prompt' })).toHaveValue(defaultSystemPrompt)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset sub agent system prompt to default' }))
+    await waitFor(() => expect(prompt).toHaveValue(defaultSubagentSystemPrompt))
+    expect(fetch).toHaveBeenLastCalledWith('/settings', expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ subagentSystemPrompt: defaultSubagentSystemPrompt }),
     }))
   })
 })

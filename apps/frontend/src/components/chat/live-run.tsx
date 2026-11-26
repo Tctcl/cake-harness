@@ -175,14 +175,16 @@ const SegmentView = ({
   streaming,
   tool,
   threadId,
+  compact,
 }: {
   segment: Segment
   streaming: boolean
   tool: ChatLiveTool | undefined
   threadId: string
+  compact: boolean
 }) => {
   if (segment.kind === 'thinking') {
-    return <ThinkingBlock text={segment.text} redacted={segment.redacted} streaming={streaming} />
+    return <ThinkingBlock text={segment.text} redacted={segment.redacted} streaming={streaming && !compact} />
   }
 
   if (segment.kind === 'text') return <Markdown text={segment.text} />
@@ -210,12 +212,15 @@ export function LiveRun({
   streaming,
   threadId,
   failureShown = false,
+  compact = false,
 }: {
   live: ChatLive
   streaming: boolean
   threadId: string
   /** The newest transcript line already carries this run's error, so a second notice would only repeat it. */
   failureShown?: boolean
+  /** Dense child panes keep reasoning collapsed even while it streams. */
+  compact?: boolean
 }) {
   const failure = failureShown ? null : live.failure
   const segments = segmentsOf(live.blocks)
@@ -238,7 +243,7 @@ export function LiveRun({
   if (!busy) return null
 
   return (
-    <div className="not-prose flex flex-col gap-3">
+    <div className={`not-prose flex flex-col ${compact ? 'gap-1.5 [&_[data-slot=collapsible]]:mb-0' : 'gap-3'}`}>
       {segments.map((segment, index) => (
         <SegmentView
           key={`${segment.kind}-${String(index)}`}
@@ -246,6 +251,7 @@ export function LiveRun({
           streaming={streaming}
           tool={segment.kind === 'toolCall' ? toolsById.get(segment.call.callId) : undefined}
           threadId={threadId}
+          compact={compact}
         />
       ))}
 
