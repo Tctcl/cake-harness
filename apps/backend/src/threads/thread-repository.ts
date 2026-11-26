@@ -16,6 +16,9 @@ import type { PostgresSchema } from '../storage/postgres/schema.js'
 export interface ChatThread {
   readonly id: string
   readonly title: string | null
+  readonly titleSource: 'user' | 'auto'
+  /** Last text-bearing durable entry used for an automatic title; null means none has succeeded yet. */
+  readonly autoTitleEntryId: number | null
   readonly workspaceId: string
   readonly agentId: string
   readonly durableConversationId: number
@@ -34,6 +37,8 @@ export interface ThreadListOptions {
 interface ThreadRow {
   readonly id: string
   readonly title: string | null
+  readonly title_source: 'user' | 'auto'
+  readonly auto_title_entry_id: string | null
   readonly workspace_id: string
   readonly agent_id: string
   readonly durable_conversation_id: string
@@ -50,6 +55,8 @@ interface ThreadRow {
 const toThread = (row: ThreadRow): ChatThread => ({
   id: row.id,
   title: row.title,
+  titleSource: row.title_source,
+  autoTitleEntryId: row.auto_title_entry_id === null ? null : Number(row.auto_title_entry_id),
   workspaceId: row.workspace_id,
   agentId: row.agent_id,
   durableConversationId: Number(row.durable_conversation_id),
@@ -63,7 +70,7 @@ const toThread = (row: ThreadRow): ChatThread => ({
   updatedAt: row.updated_at,
 })
 
-const COLUMNS = `id, title, workspace_id, agent_id, durable_conversation_id,
+const COLUMNS = `id, title, title_source, auto_title_entry_id, workspace_id, agent_id, durable_conversation_id,
   credential_id, model_id, thinking_level, archived_at, created_at, updated_at`
 
 const notArchived = (): AppError =>
@@ -131,14 +138,15 @@ export class ThreadRepository {
     title: string | null = null,
   ): Promise<ChatThread> {
     const text = `INSERT INTO ${this.#schema.tables.chatThreads}
-      (id, owner_id, workspace_id, agent_id, title, durable_conversation_id)
-      VALUES ($1, $2, $3, $4, $5, $6) RETURNING ${COLUMNS}`
+      (id, owner_id, workspace_id, agent_id, title, title_source, durable_conversation_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING ${COLUMNS}`
     const rows = await this.#select(text, [
       randomUUID(),
       ownerId,
       target.workspaceId,
       target.agentId,
       title,
+      title === null ? 'auto' : 'user',
       durableConversationId,
     ])
     const row = rows[0]
@@ -172,11 +180,24 @@ export class ThreadRepository {
     return rows[0] === undefined ? undefined : toThread(rows[0])
   }
 
-  /** Rename a thread, or answer `undefined` when the id is unknown. */
+  /** A person's rename wins permanently; clearing it explicitly hands title eligibility back to automation. */
   async rename(id: string, title: string | null): Promise<ChatThread | undefined> {
-    const text = `UPDATE ${this.#schema.tables.chatThreads} SET title = $2, updated_at = now()
+    const text = `UPDATE ${this.#schema.tables.chatThreads}
+      SET title = $2::text, title_source = CASE WHEN $2::text IS NULL THEN 'auto' ELSE 'user' END,
+        auto_title_entry_id = NULL, updated_at = now()
       WHERE id = $1 RETURNING ${COLUMNS}`
     const rows = await this.#select(text, [id, title])
+
+    return rows[0] === undefined ? undefined : toThread(rows[0])
+  }
+
+  /** The source guard closes the race with a user rename arriving while the background completion is in flight. */
+  async setAutoTitle(id: string, title: string, entryId: number): Promise<ChatThread | undefined> {
+    const text = `UPDATE ${this.#schema.tables.chatThreads}
+      SET title = $2, title_source = 'auto', auto_title_entry_id = $3, updated_at = now()
+      WHERE id = $1 AND title_source = 'auto' AND auto_title_entry_id IS DISTINCT FROM $3
+      RETURNING ${COLUMNS}`
+    const rows = await this.#select(text, [id, title, entryId])
 
     return rows[0] === undefined ? undefined : toThread(rows[0])
   }

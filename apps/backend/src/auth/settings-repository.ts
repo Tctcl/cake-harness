@@ -3,6 +3,8 @@ import type { Pool } from 'pg'
 import { withClient } from '../storage/postgres/db.js'
 import type { PostgresSchema } from '../storage/postgres/schema.js'
 import { DEFAULT_SUBAGENT_SYSTEM_PROMPT, DEFAULT_SYSTEM_PROMPT } from '../agents/base-prompt.js'
+import { backgroundModelOr } from '../background/model-chain.js'
+import type { BackgroundModelChain } from '../background/model-chain.js'
 
 /**
  * The two switches that decide how the install treats people. Both live in the database rather than in the environment:
@@ -17,6 +19,8 @@ export interface Settings {
   readonly systemPrompt: string
   /** The separate app-wide context used only by throwaway sub agent conversations. */
   readonly subagentSystemPrompt: string
+  /** Ordered models for titles and other background work. Ordinary agent runs never consult this list. */
+  readonly backgroundModel: BackgroundModelChain
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -24,12 +28,14 @@ export const DEFAULT_SETTINGS: Settings = {
   requireTwoFactor: false,
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   subagentSystemPrompt: DEFAULT_SUBAGENT_SYSTEM_PROMPT,
+  backgroundModel: [],
 }
 
 const SINGLE_USER = 'single_user'
 const REQUIRE_TWO_FACTOR = 'require_two_factor'
 const SYSTEM_PROMPT = 'system_prompt'
 const SUBAGENT_SYSTEM_PROMPT = 'subagent_system_prompt'
+const BACKGROUND_MODEL = 'background_model'
 
 interface SettingRow {
   readonly key: string
@@ -62,17 +68,19 @@ export class SettingsRepository {
         values.get(SUBAGENT_SYSTEM_PROMPT),
         DEFAULT_SETTINGS.subagentSystemPrompt,
       ),
+      backgroundModel: backgroundModelOr(values.get(BACKGROUND_MODEL), DEFAULT_SETTINGS.backgroundModel),
     }
   }
 
   async write(patch: Partial<Settings>): Promise<Settings> {
-    const entries: [string, boolean | string][] = []
+    const entries: [string, boolean | string | BackgroundModelChain][] = []
     if (patch.singleUser !== undefined) entries.push([SINGLE_USER, patch.singleUser])
     if (patch.requireTwoFactor !== undefined) entries.push([REQUIRE_TWO_FACTOR, patch.requireTwoFactor])
     if (patch.systemPrompt !== undefined) entries.push([SYSTEM_PROMPT, patch.systemPrompt])
     if (patch.subagentSystemPrompt !== undefined) {
       entries.push([SUBAGENT_SYSTEM_PROMPT, patch.subagentSystemPrompt])
     }
+    if (patch.backgroundModel !== undefined) entries.push([BACKGROUND_MODEL, patch.backgroundModel])
 
     for (const [key, value] of entries) {
       await withClient(this.#pool, (client) => client.query(this.#upsert, [key, JSON.stringify(value)]))

@@ -49,6 +49,8 @@ if (url === undefined) {
 
         expect(thread.durableConversationId).toBe(7)
         expect(thread.title).toBe('First')
+        expect(thread.titleSource).toBe('user')
+        expect(thread.autoTitleEntryId).toBeNull()
         expect(thread.workspaceId).toBe(DEFAULT_WORKSPACE_ID)
         expect(thread.agentId).toBe(DEFAULT_AGENT_ID)
         expect(thread.overrides).toEqual({ credentialId: null, modelId: null, thinkingLevel: null })
@@ -102,6 +104,29 @@ if (url === undefined) {
           first.id,
           second.id,
         ])
+      })
+    })
+
+    it('protects user titles and makes a cleared title eligible for automation again', async () => {
+      await withThreads(async (threads, ownerId) => {
+        const thread = await threads.create(ownerId, 12, TARGET)
+        expect(thread.titleSource).toBe('auto')
+
+        const automatic = await threads.setAutoTitle(thread.id, 'Generated title', 42)
+        expect(automatic).toMatchObject({ title: 'Generated title', titleSource: 'auto', autoTitleEntryId: 42 })
+        await expect(threads.setAutoTitle(thread.id, 'Duplicate title', 42)).resolves.toBeUndefined()
+
+        const renamed = await threads.rename(thread.id, 'My title')
+        expect(renamed).toMatchObject({ title: 'My title', titleSource: 'user', autoTitleEntryId: null })
+        await expect(threads.setAutoTitle(thread.id, 'Must not win', 43)).resolves.toBeUndefined()
+        await expect(threads.find(thread.id)).resolves.toMatchObject({ title: 'My title', titleSource: 'user' })
+
+        const cleared = await threads.rename(thread.id, null)
+        expect(cleared).toMatchObject({ title: null, titleSource: 'auto', autoTitleEntryId: null })
+        await expect(threads.setAutoTitle(thread.id, 'Automatic again', 44)).resolves.toMatchObject({
+          title: 'Automatic again',
+          autoTitleEntryId: 44,
+        })
       })
     })
 

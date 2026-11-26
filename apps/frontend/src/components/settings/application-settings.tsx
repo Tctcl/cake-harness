@@ -5,6 +5,7 @@ import type { ApplicationSettings as Settings } from '../../lib/settings-api.ts'
 import { Button } from '../ui/button.tsx'
 import { Label } from '../ui/label.tsx'
 import { Textarea } from '../ui/textarea.tsx'
+import { BackgroundModelSettings } from './background-model-settings.tsx'
 
 type PromptField = 'systemPrompt' | 'subagentSystemPrompt'
 
@@ -86,6 +87,7 @@ export function ApplicationSettings() {
         }}
         onSave={(value) => void save('systemPrompt', value)}
       />
+      <BackgroundModelSettings initialChain={settings.backgroundModel ?? []} />
       <PromptEditor
         label="Sub agent system prompt"
         headingId="subagent-system-prompt-heading"

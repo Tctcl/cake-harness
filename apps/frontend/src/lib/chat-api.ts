@@ -111,6 +111,8 @@ export interface ChatDelegation {
 
 /** One frame of the stream: the visible window, its tool traffic, and the sums that describe the run. */
 export interface ChatUpdate {
+  /** Present on current servers; optional so an older stream remains readable during an upgrade. */
+  readonly title?: string | null
   readonly messages: ChatMessage[]
   readonly tools: ChatToolCall[]
   readonly run: ChatRun | null
@@ -131,6 +133,7 @@ export type RunSettingsPatch = Partial<RunSettingsOverrides>
 export interface ChatThread {
   readonly id: string
   readonly title: string | null
+  readonly titleSource: 'user' | 'auto'
   readonly workspaceId: string
   readonly agentId: string
   readonly overrides: RunSettingsOverrides
