@@ -49,6 +49,7 @@ const overridesSchema = {
 const threadProperties = {
   id: { type: 'string' },
   title: { type: ['string', 'null'] },
+  titleSource: { type: 'string', enum: ['user', 'auto'] },
   workspaceId: { type: 'string' },
   agentId: { type: 'string' },
   overrides: overridesSchema,
@@ -60,7 +61,7 @@ const threadProperties = {
 const threadSchema = {
   type: 'object',
   properties: threadProperties,
-  required: ['id', 'title', 'workspaceId', 'agentId', 'overrides', 'archivedAt', 'createdAt', 'updatedAt'],
+  required: ['id', 'title', 'titleSource', 'workspaceId', 'agentId', 'overrides', 'archivedAt', 'createdAt', 'updatedAt'],
 } as const
 
 const threadListSchema = {
@@ -276,6 +277,7 @@ const frame = (event: string, data: ThreadUpdate): string =>
 const toThread = (thread: ChatThread) => ({
   id: thread.id,
   title: thread.title,
+  titleSource: thread.titleSource,
   workspaceId: thread.workspaceId,
   agentId: thread.agentId,
   overrides: thread.overrides,

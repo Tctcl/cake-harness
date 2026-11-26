@@ -1150,6 +1150,14 @@ const subagentModelsMigration = (schema: PostgresSchema): readonly string[] => [
   )`,
 ]
 
+/** Automatic titles never replace a person's title; the entry marker makes regeneration idempotent. */
+const automaticTitlesMigration = (schema: PostgresSchema): readonly string[] => [
+  `ALTER TABLE ${schema.tables.chatThreads} ADD COLUMN title_source text NOT NULL DEFAULT 'auto'
+    CHECK (title_source IN ('user', 'auto'))`,
+  `UPDATE ${schema.tables.chatThreads} SET title_source = 'user' WHERE title IS NOT NULL`,
+  `ALTER TABLE ${schema.tables.chatThreads} ADD COLUMN auto_title_entry_id bigint`,
+]
+
 /** Ordered schema history: a released version is never edited, a change appends one. */
 export const MIGRATIONS: readonly { version: number; statements: (schema: PostgresSchema) => readonly string[] }[] = [
   { version: 1, statements: migration },
@@ -1178,6 +1186,7 @@ export const MIGRATIONS: readonly { version: number; statements: (schema: Postgr
   { version: 24, statements: persistentToolingMigration },
   { version: 25, statements: subagentMigration },
   { version: 26, statements: subagentModelsMigration },
+  { version: 27, statements: automaticTitlesMigration },
 ]
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0

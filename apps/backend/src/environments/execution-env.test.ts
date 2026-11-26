@@ -12,6 +12,8 @@ import type { DelegationRecord } from '../delegations/delegation-repository.js'
 const thread: ChatThread = {
   id: 'thread-1',
   title: null,
+  titleSource: 'auto',
+  autoTitleEntryId: null,
   workspaceId: 'workspace-1',
   agentId: 'agent-1',
   durableConversationId: 42,

@@ -11,6 +11,7 @@ import {
   send,
   snapshotOf,
   STREAM_EVENT,
+  subscribeToTitles,
 } from './chat-store.ts'
 
 const THREAD_ID = '2f1c1f9e-3f6d-4b0a-9d1e-1a2b3c4d5e6f'
@@ -170,6 +171,19 @@ describe('chat store', () => {
 
     expect(snapshotOf(THREAD_ID).pending).toHaveLength(0)
     expect(snapshotOf(THREAD_ID).messages).toEqual([chatMessage(12, 'user', 'hello')])
+  })
+
+  it('publishes an automatic title announced by the stream', () => {
+    vi.stubGlobal('fetch', stubBackend({ first: page([]) }))
+    const listener = vi.fn()
+    const unsubscribe = subscribeToTitles(listener)
+    openThread(THREAD_ID)
+
+    FakeStream.opened[0]?.emit(STREAM_EVENT, { title: 'Generated title', messages: [], tools: [] })
+
+    expect(snapshotOf(THREAD_ID).title).toBe('Generated title')
+    expect(listener).toHaveBeenCalledWith(THREAD_ID, 'Generated title')
+    unsubscribe()
   })
 
   it('keeps a streamed tool when a later window no longer contains it', () => {

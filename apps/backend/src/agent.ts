@@ -99,6 +99,8 @@ import { createGithubReleases } from './updates/releases.js'
 import type { ChatThread, ThreadTarget } from './threads/thread-repository.js'
 import { ThreadRepository } from './threads/thread-repository.js'
 import { updateThreadRunSettings as saveThreadRunSettings } from './threads/thread-run-settings.js'
+import { completeWithBackgroundChain } from './background/model-chain.js'
+import { AutoTitles, titleTranscript } from './threads/auto-title.js'
 import { WorkspaceRepository } from './workspaces/workspace-repository.js'
 import type { Workspace, WorkspaceInput, WorkspacePatch } from './workspaces/workspace-repository.js'
 
@@ -198,6 +200,8 @@ export interface DelegationUpdate {
 }
 
 export interface ThreadUpdate {
+  /** Current title, including a background rename that did not add a transcript entry. */
+  readonly title: string | null
   readonly messages: ChatMessage[]
   readonly tools: ToolCallView[]
   readonly run: RunInfo | null
@@ -955,6 +959,29 @@ export async function createAgent(config: Config): Promise<Agent> {
       CONTEXT,
     ),
   )
+  const autoTitles = new AutoTitles({
+    threads,
+    settings: auth,
+    readTranscript: async (thread) => {
+      const conversation = await conversationOf(
+        supervisor,
+        idFromNumber<ConversationId>(thread.durableConversationId),
+      )
+      const page = await conversation.entries({ order: 'descending' }, STREAM_WINDOW, undefined, CONTEXT)
+
+      return titleTranscript(chatMessages(page.items.toReversed()))
+    },
+    complete: async (chain, context) => {
+      for (const entry of chain) registerKeyProvider(models, entry.credentialId)
+
+      return completeWithBackgroundChain(models, chain, context)
+    },
+    log: (failure) => {
+      if (config.nodeEnv !== 'test') console.error('automatic title generation failed', failure)
+    },
+  })
+  const runIsActive = (live: LiveActivity): boolean =>
+    live.turns > 0 || live.compacting > 0 || live.blocks.length > 0 || live.tools.length > 0
 
   /** The current grant intersection, resolved on creation and again on every turn. */
   const toolSelectionOf = async (profile: AgentProfile) => {
@@ -1338,6 +1365,7 @@ export async function createAgent(config: Config): Promise<Agent> {
         let pending = false
         let stopped = false
         let draining: Promise<void> | undefined
+        let running = false
 
         // Parent and child commits share one serialized frame queue, so a fast child cannot emit an older parent frame
         // after a newer one. Child watches are attached as delegation rows appear in the parent's tool traffic.
@@ -1361,23 +1389,30 @@ export async function createAgent(config: Config): Promise<Agent> {
               schedule()
             })
           }))
-          const [usage, live, children] = await Promise.all([
+          const [usage, live, children, currentThread] = await Promise.all([
             harness.snapshot(UsageDoc, conversation.id, CONTEXT),
             harness.snapshot(LiveDoc, conversation.id, CONTEXT),
             Promise.all(records.map((record) =>
               readDelegationUpdate(harness, record, childEntries.get(record.childConversationId)),
             )),
+            threads.find(threadId),
           ])
           if (stopped) return
 
+          const activity = liveActivity(live)
           onChange({
+            title: currentThread?.title ?? null,
             messages: chatMessages(entries),
             tools: toolCalls(entries),
             run: runInfoOf(entries),
             usage: usageTotals(usage),
-            live: liveActivity(live),
+            live: activity,
             delegations: children,
           })
+          // The raw run marker covers a run that fails before publishing its first text, tool or turn.
+          const active = live?.run !== undefined || runIsActive(activity)
+          if (running && !active) autoTitles.runFinished(threadId)
+          running = active
         }
         const schedule = (): void => {
           if (stopped) return
@@ -1398,6 +1433,7 @@ export async function createAgent(config: Config): Promise<Agent> {
         }
 
         await emit()
+        const stopTitleListener = autoTitles.listen(threadId, schedule)
         watch.start(async (call) => {
           if (call.kind !== 'value') return
           entries = call.value.entries
@@ -1406,6 +1442,7 @@ export async function createAgent(config: Config): Promise<Agent> {
 
         return async () => {
           stopped = true
+          stopTitleListener()
           await Promise.allSettled([
             (async () => { await watch.stop() })(),
             ...[...childWatches.values()].map((stop) => stop()),
@@ -1422,6 +1459,7 @@ export async function createAgent(config: Config): Promise<Agent> {
     async close() {
       updates.stop()
       try {
+        await autoTitles.close()
         await supervisor.close()
       } finally {
         try {

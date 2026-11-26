@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { TooltipProvider } from '../ui/tooltip.tsx'
@@ -16,6 +16,7 @@ const defaultSystemPrompt = 'The built-in Cake system prompt.'
 const defaultSubagentSystemPrompt = 'Report results and verification tersely.'
 let currentSystemPrompt = defaultSystemPrompt
 let currentSubagentSystemPrompt = defaultSubagentSystemPrompt
+let currentBackgroundModel: readonly unknown[] = []
 const settings = () => ({
   singleUser: true,
   requireTwoFactor: false,
@@ -23,18 +24,37 @@ const settings = () => ({
   defaultSystemPrompt,
   subagentSystemPrompt: currentSubagentSystemPrompt,
   defaultSubagentSystemPrompt,
+  backgroundModel: currentBackgroundModel,
 })
 
 beforeEach(() => {
   currentSystemPrompt = defaultSystemPrompt
   currentSubagentSystemPrompt = defaultSubagentSystemPrompt
+  currentBackgroundModel = []
   vi.stubGlobal(
     'fetch',
-    vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (input === '/providers/logins') {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ logins: [
+          { id: 'key-one', provider: 'opencode-go', label: 'First key', createdAt: '2026-01-01T00:00:00Z' },
+          { id: 'key-two', provider: 'opencode-go', label: 'Second key', createdAt: '2026-01-01T00:00:00Z' },
+        ] }) })
+      }
+      if (input === '/providers/models') {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ models: [
+          { id: 'model-one', name: 'First model' },
+          { id: 'model-two', name: 'Second model' },
+        ] }) })
+      }
       if (init?.body !== undefined) {
-        const patch = JSON.parse(String(init.body)) as { systemPrompt?: string; subagentSystemPrompt?: string }
+        const patch = JSON.parse(String(init.body)) as {
+          systemPrompt?: string
+          subagentSystemPrompt?: string
+          backgroundModel?: readonly unknown[]
+        }
         if (patch.systemPrompt !== undefined) currentSystemPrompt = patch.systemPrompt
         if (patch.subagentSystemPrompt !== undefined) currentSubagentSystemPrompt = patch.subagentSystemPrompt
+        if (patch.backgroundModel !== undefined) currentBackgroundModel = patch.backgroundModel
       }
 
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(settings()) })
@@ -73,6 +93,33 @@ describe('SettingsPage', () => {
     renderPage()
 
     expect(screen.queryByRole('button', { name: /back to conversations/i })).toBeNull()
+  })
+
+  it('adds, reorders and saves the background model chain', async () => {
+    const fetch = vi.mocked(globalThis.fetch)
+    renderPage()
+
+    const add = await screen.findByRole('button', { name: 'Add entry' })
+    await waitFor(() => expect(add).toBeEnabled())
+    fireEvent.click(add)
+    fireEvent.click(add)
+    fireEvent.change(screen.getByRole('combobox', { name: 'Key 2' }), { target: { value: 'key-two' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model 2' }), { target: { value: 'model-two' } })
+
+    const secondRow = screen.getByRole('combobox', { name: 'Key 2' }).closest('li')
+    if (secondRow === null) throw new Error('the second background entry is missing')
+    fireEvent.click(within(secondRow).getByRole('button', { name: 'Move up' }))
+    expect(screen.getByRole('combobox', { name: 'Key 1' })).toHaveValue('key-two')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save background model' }))
+    await screen.findByText('Background model saved.')
+    expect(fetch).toHaveBeenLastCalledWith('/settings', expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ backgroundModel: [
+        { credentialId: 'key-two', modelId: 'model-two', thinkingLevel: 'off' },
+        { credentialId: 'key-one', modelId: 'model-one', thinkingLevel: 'off' },
+      ] }),
+    }))
   })
 
   it('saves the app-owned base prompt and resets it to the built-in default', async () => {

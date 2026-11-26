@@ -81,6 +81,8 @@ const setup = async () => {
   const thread = (): ChatThread => ({
     id: THREAD_ID,
     title: null,
+    titleSource: 'auto',
+    autoTitleEntryId: null,
     workspaceId: WORKSPACE_ID,
     agentId: PARENT_AGENT_ID,
     durableConversationId: parentConversationId,

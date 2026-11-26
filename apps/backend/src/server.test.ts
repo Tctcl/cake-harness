@@ -88,6 +88,8 @@ const subagentOf = (overrides: Partial<SubagentProfile> = {}): SubagentProfile =
 const threadOf = (overrides: Partial<ChatThread> = {}): ChatThread => ({
   id: THREAD_ID,
   title: 'First',
+  titleSource: 'user',
+  autoTitleEntryId: null,
   workspaceId: WORKSPACE_ID,
   agentId: AGENT_ID,
   durableConversationId: 1,
@@ -252,6 +254,8 @@ function stubAgent(overrides: Partial<Agent> = {}): Agent {
     createThread: async (input) => ({
       id: THREAD_ID,
       title: input.title,
+      titleSource: input.title === null ? 'auto' : 'user',
+      autoTitleEntryId: null,
       workspaceId: input.workspaceId ?? WORKSPACE_ID,
       agentId: input.agentId ?? AGENT_ID,
       durableConversationId: 1,
@@ -488,17 +492,11 @@ describe('thread routes', () => {
     const server = buildServer(config, {
       agent: stubAgent({
         threads: async () => [
-          {
-            id: THREAD_ID,
-            title: 'First',
-            workspaceId: WORKSPACE_ID,
-            agentId: AGENT_ID,
+          threadOf({
             durableConversationId: 4,
-            overrides: { credentialId: null, modelId: null, thinkingLevel: null },
-            archivedAt: null,
             createdAt: new Date('2026-01-01T00:00:00.000Z'),
             updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-          },
+          }),
         ],
       }),
     })
@@ -512,6 +510,7 @@ describe('thread routes', () => {
           {
             id: THREAD_ID,
             title: 'First',
+            titleSource: 'user',
             workspaceId: WORKSPACE_ID,
             agentId: AGENT_ID,
             overrides: { credentialId: null, modelId: null, thinkingLevel: null },

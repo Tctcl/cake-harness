@@ -24,11 +24,11 @@ if (url === undefined) {
       const schema = createSchema(prefix)
       created.push(...Object.values(schema.tables))
       try {
-        expect(CURRENT_SCHEMA_VERSION).toBe(26)
+        expect(CURRENT_SCHEMA_VERSION).toBe(27)
         const versions = await storage.pool.query<{ version: number }>(
           `SELECT version FROM ${schema.tables.durableSchema} ORDER BY version`,
         )
-        expect(versions.rows.at(-1)?.version).toBe(26)
+        expect(versions.rows.at(-1)?.version).toBe(27)
 
         for (const table of [schema.tables.prompts, schema.tables.workspacePrompts, schema.tables.agentPrompts]) {
           const result = await storage.pool.query<{ table_name: string | null }>(
@@ -39,6 +39,32 @@ if (url === undefined) {
         }
       } finally {
         await storage.close({} as never)
+      }
+    })
+
+    it('marks existing titles as user-authored and empty titles as automatic', async () => {
+      const prefix = `migration_${Math.random().toString(36).slice(2, 8)}_`
+      const schema = createSchema(prefix)
+      const table = schema.tables.chatThreads
+      created.push(table)
+      const client = new Client({ connectionString: url })
+      await client.connect()
+      try {
+        await client.query(`CREATE TABLE ${table} (id integer PRIMARY KEY, title text)`)
+        await client.query(`INSERT INTO ${table} (id, title) VALUES (1, 'Mine'), (2, NULL)`)
+        const migration = MIGRATIONS.find(({ version }) => version === 27)
+        if (migration === undefined) throw new Error('Migration 27 is missing')
+        for (const statement of migration.statements(schema)) await client.query(statement)
+
+        const rows = await client.query<{ id: number; title_source: string; auto_title_entry_id: string | null }>(
+          `SELECT id, title_source, auto_title_entry_id FROM ${table} ORDER BY id`,
+        )
+        expect(rows.rows).toEqual([
+          { id: 1, title_source: 'user', auto_title_entry_id: null },
+          { id: 2, title_source: 'auto', auto_title_entry_id: null },
+        ])
+      } finally {
+        await client.end()
       }
     })
 

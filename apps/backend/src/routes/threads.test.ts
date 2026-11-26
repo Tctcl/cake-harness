@@ -88,6 +88,7 @@ if (url === undefined) {
       auth,
       capabilities: { skills: {} },
       thread: (id: string) => threads.find(id),
+      renameThread: (id: string, title: string | null) => threads.rename(id, title),
       toolCallDetails: async (id: string, callId: string) =>
         id === thread.id && callId === 'call-full'
           ? { arguments: '{"path":"README.md"}', result: 'the complete result' }
@@ -113,6 +114,29 @@ if (url === undefined) {
         await expect(
           pool.query(`SELECT credential_id, model_id, thinking_level FROM ${schema.tables.chatThreads} LIMIT 0`),
         ).resolves.toMatchObject({ rowCount: 0 })
+      } finally {
+        await server.close()
+      }
+    })
+
+    it('marks API renames as user-authored and clearing as automatic', async () => {
+      const { server, thread } = await serve()
+      try {
+        const renamed = await server.inject({
+          method: 'PATCH',
+          url: `/threads/${thread.id}`,
+          payload: { title: 'Chosen by me' },
+        })
+        expect(renamed.statusCode).toBe(200)
+        expect(renamed.json()).toMatchObject({ title: 'Chosen by me', titleSource: 'user' })
+
+        const cleared = await server.inject({
+          method: 'PATCH',
+          url: `/threads/${thread.id}`,
+          payload: { title: null },
+        })
+        expect(cleared.statusCode).toBe(200)
+        expect(cleared.json()).toMatchObject({ title: null, titleSource: 'auto' })
       } finally {
         await server.close()
       }

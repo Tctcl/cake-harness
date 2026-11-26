@@ -18,7 +18,7 @@ import type { WorkspaceTabId } from './components/workspaces/workspace-detail.ts
 import { WorkspacesPage } from './components/workspaces/workspaces-page.tsx'
 import type { ChatAgent, ChatThread, CurrentUser, WorkspaceSummary } from './lib/chat-api.ts'
 import { createThread, getMe, listAgents, listThreads, listWorkspaces, reorderWorkspaces } from './lib/chat-api.ts'
-import { KEY_PROBLEMS } from './lib/chat-store.ts'
+import { KEY_PROBLEMS, subscribeToTitles } from './lib/chat-store.ts'
 import { HttpError } from './lib/http.ts'
 import { useNarrowScreen } from './lib/use-narrow-screen.ts'
 import { readCollapsed, writeCollapsed } from './lib/workspace-groups.ts'
@@ -168,6 +168,12 @@ function App({ onSignOut }: { onSignOut?: (() => void) | undefined } = {}) {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => subscribeToTitles((id, title) => {
+    setThreads((current) => current.map((thread) =>
+      thread.id === id && thread.title !== title ? { ...thread, title } : thread,
+    ))
+  }), [])
 
   const selectedThread = threads.find((thread) => thread.id === threadId) ?? null
   // The conversation names its workspace; there is no separate workspace selection to fall out of step with it.

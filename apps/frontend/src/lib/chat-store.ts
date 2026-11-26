@@ -25,6 +25,8 @@ export interface PendingInput {
 export type StreamStatus = 'connecting' | 'live' | 'error'
 
 export interface ThreadSnapshot {
+  /** Current server title, or undefined until a stream frame supplies it. */
+  readonly title: string | null | undefined
   /** Oldest first, ordered by entry id. */
   readonly messages: readonly ChatMessage[]
   readonly pending: readonly PendingInput[]
@@ -56,6 +58,7 @@ interface ThreadEntry {
 }
 
 const EMPTY: ThreadSnapshot = {
+  title: undefined,
   messages: [],
   pending: [],
   nextCursor: null,
@@ -75,6 +78,7 @@ const EMPTY: ThreadSnapshot = {
  * conversation unmounts the chat but must not drop the stream or the lines already received.
  */
 const threads = new Map<string, ThreadEntry>()
+const titleListeners = new Set<(threadId: string, title: string | null) => void>()
 
 let nextLocalId = 1
 
@@ -110,6 +114,15 @@ export function subscribeToThread(threadId: string, listener: () => void): () =>
 
   return () => {
     entry.listeners.delete(listener)
+  }
+}
+
+/** Titles belong to the sidebar rather than one pane, so every open stream reports them to the shell. */
+export function subscribeToTitles(listener: (threadId: string, title: string | null) => void): () => void {
+  titleListeners.add(listener)
+
+  return () => {
+    titleListeners.delete(listener)
   }
 }
 
@@ -176,8 +189,12 @@ function openStream(threadId: string): void {
   // answers only ever appeared after a reload.
   source.addEventListener(STREAM_EVENT, (event) => {
     const payload = JSON.parse((event as MessageEvent<string>).data) as ChatUpdate
+    if (payload.title !== undefined) {
+      for (const listener of titleListeners) listener(threadId, payload.title)
+    }
     update(threadId, (snapshot) => ({
       ...snapshot,
+      title: payload.title,
       messages: mergeMessages(snapshot.messages, payload.messages),
       pending: reconcilePending(snapshot.pending, payload.messages),
       tools: mergeTools(snapshot.tools, payload.tools),

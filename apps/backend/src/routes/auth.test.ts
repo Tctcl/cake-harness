@@ -8,6 +8,7 @@ import { loadConfig } from '../config.js'
 import { buildServer } from '../server.js'
 import { createPool } from '../storage/postgres/db.js'
 import { createSchema, migrate } from '../storage/postgres/schema.js'
+import type { ProviderApi } from '../providers/api.js'
 
 /**
  * Sign-in end to end: the real AuthService over a real database behind the real routes. The rest of the agent is absent,
@@ -30,7 +31,11 @@ if (url === undefined) {
   })
 
   /** A fresh install per case: its own tables, migrated, the owner seeded and single-user mode on. */
-  const install = async (environment: Record<string, string> = {}, now: () => number = Date.now) => {
+  const install = async (
+    environment: Record<string, string> = {},
+    now: () => number = Date.now,
+    providers: Pick<ProviderApi, 'logins' | 'models'> = { logins: async () => [], models: async () => [] },
+  ) => {
     const config = loadConfig({ NODE_ENV: 'test', DATABASE_URL: url, SECRET_KEY: 'a-test-secret-key', ...environment })
     const pool = createPool(url, { max: 2 })
     pools.push(pool)
@@ -38,7 +43,7 @@ if (url === undefined) {
     await migrate(pool, schema)
     const auth = new AuthService({ pool, schema, secrets: config.secrets }, now)
     // The catalog routes look up their two text catalogs while registering; nothing here calls them.
-    const agent = { auth, capabilities: { skills: {} } } as unknown as Agent
+    const agent = { auth, capabilities: { skills: {} }, providers } as unknown as Agent
     const server = buildServer(config, { agent })
 
     return { auth, server, pool, schema, secrets: config.secrets }
@@ -119,6 +124,56 @@ if (url === undefined) {
           systemPrompt: DEFAULT_SETTINGS.systemPrompt,
           defaultSystemPrompt: DEFAULT_SETTINGS.systemPrompt,
         })
+      } finally {
+        await server.close()
+      }
+    })
+
+    it('validates and persists the ordered background model chain', async () => {
+      const entry = { credentialId: 'key-1', modelId: 'model-1', thinkingLevel: 'low' } as const
+      const login = { id: 'key-1', provider: 'opencode-go', label: 'Key', createdAt: new Date(0).toISOString() }
+      const model = {
+        id: 'model-1',
+        provider: 'opencode-go',
+        name: 'Model',
+        contextWindow: 1000,
+        maxOutput: 100,
+        inputUsdPerMillion: null,
+        outputUsdPerMillion: null,
+        supportsReasoning: true,
+        supportsTools: true,
+      }
+      const { server } = await install({}, Date.now, {
+        logins: async () => [login],
+        models: async () => [model],
+      })
+      try {
+        const saved = await server.inject({
+          method: 'PUT',
+          url: '/settings',
+          payload: { backgroundModel: [entry] },
+        })
+        expect(saved.statusCode).toBe(200)
+        expect(saved.json()).toMatchObject({ backgroundModel: [entry] })
+        const loaded = await server.inject({ method: 'GET', url: '/settings' })
+        expect(loaded.statusCode).toBe(200)
+        expect(loaded.json()).toMatchObject({ backgroundModel: [entry] })
+
+        const unknownKey = await server.inject({
+          method: 'PUT',
+          url: '/settings',
+          payload: { backgroundModel: [{ ...entry, credentialId: 'missing' }] },
+        })
+        expect(unknownKey.statusCode).toBe(400)
+        expect(unknownKey.json()).toMatchObject({ error: { code: 'AGENT_KEY_NOT_LINKED' } })
+
+        const unknownModel = await server.inject({
+          method: 'PUT',
+          url: '/settings',
+          payload: { backgroundModel: [{ ...entry, modelId: 'missing' }] },
+        })
+        expect(unknownModel.statusCode).toBe(400)
+        expect(unknownModel.json()).toMatchObject({ error: { code: 'AGENT_MODEL_UNKNOWN' } })
       } finally {
         await server.close()
       }

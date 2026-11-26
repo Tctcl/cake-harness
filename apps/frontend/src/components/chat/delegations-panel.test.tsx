@@ -42,6 +42,7 @@ const workspace: WorkspaceSummary = {
 const thread: ChatThread = {
   id: 'thread-1',
   title: 'Parent',
+  titleSource: 'user',
   workspaceId: workspace.id,
   agentId: 'agent-1',
   overrides: { credentialId: null, modelId: null, thinkingLevel: null },
