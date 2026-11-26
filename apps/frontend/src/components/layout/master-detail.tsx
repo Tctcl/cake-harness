@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useLayoutEffect } from 'react'
 import type { ReactNode } from 'react'
 
 import { useNarrowScreen } from '../../lib/use-narrow-screen.ts'
@@ -43,7 +43,9 @@ export function MasterDetail({
   const firstId = items[0]?.id ?? null
   const resolved = selection === null && !narrow ? firstId : selection
 
-  useEffect(() => {
+  // Settle the default before this list can receive input: a passive effect can run after a click on a freshly loaded
+  // list and restore the first item (or no selection) over the user's choice.
+  useLayoutEffect(() => {
     if (narrow) {
       if (selection !== null && selection !== NEW_SELECTION && !items.some((item) => item.id === selection)) {
         onSelect(null)

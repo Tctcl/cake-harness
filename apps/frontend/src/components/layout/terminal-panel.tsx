@@ -156,13 +156,17 @@ export function TerminalPanel({ workspaceId }: TerminalPanelProps) {
   const [sessions, setSessions] = useState<TerminalPayload[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  // Creating before the initial list arrives would let that older response erase the new session.
+  const [loadingSessions, setLoadingSessions] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     void getWorkspaceEnvironment(workspaceId).then(
       (environment) => {
-        if (!cancelled) setEnvironmentId(environment?.id ?? null)
+        if (cancelled) return
+        setLoadingSessions(true)
+        setEnvironmentId(environment?.id ?? null)
       },
       (failure: unknown) => {
         if (!cancelled) setError(message(failure))
@@ -187,9 +191,12 @@ export function TerminalPanel({ workspaceId }: TerminalPanelProps) {
             ? current
             : (loaded[0]?.id ?? null),
         )
+        setLoadingSessions(false)
       },
       (failure: unknown) => {
-        if (!cancelled) setError(message(failure))
+        if (cancelled) return
+        setError(message(failure))
+        setLoadingSessions(false)
       },
     )
 
@@ -282,7 +289,7 @@ export function TerminalPanel({ workspaceId }: TerminalPanelProps) {
           size="icon"
           className="ml-auto size-7"
           aria-label="New terminal session"
-          disabled={creating}
+          disabled={creating || loadingSessions}
           onClick={() => void openSession()}
         >
           <PlusIcon />
