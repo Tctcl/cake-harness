@@ -1,3 +1,4 @@
+import { DEFAULT_LOG_TAIL } from '../environments/container-logs.js'
 import { bearerToken } from '../environments/bootstrap-token.js'
 import type { FastifyPluginAsync } from 'fastify'
 
@@ -11,6 +12,16 @@ import type { TerminalSessions } from '../terminal/sessions.js'
 import type { Workspace } from '../workspaces/workspace-repository.js'
 
 const uuid = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+
+const LOG_STREAM_HEADERS = {
+  'content-type': 'text/event-stream; charset=utf-8',
+  'cache-control': 'no-cache, no-transform',
+  connection: 'keep-alive',
+  'x-accel-buffering': 'no',
+} as const
+
+/** Proxies drop an idle stream; a comment line now and then keeps a quiet container's log open. */
+const LOG_HEARTBEAT_MS = 15_000
 
 const environmentIdParams = {
   type: 'object',
@@ -342,6 +353,56 @@ export const environmentRoutes: FastifyPluginAsync<{ agent: Agent; terminals: Te
       if (access === undefined) throw missing()
 
       return access
+    },
+  )
+
+  // Server-Sent Events: `line` for each line of output (the last DEFAULT_LOG_TAIL first, then live), `end` when Docker
+  // closes the log because the container stopped. Behind the session like every environment route.
+  server.get<{ Params: EnvironmentIdParams }>(
+    '/environments/:environmentId/logs',
+    { schema: { params: environmentIdParams } },
+    async (request, reply) => {
+      // Lines that arrive before the headers are written are held, so an unknown id can still answer a JSON 404.
+      const queued: string[] = []
+      let write = (bytes: string): void => {
+        queued.push(bytes)
+      }
+      let ended = false
+      const stop = await environments.followLogs(request.params.environmentId, {
+        tail: DEFAULT_LOG_TAIL,
+        onLine: (line) => write(`event: line\ndata: ${JSON.stringify(line)}\n\n`),
+        onEnd: () => {
+          ended = true
+          write('event: end\ndata: {}\n\n')
+        },
+      })
+      if (stop === undefined) throw missing()
+      if (stop === null) throw notRunning()
+
+      reply.hijack()
+      const raw = reply.raw
+      raw.writeHead(200, LOG_STREAM_HEADERS)
+      for (const bytes of queued) raw.write(bytes)
+      write = (bytes) => {
+        raw.write(bytes)
+      }
+      const heartbeat = setInterval(() => raw.write(': ping\n\n'), LOG_HEARTBEAT_MS)
+
+      let closed = false
+      const close = (): void => {
+        if (closed) return
+        closed = true
+        clearInterval(heartbeat)
+        write = () => {
+          // The socket is gone; a late line has nowhere to go.
+        }
+        stop()
+        raw.end()
+      }
+      // A stopped container's log ends right after its tail: the client gets the `end` event, then the response ends.
+      if (ended) close()
+      raw.on('close', close)
+      request.raw.on('close', close)
     },
   )
 

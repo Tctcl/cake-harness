@@ -19,12 +19,15 @@ fi
 # Bootstrap runs as the development user so anything it writes belongs to dev.
 # A failing bootstrap stops the container: a half-configured environment that
 # accepts SSH would be worse than one that refuses to start. `env` is used rather
-# than `--preserve-env` because it passes exactly these three variables and
-# nothing else from the root environment.
+# than `--preserve-env` because it passes exactly these variables and nothing
+# else from the root environment. DEV_ENV_TOKEN is the bearer token the backend
+# requires for the manifest and the state report: leaving it off this list
+# makes every boot fail with 401.
 if [ -n "${DEV_ENV_MANIFEST_URL:-}" ]; then
   sudo -u dev -H env \
     DEV_ENV_MANIFEST_URL="${DEV_ENV_MANIFEST_URL}" \
     DEV_ENV_STATE_URL="${DEV_ENV_STATE_URL:-}" \
+    DEV_ENV_TOKEN="${DEV_ENV_TOKEN:-}" \
     DEV_ENV_INSTALL_RECORD="${DEV_ENV_INSTALL_RECORD:-/var/lib/dev-env/installed.json}" \
     node /opt/dev-env/dist/index.js
 else

@@ -14,6 +14,7 @@ import { Button } from '../ui/button.tsx'
 import { Input } from '../ui/input.tsx'
 import { Spinner } from '../ui/spinner.tsx'
 import { EnvironmentSsh } from './environment-ssh.tsx'
+import { EnvironmentLogs } from './environment-logs.tsx'
 import { EnvironmentResources } from './environment-resources.tsx'
 
 interface EnvironmentSnapshot {
@@ -36,6 +37,7 @@ const message = (failure: unknown, fallback: string): string =>
 
 const statusLabel = (status: EnvironmentDetail['status']): string => {
   if (status === 'running') return 'Running'
+  if (status === 'restarting') return 'Restarting'
   if (status === 'stopped') return 'Stopped'
   return 'Missing'
 }
@@ -144,6 +146,8 @@ export function WorkspaceEnvironmentPanel({
   }
 
   const running = environment.status === 'running'
+  // A container in a restart loop is neither usable nor stopped: it needs Stop to end the loop, and its log to say why.
+  const restarting = environment.status === 'restarting'
 
   return (
     <div className="flex max-w-4xl flex-col gap-4 text-sm">
@@ -156,9 +160,22 @@ export function WorkspaceEnvironmentPanel({
       <section aria-label="Container status" className="flex flex-col gap-3 rounded-md border p-4">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="font-medium">Container</h2>
-          <Badge variant={running ? 'default' : 'secondary'}>{statusLabel(environment.status)}</Badge>
+          <Badge variant={running ? 'default' : restarting ? 'destructive' : 'secondary'}>
+            {statusLabel(environment.status)}
+          </Badge>
           <div className="ml-auto flex flex-wrap gap-2">
-            {running ? (
+            {restarting ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy !== null}
+                aria-busy={busy === 'stop'}
+                onClick={() => void changeState('stop')}
+              >
+                {busy === 'stop' ? 'Stopping…' : 'Stop'}
+              </Button>
+            ) : running ? (
               <>
                 <Button
                   type="button"
@@ -199,6 +216,11 @@ export function WorkspaceEnvironmentPanel({
             ? 'The container has not been created yet. Start it from the image below.'
             : `Container ${environment.containerId}`}
         </p>
+        {restarting ? (
+          <p role="alert" className="text-sm text-destructive">
+            The container keeps exiting and Docker restarts it. The log below shows why; Stop ends the loop.
+          </p>
+        ) : null}
 
         <details className="rounded-md border bg-muted/20 p-3">
           <summary className="cursor-pointer font-medium">Image</summary>
@@ -224,6 +246,9 @@ export function WorkspaceEnvironmentPanel({
           </form>
         </details>
       </section>
+
+      {/* Any container that exists has a log, and a stopped or looping one is exactly when it is needed. */}
+      {environment.containerId === null ? null : <EnvironmentLogs environmentId={environment.id} />}
 
       {running ? (
         <EnvironmentResources environmentId={environment.id} />
