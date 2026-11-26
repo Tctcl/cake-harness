@@ -113,7 +113,9 @@ describe('TerminalPanel', () => {
     renderPanel()
     await screen.findByText('No terminal session yet.')
 
-    fireEvent.click(screen.getByRole('button', { name: 'New terminal session' }))
+    const open = screen.getByRole('button', { name: 'New terminal session' })
+    await waitFor(() => expect(open).toBeEnabled())
+    fireEvent.click(open)
 
     const tab = await screen.findByRole('tab', { name: 'shell 2' })
     expect(tab.getAttribute('aria-selected')).toBe('true')
@@ -163,7 +165,9 @@ describe('TerminalPanel', () => {
     renderPanel()
     await screen.findByText('No terminal session yet.')
 
-    fireEvent.click(screen.getByRole('button', { name: 'New terminal session' }))
+    const open = screen.getByRole('button', { name: 'New terminal session' })
+    await waitFor(() => expect(open).toBeEnabled())
+    fireEvent.click(open)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('eight terminals is the limit')
   })
