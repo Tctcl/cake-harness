@@ -143,6 +143,7 @@ const messageSchema = {
     stopReason: { type: ['string', 'null'] },
     errorMessage: { type: ['string', 'null'] },
     reason: { type: ['string', 'null'] },
+    reminder: { type: 'string' },
     sections: { type: 'array', items: contextSectionSchema },
     toolsAdded: { type: 'array', items: { type: 'string' } },
     toolsRemoved: { type: 'array', items: { type: 'string' } },

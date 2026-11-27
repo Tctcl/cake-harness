@@ -23,10 +23,11 @@ import type {
 import type { AgentRepository, ThinkingLevel } from '../agents/agent-repository.js'
 import type { RunSettings } from '../agents/run-settings.js'
 import type { ToolSelection } from '../agents/tool-selection.js'
-import { composeAgentInstructions } from '../agents/base-prompt.js'
+import { composeSystemAppend } from '../agents/base-prompt.js'
+import { renderReminder, turnSubmission } from '../agents/turn-reminder.js'
 import type { ThreadRepository } from '../threads/thread-repository.js'
 import { idFromNumber } from '../storage/postgres/ids.js'
-import type { CallableSubagent, SubagentRepository } from '../subagents/subagent-repository.js'
+import type { SubagentRepository } from '../subagents/subagent-repository.js'
 import { DelegationRepository } from './delegation-repository.js'
 import { createWorktree, worktreePlan } from './worktree.js'
 
@@ -90,7 +91,11 @@ export interface DelegateExtensionOptions {
 const parameters = {
   type: 'object',
   properties: {
-    subagentId: { type: 'string', minLength: 1, description: 'The id of a sub agent listed in cake-delegates.' },
+    subagentId: {
+      type: 'string',
+      minLength: 1,
+      description: 'The id of a sub agent listed in the reminder after the user message.',
+    },
     task: { type: 'string', minLength: 1, description: 'A complete, self-contained task for the sub agent.' },
     model: {
       type: 'string',
@@ -215,20 +220,28 @@ export const createDelegationTask = (options: DelegateExtensionOptions) =>
             options.toolSelection(profile),
             options.runSettings(profile, task.input.modelId, task.input.thinkingLevel),
           ])
-          const instructions = composeAgentInstructions(profile.systemPromptAppend, profile.instructions)
+          const append = composeSystemAppend(profile.systemPromptAppend)
           const change: AgentChange = {
             model: settings.model,
             thinkingLevel: settings.thinkingLevel,
             ...selection,
-            ...(instructions === undefined ? {} : { instructions }),
+            // `null` clears an instructions section a delegation started under the old prompt may have left behind.
+            instructions: append ?? null,
             cwd: worktreePath ?? parent.cwd ?? null,
           }
+          // The child is a sub agent, so its reminder carries its instructions and its own tools: never ask_user or
+          // delegate, which tool selection has already dropped for it.
+          const reminder = renderReminder({
+            instructions: profile.instructions,
+            tools: selection.tools,
+            subagents: [],
+            skills: [],
+          })
 
           await runtime.commit(async (tx) => {
             await configure(tx, conversationId, change)
             await child.submit(tx, {
-              type: 'input',
-              content: task.input.task,
+              ...turnSubmission(task.input.task, reminder),
               notify: { taskId: runtime.taskId, key: task.input.id },
             })
 
@@ -408,21 +421,11 @@ export const executeDelegate = async (
   return failedResult(message, { delegationId: id, subagentId: args.subagentId, status: 'failed' })
 }
 
-export const delegatePrompt = (available: readonly CallableSubagent[]): string => [
-  'Sub agents callable with delegate. Choose by name and description; pass the id as subagentId.',
-  'Omit model and thinkingLevel to use the sub agent defaults. Pick a non-default model only with good reason, such as a task that genuinely needs stronger reasoning.',
-  ...available.map((candidate) =>
-    `- ${candidate.name} (${candidate.id}): ${candidate.description}\n` +
-    `  Default model: ${candidate.modelId}; default thinking level: ${candidate.thinkingLevel}; ` +
-    `allowed models: ${candidate.allowedModels.join(', ')}`,
-  ),
-].join('\n')
-
 export const createDelegateExtension = (options: DelegateExtensionOptions) => {
   const task = createDelegationTask(options)
   const delegate = defineTool({
     name: 'delegate',
-    description: 'Run one listed sub agent on a self-contained task and wait for its final result. Calls in one round run in parallel. Model choices and defaults are listed per turn.',
+    description: 'Run one listed sub agent on a self-contained task and wait for its final result. Calls in one round run in parallel. The reminder after the user message lists the sub agents, their default and allowed models.',
     parameters,
     replay: 'safe',
     executionMode: 'parallel',
@@ -431,20 +434,11 @@ export const createDelegateExtension = (options: DelegateExtensionOptions) => {
     },
   })
 
+  // No section: the callable list belongs to the turn's reminder, rebuilt from live rows on every submission. A
+  // section would be a second copy of the list in the system message, which is the copy that went stale.
   return defineExtension({
     name: 'delegate',
     tools: [delegate],
     tasks: [task],
-    sections: [{
-      key: 'cake-delegates',
-      async render({ conversationId }) {
-        const thread = await options.threads.findByConversation(Number(conversationId))
-        if (thread === undefined) return undefined
-        const available = await options.subagents.callableBy(thread.agentId)
-        if (available.length === 0) return undefined
-
-        return delegatePrompt(available)
-      },
-    }],
   })
 }

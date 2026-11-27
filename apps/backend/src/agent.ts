@@ -71,12 +71,20 @@ import type {
   RunSettingsPatch,
   WorkspaceReach,
 } from './agents/run-settings.js'
+import type { ToolSelection } from './agents/tool-selection.js'
 import { selectTools } from './agents/tool-selection.js'
 import { syncToolCatalog } from './agents/tool-catalog.js'
-import { composeAgentInstructions } from './agents/base-prompt.js'
+import { composeSystemAppend } from './agents/base-prompt.js'
+import type { ReminderSkill } from './agents/turn-reminder.js'
+import { reminderOf, renderReminder, turnSubmission } from './agents/turn-reminder.js'
 import { createCakeExtension, createSubagentCakeExtension } from './agents/cake-extension.js'
 import { SubagentRepository } from './subagents/subagent-repository.js'
-import type { SubagentInput, SubagentPatch, SubagentProfile } from './subagents/subagent-repository.js'
+import type {
+  CallableSubagent,
+  SubagentInput,
+  SubagentPatch,
+  SubagentProfile,
+} from './subagents/subagent-repository.js'
 import { DelegationRepository } from './delegations/delegation-repository.js'
 import type { DelegationRecord } from './delegations/delegation-repository.js'
 import { createDelegateExtension } from './delegations/delegate.js'
@@ -141,6 +149,11 @@ export interface ChatMessage {
   readonly errorMessage: string | null
   /** Why context was compacted; null for every other line kind. */
   readonly reason: string | null
+  /**
+   * The reminder Cake appended after a user's own words, kept apart so the bubble shows only what was typed and the
+   * exact text the model read stays visible and expandable.
+   */
+  readonly reminder?: string | undefined
   readonly sections?: readonly { readonly key: string; readonly text: string | null }[]
   readonly toolsAdded?: readonly string[]
   readonly toolsRemoved?: readonly string[]
@@ -407,6 +420,14 @@ const textLine = (entry: EntryRecord, role: 'compaction' | 'reset'): ChatMessage
   }
 }
 
+/** The blocks a user entry's bubble shows: the reminder block Cake appended is dropped when it is the last one. */
+const withoutReminder = (blocks: ChatBlock[], reminder: string | undefined): ChatBlock[] => {
+  if (reminder === undefined) return blocks
+  const last = blocks.at(-1)
+
+  return last?.type === 'text' && last.text === reminder ? blocks.slice(0, -1) : blocks
+}
+
 /** The transcript as chat lines, with compaction and reset entries kept distinct from user input. */
 export const chatMessages = (entries: readonly EntryRecord[]): ChatMessage[] =>
   entries.flatMap((entry): ChatMessage[] => {
@@ -434,9 +455,12 @@ export const chatMessages = (entries: readonly EntryRecord[]): ChatMessage[] =>
     const message = entry.model?.[0]
     if (message?.role !== 'user' && message?.role !== 'assistant') return []
 
-    const text = messageText(message)
-    const blocks = chatBlocks(message)
     if (message.role === 'user') {
+      // The reminder travels as a second text block of the same message, so the bubble keeps the user's own words.
+      const reminder = reminderOf(entry.data)
+      const blocks = withoutReminder(chatBlocks(message), reminder)
+      const text = blocks.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('')
+
       return text === ''
         ? []
         : [
@@ -448,10 +472,13 @@ export const chatMessages = (entries: readonly EntryRecord[]): ChatMessage[] =>
               stopReason: null,
               errorMessage: null,
               reason: null,
+              ...(reminder === undefined ? {} : { reminder }),
             },
           ]
     }
 
+    const text = messageText(message)
+    const blocks = chatBlocks(message)
     const stopReason = message.stopReason
     const errorMessage = message.errorMessage ?? null
     if (blocks.length === 0 && stopReason !== 'error' && errorMessage === null) return []
@@ -892,7 +919,8 @@ export async function createAgent(config: Config): Promise<Agent> {
     agents,
     subagents,
     delegations,
-    toolSelection: async (profile) => toolSelectionOf(profile),
+    // A sub agent cannot delegate, so its own selection is resolved with no callable list.
+    toolSelection: async (profile) => toolSelectionOf(profile, []),
     runSettings: async (profile, modelId, thinkingLevel) =>
       runSettingsOf(profile, { credentialId: null, modelId, thinkingLevel }),
   }))
@@ -983,8 +1011,14 @@ export async function createAgent(config: Config): Promise<Agent> {
   const runIsActive = (live: LiveActivity): boolean =>
     live.turns > 0 || live.compacting > 0 || live.blocks.length > 0 || live.tools.length > 0
 
-  /** The current grant intersection, resolved on creation and again on every turn. */
-  const toolSelectionOf = async (profile: AgentProfile) => {
+  /**
+   * The current grant intersection, resolved on creation and again on every turn. `callable` is passed in because the
+   * same read decides both whether `delegate` is offered and what the turn's reminder lists, and the two must agree.
+   */
+  const toolSelectionOf = async (
+    profile: AgentProfile,
+    callable: readonly CallableSubagent[],
+  ): Promise<ToolSelection> => {
     const workspace = await workspaces.find(profile.workspaceId)
     if (workspace === undefined) {
       throw new AppError('the workspace does not exist', { statusCode: 404, code: 'WORKSPACE_NOT_FOUND' })
@@ -995,8 +1029,6 @@ export async function createAgent(config: Config): Promise<Agent> {
       environments.ofWorkspace(workspace.id),
     ])
 
-    const canDelegate = profile.kind === 'agent' && (await subagents.callableBy(profile.id)).length > 0
-
     return selectTools({
       workspace: { isDefault: workspace.isDefault },
       agent: { allowAll: profile.allowAll, toolGrants: agentGrants.tools },
@@ -1004,8 +1036,43 @@ export async function createAgent(config: Config): Promise<Agent> {
       catalog: new Map(catalog.map((tool) => [tool.id, tool.name])),
       registry: registry.snapshot(),
       subagent: profile.kind === 'subagent',
-      canDelegate,
+      canDelegate: callable.length > 0,
     })
+  }
+
+  /** The skills an agent is granted, read live for its reminder. Nothing runs a skill yet, so naming them is all it does. */
+  const grantedSkillsOf = async (agentId: string): Promise<ReminderSkill[]> => {
+    const [grants, catalog] = await Promise.all([links.readAgent(agentId), skills.list(ownerId)])
+    const granted = new Set(grants.skills)
+
+    return catalog
+      .filter((skill) => granted.has(skill.id))
+      .map(({ name, description }) => ({ name, description }))
+  }
+
+  /**
+   * Everything one turn offers the model, read fresh: the tool selection, and the reminder that names it after the user's
+   * message. Rebuilding it here, per submission, is what keeps a sub agent assigned between two turns visible from the
+   * second one on; nothing about the model's offer is cached in the system message.
+   */
+  const turnOfferOf = async (
+    profile: AgentProfile,
+  ): Promise<{ selection: ToolSelection; reminder: string | undefined }> => {
+    const callable = profile.kind === 'agent' ? await subagents.callableBy(profile.id) : []
+    const [selection, granted] = await Promise.all([
+      toolSelectionOf(profile, callable),
+      grantedSkillsOf(profile.id),
+    ])
+
+    return {
+      selection,
+      reminder: renderReminder({
+        instructions: profile.instructions,
+        tools: selection.tools,
+        subagents: callable,
+        skills: granted,
+      }),
+    }
   }
 
   const updates = createUpdateChecker({
@@ -1200,9 +1267,9 @@ export async function createAgent(config: Config): Promise<Agent> {
           ownerId,
           input,
         )
-        const instructions = composeAgentInstructions(profile.systemPromptAppend, profile.instructions)
+        const append = composeSystemAppend(profile.systemPromptAppend)
         // Resolved before anything is created: a conversation that could never run is refused with what to fix.
-        const [settings, selection] = await Promise.all([runSettingsOf(profile), toolSelectionOf(profile)])
+        const [settings, offer] = await Promise.all([runSettingsOf(profile), turnOfferOf(profile)])
         const harness = await supervisor.harness()
         // Ownerless: a thread is a top-level transcript, not work a parent task owns. Forks get a task owner instead.
         const conversation = await harness.createConversation(
@@ -1211,8 +1278,9 @@ export async function createAgent(config: Config): Promise<Agent> {
             agent: {
               model: settings.model,
               thinkingLevel: settings.thinkingLevel,
-              ...selection,
-              ...(instructions === undefined ? {} : { instructions }),
+              ...offer.selection,
+              // `null` clears an instructions section an older turn baked into the system message; the reminder has it now.
+              instructions: append ?? null,
             },
           },
           CONTEXT,
@@ -1318,11 +1386,11 @@ export async function createAgent(config: Config): Promise<Agent> {
       const profile = await agents.find(thread.agentId)
       if (profile === undefined) throw new AppError('the agent does not exist', { statusCode: 404, code: 'AGENT_NOT_FOUND' })
       // Outside the try: a missing key is the user's to fix, so it answers 409 with the fix rather than 503.
-      const [settings, selection] = await Promise.all([
+      const [settings, offer] = await Promise.all([
         runSettingsOf(profile, thread.overrides),
-        toolSelectionOf(profile),
+        turnOfferOf(profile),
       ])
-      const instructions = composeAgentInstructions(profile.systemPromptAppend, profile.instructions)
+      const append = composeSystemAppend(profile.systemPromptAppend)
 
       try {
         const conversation = await conversationOf(
@@ -1335,12 +1403,15 @@ export async function createAgent(config: Config): Promise<Agent> {
           {
             model: settings.model,
             thinkingLevel: settings.thinkingLevel,
-            ...selection,
-            ...(instructions === undefined ? {} : { instructions }),
+            ...offer.selection,
+            // `null` clears an instructions section an older turn baked into the system message; the reminder has it now.
+            instructions: append ?? null,
           },
           CONTEXT,
         )
-        const submission = await conversation.submit({ type: 'input', content: input }, CONTEXT)
+        // The reminder rides on the input rather than the system message: the model reads it right after the words it
+        // describes, and it is rebuilt from the rows above on every turn instead of being patched into the log.
+        const submission = await conversation.submit(turnSubmission(input, offer.reminder), CONTEXT)
 
         return String(submission.id)
       } catch (error) {

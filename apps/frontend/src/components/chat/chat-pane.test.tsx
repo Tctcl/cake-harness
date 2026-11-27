@@ -306,6 +306,34 @@ describe('ChatPane', () => {
     expect(screen.getByText('Tools offered: read, web_fetch')).toBeInTheDocument()
   })
 
+  it('shows the reminder under the user line, collapsed, and keeps the bubble to what was typed', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => reply({ messages: [], nextCursor: null })))
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    await waitFor(() => expect(stream()).toBeDefined())
+
+    const reminder = 'Tools: read (Read the contents of a file.)\n\nSub agents: Reviewer (id)'
+    stream()?.emit(
+      STREAM_EVENT,
+      frame([chatMessage(4, 'user', 'What does this repository do?', { reminder })]),
+    )
+
+    const bubble = await screen.findByText('What does this repository do?')
+    // The bubble is what the person typed, not the message the model received.
+    expect(bubble.closest('[data-slot="bubble-content"]')?.textContent).toBe('What does this repository do?')
+    expect(bubble.textContent).not.toContain('Tools:')
+
+    const row = screen.getByText('Reminder').closest('details')
+    expect(row).not.toBeNull()
+    expect(row).not.toHaveAttribute('open')
+    // Not part of the bubble, and directly after the line it belongs to.
+    expect(row?.closest('[data-slot="bubble-content"]')).toBeNull()
+    expect(bubble.compareDocumentPosition(row as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    fireEvent.click(screen.getByText('Reminder'))
+    expect(row?.querySelector('pre')?.textContent).toBe(reminder)
+  })
+
   it('shows the context a request carried before the line that triggered it, in the order the model reads them', async () => {
     vi.stubGlobal('fetch', vi.fn(() => reply({ messages: [], nextCursor: null })))
 
