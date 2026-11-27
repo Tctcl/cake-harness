@@ -144,6 +144,24 @@ describe('SettingsPage', () => {
     }))
   })
 
+  it('says both prompts only steer conversations that have not started', async () => {
+    renderPage()
+
+    const prompt = await screen.findByRole('textbox', { name: 'System prompt' })
+    const editor = prompt.closest('section')
+    if (editor === null) throw new Error('the prompt editor is missing')
+    expect(within(editor).getByText(
+      'Applies to new conversations; running ones keep the text they started with.',
+    )).toBeInTheDocument()
+
+    const subagent = screen.getByRole('textbox', { name: 'Sub agent system prompt' })
+    const subagentEditor = subagent.closest('section')
+    if (subagentEditor === null) throw new Error('the sub agent prompt editor is missing')
+    expect(within(subagentEditor).getByText(
+      'Applies to new conversations; running ones keep the text they started with.',
+    )).toBeInTheDocument()
+  })
+
   it('saves the sub agent prompt and resets it independently', async () => {
     const fetch = vi.mocked(globalThis.fetch)
     renderPage()

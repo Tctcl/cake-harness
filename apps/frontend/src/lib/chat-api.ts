@@ -21,12 +21,15 @@ export type ChatBlock =
 /** One line of a thread's transcript, as the backend renders it. `id` is the durable entry id and the merge key. */
 export interface ChatMessage {
   readonly id: number
-  readonly role: 'user' | 'assistant' | 'compaction' | 'reset' | 'context'
+  readonly role: 'user' | 'assistant' | 'compaction' | 'reset' | 'context' | 'switch'
+  /** The line's text; on a `switch` line it is the name of the agent the conversation moved to. */
   readonly text: string
   readonly blocks: readonly ChatBlock[]
   readonly stopReason: string | null
   readonly errorMessage: string | null
   readonly reason: string | null
+  /** The reminder Cake appended after this user's words; absent on every other line and on inputs that carried none. */
+  readonly reminder?: string | undefined
   readonly sections?: readonly { readonly key: string; readonly text: string | null }[]
   readonly toolsAdded?: readonly string[]
   readonly toolsRemoved?: readonly string[]
@@ -264,6 +267,30 @@ export const updateThreadRunSettings = async (
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(patch),
   })
+
+/** One field of a conversation's overrides, as the backend names the one it had to drop. */
+export type RunSettingsOverrideKey = keyof RunSettingsOverrides
+
+/** A conversation that switched agent, and which of its overrides the switch had to drop. */
+export interface AgentSwitch {
+  readonly thread: ChatThread
+  readonly clearedOverrides: readonly RunSettingsOverrideKey[]
+}
+
+/** Run this conversation with another agent of its workspace, from its next message on. */
+export const switchThreadAgent = async (id: string, agentId: string): Promise<AgentSwitch> => {
+  const switched = await request<ChatThread & { clearedOverrides: RunSettingsOverrideKey[] }>(
+    `/threads/${id}/agent`,
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agentId }),
+    },
+  )
+  const { clearedOverrides, ...thread } = switched
+
+  return { thread, clearedOverrides }
+}
 
 /** Without an agent the workspace's default agent answers. */
 export const createThread = async (workspaceId: string, agentId?: string): Promise<ChatThread> =>

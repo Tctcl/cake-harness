@@ -142,8 +142,27 @@ function DelegationCard({
 function CompactMessage({ message }: { readonly message: ChatMessage }) {
   if (message.role === 'user') {
     return (
-      <p className="whitespace-pre-wrap break-words text-xs text-muted-foreground">
-        <span className="mr-1 font-medium text-foreground">User:</span>{message.text}
+      <div className="min-w-0">
+        <p className="whitespace-pre-wrap break-words text-xs text-muted-foreground">
+          <span className="mr-1 font-medium text-foreground">User:</span>{message.text}
+        </p>
+        {/* The child's reminder is one more thing the model read, so the compact view shows it too. */}
+        {message.reminder === undefined ? null : (
+          <details className="text-[11px] text-muted-foreground">
+            <summary className="cursor-pointer">Reminder</summary>
+            <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words font-mono">
+              {message.reminder}
+            </pre>
+          </details>
+        )}
+      </div>
+    )
+  }
+
+  if (message.role === 'switch') {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        <span className="mr-1 font-medium text-foreground">Switched to</span>{message.text}
       </p>
     )
   }

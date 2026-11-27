@@ -34,7 +34,8 @@ src/credentials/      user_credentials rows: a name, a kind and a sealed value
 src/secrets/          CipherGate: read a value by name, with a timeout and no fallback
 src/terminal/         PTY sessions: spawn, size, replay, reap
 src/routes/me.ts      GET /me, the identity the sessions belong to
-src/routes/threads.ts /threads, /threads/:threadId/messages and /threads/:threadId/context
+src/routes/threads.ts /threads, /threads/:threadId/messages, /threads/:threadId/agent and
+                      /threads/:threadId/context
 src/context-usage.ts  what a thread's next request is made of, in estimated tokens
 src/routes/workspaces.ts /workspaces and /workspaces/:workspaceId/agents
 src/routes/capabilities.ts /tools, /skills, /workspaces/:workspaceId/mcp/servers and the grants of a workspace
@@ -304,6 +305,7 @@ row; it is refused with `409 NOT_ARCHIVED` while the row is live, and with
 | `GET /threads/:threadId/tool-calls/:callId` | — | complete arguments and result text for one recorded call |
 | `GET/PUT /settings` | `{ "systemPrompt"? }` | application settings and the built-in `defaultSystemPrompt` |
 | `POST /threads/:threadId/messages` | `{ "message": "..." }` | `{ "reply": "..." }` |
+| `PATCH /threads/:threadId/agent` | `{ "agentId" }` | the thread from its next message on, plus `clearedOverrides` for any override the workspace no longer honours |
 | `GET /workspaces?archived=` | — | `{ "workspaces": [...] }`, in the user's stored order |
 | `PUT /workspaces/order` | `{ "order": [workspaceId, …] }` | the whole list renumbered; `400` unless the ids are exactly the live workspaces |
 | `POST /workspaces` | `{ "name", "description"?, "allowAll"? }` | `201` and the workspace, at the top of the list, together with the one environment it runs in |

@@ -18,11 +18,54 @@ skills are stored but are not wired into runs.
 ## Prompt context in the transcript
 
 The app's System prompt setting is rendered by the process-wide `cake` extension
-as the `cake-system` section before each request. Durable records changes as
-`pi.system` entries, including the agent's separately labelled `instructions`
-section and tool additions or removals. The transcript projects those entries
-into collapsed context rows; expanding a section shows the recorded text, while
-later changes appear as **Context updated**.
+as the `cake-system` section before each request, and the agent's system prompt
+append follows it as the `instructions` section. Both are identity, so they stay
+in the system message: durable records them as `pi.system` entries and renders
+them again on every request. The transcript projects those entries into collapsed
+context rows; expanding a section shows the recorded text, while later changes
+appear as **Context updated**.
+
+Both texts are **frozen per conversation**, because a provider caches the longest
+identical prefix of a request: anything that changes up front invalidates every
+cached token after it. `conversation_prompts` holds the app-wide prompt a
+conversation sent on its first request, and `conversation_agent_prompts` holds the
+append each agent started with in it (`src/agents/prompt-snapshot.ts`). The
+snapshot is written by the request that first renders the section, so editing
+either setting steers new conversations and running ones keep the text they
+started with; the transcript shows no change, which is the point. The append is
+keyed by (conversation, agent), so switching agents gives the conversation that
+agent's own frozen append and switching back resumes it rather than today's
+setting. Delegations freeze `subagent_system_prompt` the same way, in the child
+conversation, on the first message it answers.
+
+## Switching the agent
+
+`PATCH /threads/:id/agent` points a conversation at another live agent of the
+same workspace. `chat_threads.agent_id` is the agent in use, so the switch is one
+row write and takes effect from the next message: the agent is resolved per
+submission, so nothing interrupts a run in flight. A conversation's run-settings
+overrides (model, thinking level, key) stay with the conversation unless the
+workspace no longer honours one, which the response reports as
+`clearedOverrides` so the client can say what it dropped.
+
+The switch also appends one display-only entry of kind `cake.agent-switch` to the
+conversation. It carries the new agent's id and name and no `model`, so the
+transcript renders it as a **Switched to <agent>** divider while the model never
+reads it: no fake user message, no second copy of anything the reminder already
+says.
+
+Everything that can change between two turns is not in the system message. The
+agent's instructions and a compact account of the turn — its tools with a
+one-line purpose each, the sub agents `delegate` may call with their default and
+allowed models, and its skills — travel as a **reminder**: a second text block of
+the user's own input, built fresh in `src/agents/turn-reminder.ts` on every
+submission from the live rows, so a sub agent assigned or a tool granted between
+two turns is named from the turn that sees it. The reminder is recorded in the
+entry's `data` (`kind: cake.turn`), which is what lets the transcript show it as a
+collapsed **Reminder** row under the user's line while the bubble keeps only the
+words the person typed. A steer joins the run in flight and carries no reminder.
+Sub agents get the same shape — their instructions and their own tools, never
+`ask_user` or `delegate`.
 
 Tool call arguments and results are clipped to 4,000 characters in stream frames.
 When a reader expands a clipped call, `GET /threads/:threadId/tool-calls/:callId`

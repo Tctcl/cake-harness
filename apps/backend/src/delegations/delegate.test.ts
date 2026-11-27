@@ -4,8 +4,9 @@ import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context'
 import { createModels } from '@earendil-works/pi-ai/models'
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai/providers/faux'
 import type { FauxResponseFactory } from '@earendil-works/pi-ai/providers/faux'
-import { Harness, MemoryStorage, createRegistry } from '@earendil-works/pi-durable'
-import type { Storage } from '@earendil-works/pi-durable'
+import { getCurrentSystemPrompt } from '@earendil-works/pi-ai/utils/transcript'
+import { Harness, MemoryStorage, createRegistry, defineTool } from '@earendil-works/pi-durable'
+import type { Storage, ToolRegistration } from '@earendil-works/pi-durable'
 import { describe, expect, it } from 'vitest'
 
 import { readDelegationUpdate } from '../agent.js'
@@ -14,7 +15,7 @@ import { createSubagentCakeExtension } from '../agents/cake-extension.js'
 import type { ChatThread } from '../threads/thread-repository.js'
 import type { CallableSubagent } from '../subagents/subagent-repository.js'
 import type { DelegationRecord, StartDelegation } from './delegation-repository.js'
-import { createDelegateExtension, delegatePrompt } from './delegate.js'
+import { createDelegateExtension } from './delegate.js'
 import type { DelegateExtensionOptions } from './delegate.js'
 
 const CONTEXT = BACKGROUND_CONTEXT
@@ -32,7 +33,7 @@ const callable: CallableSubagent = {
   allowedModels: ['default', 'other'],
 }
 
-const profile: AgentProfile = {
+const subagentProfile = (instructions = ''): AgentProfile => ({
   id: SUBAGENT_ID,
   kind: 'subagent',
   workspaceId: WORKSPACE_ID,
@@ -41,14 +42,29 @@ const profile: AgentProfile = {
   isDefault: false,
   allowAll: false,
   systemPromptAppend: '',
-  instructions: '',
+  instructions,
   credentialId: null,
   modelId: callable.modelId,
   thinkingLevel: callable.thinkingLevel,
   archivedAt: null,
   createdAt: new Date(0),
   updatedAt: new Date(0),
-}
+})
+
+/** A stand-in tool of the child's own selection: the reminder only names it, so it never runs. */
+const childTool = defineTool({
+  name: 'read',
+  description: 'Read the contents of a file. Supports text files and images.',
+  parameters: {
+    type: 'object',
+    properties: { path: { type: 'string' } },
+    required: ['path'],
+    additionalProperties: false,
+  },
+  async execute() {
+    return { output: [{ type: 'text', text: 'the file' }] }
+  },
+})
 
 /** MemoryStorage is retained across Harness close/open; only the harness's own close is intercepted. */
 const persistentMemory = (): { storage: Storage; close: () => Promise<void> } => {
@@ -65,7 +81,14 @@ const persistentMemory = (): { storage: Storage; close: () => Promise<void> } =>
   return { storage, close: async () => memory.close(CONTEXT) }
 }
 
-const setup = async () => {
+interface SetupOptions {
+  readonly instructions?: string
+  readonly tools?: readonly ToolRegistration[]
+  /** Stands in for the frozen append; absent, the profile's own text is what the first delegation froze. */
+  readonly promptAppend?: (conversationId: number, agentId: string) => Promise<string>
+}
+
+const setup = async (fixtureOptions: SetupOptions = {}) => {
   const faux = fauxProvider({
     provider: 'faux',
     models: [{ id: 'parent' }, { id: 'default' }, { id: 'other' }],
@@ -75,6 +98,7 @@ const setup = async () => {
   const registry = createRegistry()
   const subagentPrompt = createSubagentCakeExtension(async () => 'subagent global prompt')
   registry.install(subagentPrompt)
+  const profile = subagentProfile(fixtureOptions.instructions)
   const records = new Map<string, DelegationRecord>()
   const runSettingsCalls: { modelId: string; thinkingLevel: ThinkingLevel }[] = []
   let parentConversationId = 0
@@ -112,7 +136,12 @@ const setup = async () => {
         records.set(id, { ...current, status, resultSummary, finishedAt: new Date(1) })
       },
     },
-    toolSelection: async () => ({ extensions: [subagentPrompt], tools: [] }),
+    toolSelection: async () => ({ extensions: [subagentPrompt], tools: [...(fixtureOptions.tools ?? [])] }),
+    // No snapshot table in these cases: the frozen text is what the fixture supplies, else the profile's own.
+    promptAppend: (conversationId, agentId, live) =>
+      fixtureOptions.promptAppend === undefined
+        ? live()
+        : fixtureOptions.promptAppend(conversationId, agentId),
     runSettings: async (_profile, modelId, thinkingLevel) => {
       runSettingsCalls.push({ modelId, thinkingLevel })
 
@@ -152,20 +181,91 @@ const firstRecord = (records: Map<string, DelegationRecord>): DelegationRecord =
   return record
 }
 
-describe('delegatePrompt', () => {
-  it('lists names, descriptions, defaults and allowed models and discourages casual overrides', () => {
-    const prompt = delegatePrompt([callable])
-
-    expect(prompt).toContain('Reviewer')
-    expect(prompt).toContain('Reviews one focused task')
-    expect(prompt).toContain('Default model: default')
-    expect(prompt).toContain('default thinking level: medium')
-    expect(prompt).toContain('allowed models: default, other')
-    expect(prompt).toContain('only with good reason')
-  })
-})
-
 describe('delegate with real in-memory pi-durable storage', () => {
+  it('gives the child its instructions and tools in the reminder, never in the system message', async () => {
+    const fixture = await setup({ instructions: 'Check every claim against the file.', tools: [childTool] })
+    try {
+      const systemPrompts: string[] = []
+      const userMessages: string[] = []
+      fixture.faux.setResponses([
+        (context) => parentResponse(
+          context,
+          fauxToolCall('delegate', { subagentId: SUBAGENT_ID, task: 'Review it' }, { id: 'call-1' }),
+        ),
+        (context) => {
+          systemPrompts.push(getCurrentSystemPrompt(context.messages))
+          for (const message of context.messages) {
+            if (message.role !== 'user') continue
+            userMessages.push(typeof message.content === 'string'
+              ? message.content
+              : message.content.flatMap((block) => block.type === 'text' ? [block.text] : []).join('\n'))
+          }
+
+          return fauxAssistantMessage('child answer')
+        },
+        () => fauxAssistantMessage('parent finished'),
+      ])
+      const submission = await fixture.parent.submit({ type: 'input', content: 'start' }, CONTEXT)
+
+      await expect(submission.wait(CONTEXT)).resolves.toMatchObject({ status: 'done' })
+
+      // The child reads the task, then the reminder: its instructions, then the tools it may use this turn.
+      expect(userMessages).toHaveLength(1)
+      expect(userMessages[0]).toContain('Review it')
+      expect(userMessages[0]).toContain('Check every claim against the file.')
+      expect(userMessages[0]).toContain('read (Read the contents of a file.)')
+      expect(userMessages[0]).not.toContain('ask_user')
+      expect(userMessages[0]).not.toContain('delegate')
+      expect(userMessages[0]?.indexOf('Review it') ?? 0).toBeLessThan(
+        userMessages[0]?.indexOf('Check every claim against the file.') ?? 0,
+      )
+
+      // The system message keeps the sub agent's global prompt and nothing per-turn.
+      expect(systemPrompts[0]).toContain('subagent global prompt')
+      expect(systemPrompts[0]).not.toContain('Check every claim against the file.')
+    } finally {
+      await fixture.harness.close(CONTEXT)
+      await fixture.closeStorage()
+    }
+  }, 15_000)
+
+  it('gives the child the append it started with, not the sub agent’s current text', async () => {
+    const frozen: { conversationId: number; agentId: string }[] = []
+    const fixture = await setup({
+      promptAppend: async (conversationId, agentId) => {
+        frozen.push({ conversationId, agentId })
+
+        return 'the append this delegation started with'
+      },
+    })
+    try {
+      const systemPrompts: string[] = []
+      fixture.faux.setResponses([
+        (context) => parentResponse(
+          context,
+          fauxToolCall('delegate', { subagentId: SUBAGENT_ID, task: 'Review it' }, { id: 'call-1' }),
+        ),
+        (context) => {
+          systemPrompts.push(getCurrentSystemPrompt(context.messages))
+
+          return fauxAssistantMessage('child answer')
+        },
+        () => fauxAssistantMessage('parent finished'),
+      ])
+
+      await expect(
+        (await fixture.parent.submit({ type: 'input', content: 'start' }, CONTEXT)).wait(CONTEXT),
+      ).resolves.toMatchObject({ status: 'done' })
+
+      expect(systemPrompts[0]).toContain('the append this delegation started with')
+      // Read once, for the child conversation and the sub agent that runs it.
+      expect(frozen).toEqual([{ conversationId: firstRecord(fixture.records).childConversationId, agentId: SUBAGENT_ID }])
+    } finally {
+      await fixture.harness.close(CONTEXT)
+      await fixture.closeStorage()
+    }
+  }, 15_000)
+
   it('uses the subagent default model and returns the child answer plus stream projection', async () => {
     const fixture = await setup()
     try {

@@ -402,6 +402,9 @@ export function ProfileEditor({
         <span className="text-xs text-muted-foreground">
           Added after Cake’s {kind === 'subagent' ? 'sub agent system prompt' : 'base system prompt'}.
         </span>
+        <span className="text-xs text-muted-foreground">
+          Applies to new conversations; running ones keep the text they started with.
+        </span>
       </div>
 
       <div className="flex flex-col gap-2">

@@ -78,8 +78,10 @@ and `instructions`, and gains three columns it does not have: `allowed_models`,
 
 The application settings own the shared base system prompt. Every conversation
 receives it first, from the `cake` extension's `cake-system` section; the agent's
-system prompt append and instructions follow as separately labelled parts. New
-agents start with an empty append. The durable `pi.system` entries are projected
+system prompt append and instructions follow as separately labelled parts. Both
+the base prompt and the append are frozen when the conversation sends its first
+message, so editing either steers new conversations only — see
+[`docs/durable.md`](./durable.md). New agents start with an empty append. The durable `pi.system` entries are projected
 into context rows in the transcript, so readers can expand the exact prompt
 sections and see tools added or removed for each context change.
 
@@ -102,50 +104,46 @@ settings when it opens the harness.
 in use**, changeable. The conversation itself is filed under the workspace, which
 is what makes "switch the agent" possible without losing the thread.
 
-A conversation may also carry its own overrides (model, thinking level) so that
-changing one conversation's model does not rewrite the agent for every other
-conversation using it. **Decided:** the agent holds the real settings; a
-conversation override is written only when a user sets one for that conversation,
-and switching agent **clears** it. A conversation therefore always starts from the
-settings of the agent now running it — no model inherited from an agent that is no
-longer there.
+A conversation may also carry its own overrides (model, thinking level and key)
+so that changing one conversation's model does not rewrite the agent for every
+other conversation using it. **Decided:** the agent holds the real settings; a
+conversation override is written only when a user sets one for that conversation.
+Switching agent **keeps** the overrides that still hold — a model the workspace
+allows is the same model whichever agent runs it — and clears only the ones the
+workspace no longer honours, naming them in the response so the change is not
+silent.
 
 ## Switching the agent mid-session
 
-Switching is three steps, and only the first is new code:
+`chat_threads.agent_id` is **the agent in use**, changeable:
+`PATCH /threads/:id/agent` writes the row and nothing else, and the switch takes
+effect from the next message because the agent is resolved per submission — a run
+in flight is never interrupted or restarted.
 
-1. **Restart the harness.** The `Supervisor` in `apps/backend/src/agent.ts` already
-   does exactly this for a failed `Session`: `discard()` drops the instance, the
-   next request reopens it over the same durable log. A settings change calls the
-   same path, so "close the harness and recreate it with the new settings but the
-   old session log" is a call, not a subsystem.
-2. **Assemble the prompt per request** from the agent that is active *now*,
-   rather than baking it into the harness at open. The prompt is a function of
-   (agent, workspace ceilings), not of the log.
-3. **Write a marker entry** into the conversation recording the switch: which
-   agent, its instructions, and the fact that earlier turns ran under different
-   ones.
+The prompt is assembled per request from the agent that is active *now*: its
+tools, MCP servers, skills and callable sub agents travel in the turn's reminder,
+and its system prompt append travels in the system message. What does **not**
+change is the app-wide system prompt: it is frozen per conversation on the first
+message (`docs/durable.md`), because the provider caches the longest identical
+prefix of a request and a prompt that moves up front invalidates everything after
+it. The append is frozen per (conversation, agent) for the same reason, so a
+conversation that switches back to an earlier agent resumes the text that agent
+started with rather than today's setting.
 
-The third step exists because of the problem the pivot creates: a conversation
-that switches from a plan agent to a build agent still contains turns written
-under the plan instructions, and the model reads them as its own. Two honest
-answers were considered:
+Each switch appends one **display-only** entry, `cake.agent-switch`, carrying the
+new agent's id and name. The transcript renders it as a *Switched to …* divider;
+the model never reads it, because the entry contributes no message to context. Two
+honest answers were considered:
 
-- **Per-request prompt plus a marker entry (decided).** The transcript records
-  *that* the agent changed and what it became; the model is told plainly that
-  earlier turns ran under other instructions. One entry per switch, no rewriting
-  of history, and the setting can be changed again immediately.
-- **Boundary entry only** — fold the restatement into the marker and stop
-  assembling per request. Fewer moving parts, but then the prompt is a property
-  of the log, and a second switch has to append again.
+- **A divider the model cannot see (decided).** The person learns where the
+  conversation changed hands, and prompts keep the shape that caching rewards.
+- **A marker message telling the model that earlier turns ran under other
+  instructions.** Clearer to the model about history, but it is a user message the
+  person did not write, and it rewrites the start of the context on every switch.
 
 What is explicitly not done: silently swapping the instructions and letting the
-model infer. That is the behaviour the pivot was meant to avoid.
-
-The same mechanism serves a settings-only change — a new model or thinking level
-with the same agent. It writes no marker, because the instructions did not change,
-and it still restarts the harness, because the harness holds the model it opened
-with.
+model infer. That is what the reminder covers — it is rebuilt from live rows on
+every submission, so the turn after a switch is told what the new agent can do.
 
 ## The container
 

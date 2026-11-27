@@ -180,6 +180,15 @@ export class ThreadRepository {
     return rows[0] === undefined ? undefined : toThread(rows[0])
   }
 
+  /** Point the conversation at another agent; the next message resolves it, so a run in flight is untouched. */
+  async setAgent(id: string, agentId: string): Promise<ChatThread | undefined> {
+    const text = `UPDATE ${this.#schema.tables.chatThreads} SET agent_id = $2, updated_at = now()
+      WHERE id = $1 RETURNING ${COLUMNS}`
+    const rows = await this.#select(text, [id, agentId])
+
+    return rows[0] === undefined ? undefined : toThread(rows[0])
+  }
+
   /** A person's rename wins permanently; clearing it explicitly hands title eligibility back to automation. */
   async rename(id: string, title: string | null): Promise<ChatThread | undefined> {
     const text = `UPDATE ${this.#schema.tables.chatThreads}

@@ -1,5 +1,6 @@
 import { ArrowDownIcon } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 
 import type { ChatAgent, ChatLive, ChatMessage, ChatThread, ChatToolCall } from '../../lib/chat-api.ts'
 import { getWorkspace, listAgents, readThread } from '../../lib/chat-api.ts'
@@ -39,6 +40,8 @@ import { ToolCallRow, ToolTrace } from './tool-trace.tsx'
 interface RunControlState {
   readonly thread: ChatThread
   readonly agent: ChatAgent
+  /** Every live agent of the workspace, so the composer can switch between them without another request. */
+  readonly agents: readonly ChatAgent[]
   readonly choices: Choices
   readonly subagentNames: ReadonlyMap<string, string>
 }
@@ -93,6 +96,7 @@ export function ChatPane({
       setRunControls({
         thread,
         agent,
+        agents,
         choices: choicesOf(workspace, logins, models, providers),
         subagentNames: new Map([...subagents, ...archivedSubagents].map((subagent) => [subagent.id, subagent.name])),
       })
@@ -151,27 +155,26 @@ export function ChatPane({
       )}
 
       <div className="px-4">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
-          <PromptInput label="Message" onSend={(text) => send(threadId, text)} />
-          {/* The row is reserved before the controls load: appearing later would shrink the transcript under the
+        <PromptInput label="Message" onSend={(text) => send(threadId, text)}>
+          {/* The composer keeps its height before the controls load: growing later would shrink the transcript under the
               reader and leave it scrolled off its newest line, which stops it following the conversation. */}
           {visibleRunControls === null ? (
-            <div className="h-7" aria-hidden />
+            <div className="h-7 w-full" aria-hidden />
           ) : (
             <RunControls
               key={threadId}
-              thread={visibleRunControls.thread}
-              agent={visibleRunControls.agent}
-              choices={visibleRunControls.choices}
+              value={visibleRunControls}
               onError={reportRunSettingsError}
-              onChange={(updated) =>
+              onChange={(next) =>
                 setRunControls((current) =>
-                  current?.thread.id === updated.id ? { ...current, thread: updated } : current,
+                  current?.thread.id === next.thread.id
+                    ? { ...current, thread: next.thread, agent: next.agent }
+                    : current,
                 )
               }
             />
           )}
-        </div>
+        </PromptInput>
       </div>
     </div>
   )
@@ -344,6 +347,30 @@ function transcriptSize(state: ThreadSnapshot): string {
   return `${state.messages.length}|${state.pending.length}|${state.tools.length}|${state.live.compacting}|${live}`
 }
 
+/** The quiet card the context line and a turn's reminder share: a title and small, collapsed detail rows. */
+function ContextCard({ title, children }: { title?: string | undefined; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-sm border border-border/60 px-3 py-2 text-xs">
+      {title === undefined ? null : (
+        <span className="font-medium text-muted-foreground">{title}</span>
+      )}
+      {children}
+    </div>
+  )
+}
+
+/** One collapsed row of a context card, opening to the exact text the model read. */
+function ContextRow({ summary, text }: { summary: string; text: string }) {
+  return (
+    <details className="min-w-0">
+      <summary className="cursor-pointer text-muted-foreground">{summary}</summary>
+      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-sm bg-muted p-2 font-mono">
+        {text}
+      </pre>
+    </details>
+  )
+}
+
 /** A transcript line: user input, an ordered assistant turn, or a visible context boundary. */
 function Line({
   message,
@@ -367,8 +394,24 @@ function Line({
           <Bubble align="end">
             <BubbleContent>{message.text}</BubbleContent>
           </Bubble>
+          {/* The reminder is not the person's words: it sits under their line, collapsed, never inside the bubble. */}
+          {message.reminder === undefined ? null : (
+            <ContextCard>
+              <ContextRow summary="Reminder" text={message.reminder} />
+            </ContextCard>
+          )}
         </MessageContent>
       </Message>
+    )
+  }
+
+  if (message.role === 'switch') {
+    return (
+      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <hr className="flex-1 border-border" />
+        <span className="text-center">Switched to {message.text}</span>
+        <hr className="flex-1 border-border" />
+      </div>
     )
   }
 
@@ -391,34 +434,24 @@ function Line({
     const removed = message.toolsRemoved ?? []
 
     return (
-      <div className="flex flex-col gap-1 rounded-sm border border-border/60 px-3 py-2 text-xs">
-        <span className="font-medium text-muted-foreground">
-          {firstContext ? 'Context sent' : 'Context updated'}
-        </span>
+      <ContextCard title={firstContext ? 'Context sent' : 'Context updated'}>
         {sections.map(({ key, text }) => (
-          <details key={key} className="min-w-0">
-            <summary className="cursor-pointer text-muted-foreground">
-              {key === 'cake-system' ? 'System prompt' : key === 'instructions' ? 'Agent instructions' : key}
-            </summary>
-            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-sm bg-muted p-2 font-mono">
-              {text ?? 'Removed'}
-            </pre>
-          </details>
+          <ContextRow
+            key={key}
+            summary={key === 'cake-system' ? 'System prompt' : key === 'instructions' ? 'Agent instructions' : key}
+            text={text ?? 'Removed'}
+          />
         ))}
         {added.length > 0 || removed.length > 0 ? (
-          <details>
-            <summary className="cursor-pointer text-muted-foreground">
-              {added.length > 0 ? `Tools offered: ${added.join(', ')}` : `Tools removed: ${removed.join(', ')}`}
-            </summary>
-            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-sm bg-muted p-2 font-mono">
-              {[
-                ...(added.length > 0 ? [`Added: ${added.join(', ')}`] : []),
-                ...(removed.length > 0 ? [`Removed: ${removed.join(', ')}`] : []),
-              ].join('\n')}
-            </pre>
-          </details>
+          <ContextRow
+            summary={added.length > 0 ? `Tools offered: ${added.join(', ')}` : `Tools removed: ${removed.join(', ')}`}
+            text={[
+              ...(added.length > 0 ? [`Added: ${added.join(', ')}`] : []),
+              ...(removed.length > 0 ? [`Removed: ${removed.join(', ')}`] : []),
+            ].join('\n')}
+          />
         ) : null}
-      </div>
+      </ContextCard>
     )
   }
 

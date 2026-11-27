@@ -58,10 +58,35 @@ const threadProperties = {
   updatedAt: { type: 'string' },
 } as const
 
+const threadRequired = [
+  'id',
+  'title',
+  'titleSource',
+  'workspaceId',
+  'agentId',
+  'overrides',
+  'archivedAt',
+  'createdAt',
+  'updatedAt',
+] as const
+
 const threadSchema = {
   type: 'object',
   properties: threadProperties,
-  required: ['id', 'title', 'titleSource', 'workspaceId', 'agentId', 'overrides', 'archivedAt', 'createdAt', 'updatedAt'],
+  required: threadRequired,
+} as const
+
+// A switch answers the thread it changed plus what it had to drop, so the client never has to guess why a setting moved.
+const agentSwitchSchema = {
+  type: 'object',
+  properties: {
+    ...threadProperties,
+    clearedOverrides: {
+      type: 'array',
+      items: { type: 'string', enum: ['credentialId', 'modelId', 'thinkingLevel'] },
+    },
+  },
+  required: [...threadRequired, 'clearedOverrides'],
 } as const
 
 const threadListSchema = {
@@ -90,6 +115,13 @@ const renameThreadBody = {
 const runSettingsBody = {
   type: 'object',
   properties: overrideProperties,
+  additionalProperties: false,
+} as const
+
+const switchAgentBody = {
+  type: 'object',
+  properties: { agentId: { type: 'string', pattern: uuid } },
+  required: ['agentId'],
   additionalProperties: false,
 } as const
 
@@ -134,7 +166,7 @@ const messageSchema = {
   type: 'object',
   properties: {
     id: { type: 'number' },
-    role: { type: 'string', enum: ['user', 'assistant', 'compaction', 'reset', 'context'] },
+    role: { type: 'string', enum: ['user', 'assistant', 'compaction', 'reset', 'context', 'switch'] },
     text: { type: 'string' },
     blocks: {
       type: 'array',
@@ -143,6 +175,7 @@ const messageSchema = {
     stopReason: { type: ['string', 'null'] },
     errorMessage: { type: ['string', 'null'] },
     reason: { type: ['string', 'null'] },
+    reminder: { type: 'string' },
     sections: { type: 'array', items: contextSectionSchema },
     toolsAdded: { type: 'array', items: { type: 'string' } },
     toolsRemoved: { type: 'array', items: { type: 'string' } },
@@ -262,6 +295,10 @@ interface RenameThreadBody {
 }
 
 type RunSettingsBody = RunSettingsPatch
+
+interface SwitchAgentBody {
+  agentId: string
+}
 
 const STREAM_HEADERS = {
   'content-type': 'text/event-stream; charset=utf-8',
@@ -417,6 +454,17 @@ export const threadRoutes: FastifyPluginAsync<{ agent: Agent }> = async (server,
       if (thread === undefined) throw notFound()
 
       return toThread(thread)
+    },
+  )
+
+  server.patch<{ Params: ThreadIdParams; Body: SwitchAgentBody }>(
+    '/threads/:threadId/agent',
+    { schema: { params: threadIdParams, body: switchAgentBody, response: { 200: agentSwitchSchema } } },
+    async (request) => {
+      const switched = await options.agent.switchThreadAgent(request.params.threadId, request.body.agentId)
+      if (switched === undefined) throw notFound()
+
+      return { ...toThread(switched.thread), clearedOverrides: switched.clearedOverrides }
     },
   )
 

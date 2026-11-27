@@ -276,6 +276,7 @@ function stubAgent(overrides: Partial<Agent> = {}): Agent {
     }),
     renameThread: async () => undefined,
     updateThreadRunSettings: async () => undefined,
+    switchThreadAgent: async () => undefined,
     submit: async () => SUBMISSION_ID,
     watch: async () => async () => {},
     close: async () => {},
