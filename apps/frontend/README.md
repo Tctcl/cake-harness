@@ -80,6 +80,17 @@ the panes report the failure instead of rendering a transcript.
   conversation's token and cost totals, and the live activity; the snapshot keeps
   them and the pane and the info panel render them. Nothing is fetched a
   second time to fill in the info panel.
+- **The composer is one box.** `prompt-input.tsx` holds the textarea and, in a
+  row under it, `run-controls.tsx`: a button naming the conversation's agent
+  (its menu lists the workspace's agents with their descriptions, the current one
+  checked), and one compact `model · thinking` button whose menu holds the
+  models, a *Thinking ›* submenu and a *Key ›* submenu, each starting with "Agent
+  default". Picking an agent is `PATCH /threads/:id/agent`, picking any of the
+  three settings is `PATCH /threads/:id/run-settings`; both show optimistically
+  and are put back if the backend refuses, with the refusal above the composer.
+  The menus are the app's `DropdownMenu` (`radix-ui`), so they are keyboard
+  operable: Enter or Space opens, arrow keys move, Escape closes. The row wraps
+  and each trigger truncates, so the composer still works at 375px.
 - **The column has a reading width.** The transcript and the composer sit in a
   `max-w-3xl` column centred in the pane, so a wide window does not stretch a
   reply's measure, and tool payloads open inside that column rather than

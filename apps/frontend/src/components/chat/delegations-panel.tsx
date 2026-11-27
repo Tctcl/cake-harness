@@ -159,6 +159,14 @@ function CompactMessage({ message }: { readonly message: ChatMessage }) {
     )
   }
 
+  if (message.role === 'switch') {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        <span className="mr-1 font-medium text-foreground">Switched to</span>{message.text}
+      </p>
+    )
+  }
+
   if (message.role !== 'assistant') {
     return (
       <details className="text-[11px] text-muted-foreground">

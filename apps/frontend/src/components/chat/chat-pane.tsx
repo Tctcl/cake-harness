@@ -40,6 +40,8 @@ import { ToolCallRow, ToolTrace } from './tool-trace.tsx'
 interface RunControlState {
   readonly thread: ChatThread
   readonly agent: ChatAgent
+  /** Every live agent of the workspace, so the composer can switch between them without another request. */
+  readonly agents: readonly ChatAgent[]
   readonly choices: Choices
   readonly subagentNames: ReadonlyMap<string, string>
 }
@@ -94,6 +96,7 @@ export function ChatPane({
       setRunControls({
         thread,
         agent,
+        agents,
         choices: choicesOf(workspace, logins, models, providers),
         subagentNames: new Map([...subagents, ...archivedSubagents].map((subagent) => [subagent.id, subagent.name])),
       })
@@ -152,27 +155,26 @@ export function ChatPane({
       )}
 
       <div className="px-4">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
-          <PromptInput label="Message" onSend={(text) => send(threadId, text)} />
-          {/* The row is reserved before the controls load: appearing later would shrink the transcript under the
+        <PromptInput label="Message" onSend={(text) => send(threadId, text)}>
+          {/* The composer keeps its height before the controls load: growing later would shrink the transcript under the
               reader and leave it scrolled off its newest line, which stops it following the conversation. */}
           {visibleRunControls === null ? (
-            <div className="h-7" aria-hidden />
+            <div className="h-7 w-full" aria-hidden />
           ) : (
             <RunControls
               key={threadId}
-              thread={visibleRunControls.thread}
-              agent={visibleRunControls.agent}
-              choices={visibleRunControls.choices}
+              value={visibleRunControls}
               onError={reportRunSettingsError}
-              onChange={(updated) =>
+              onChange={(next) =>
                 setRunControls((current) =>
-                  current?.thread.id === updated.id ? { ...current, thread: updated } : current,
+                  current?.thread.id === next.thread.id
+                    ? { ...current, thread: next.thread, agent: next.agent }
+                    : current,
                 )
               }
             />
           )}
-        </div>
+        </PromptInput>
       </div>
     </div>
   )
@@ -400,6 +402,16 @@ function Line({
           )}
         </MessageContent>
       </Message>
+    )
+  }
+
+  if (message.role === 'switch') {
+    return (
+      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <hr className="flex-1 border-border" />
+        <span className="text-center">Switched to {message.text}</span>
+        <hr className="flex-1 border-border" />
+      </div>
     )
   }
 

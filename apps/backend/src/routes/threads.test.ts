@@ -12,6 +12,7 @@ import { buildServer } from '../server.js'
 import { createPool } from '../storage/postgres/db.js'
 import { CURRENT_SCHEMA_VERSION, createSchema, migrate } from '../storage/postgres/schema.js'
 import { LOCAL_USER_ID } from '../threads/local-user.js'
+import { switchThreadAgent as switchAgent } from '../threads/agent-switch.js'
 import { ThreadRepository } from '../threads/thread-repository.js'
 import { updateThreadRunSettings } from '../threads/thread-run-settings.js'
 import { WorkspaceRepository } from '../workspaces/workspace-repository.js'
@@ -51,6 +52,14 @@ if (url === undefined) {
     )
     const profile = await agents.default(workspace.id)
     if (profile === undefined) throw new Error('the workspace was created without its default agent')
+    const reviewer = await agents.create(workspace.id, { name: 'Reviewer', allowAll: false })
+    const elsewhere = await workspaces.create(
+      LOCAL_USER_ID,
+      { name: 'Elsewhere', description: '', allowAll: false },
+      'test-image',
+    )
+    const stranger = await agents.default(elsewhere.id)
+    if (stranger === undefined) throw new Error('the second workspace was created without its default agent')
 
     const key = await credentials.create(LOCAL_USER_ID, {
       kind: 'opencode-go',
@@ -82,6 +91,7 @@ if (url === undefined) {
         modelIds: new Set([DEFAULT_MODEL_ID, 'kimi-k3']),
       }),
     }
+    const dividers: string[] = []
     const auth = new AuthService({ pool, schema, secrets: config.secrets })
     // Registration builds every route, while this suite exercises thread and answer endpoints through inject().
     const agent = {
@@ -101,9 +111,34 @@ if (url === undefined) {
       },
       updateThreadRunSettings: (id: string, patch: Parameters<typeof updateThreadRunSettings>[2]) =>
         updateThreadRunSettings(stores, id, patch),
+      // The divider's durable entry needs a harness; this suite records that it was asked for instead.
+      switchThreadAgent: (id: string, agentId: string) =>
+        switchAgent(
+          {
+            threads,
+            agents,
+            reachOf,
+            keyCatalog: stores.keyCatalog,
+            record: async (_switched, next) => {
+              dividers.push(next.name)
+            },
+          },
+          id,
+          agentId,
+        ),
     } as unknown as Agent
 
-    return { server: buildServer(config, { agent }), thread, threads, key, pool, schema }
+    return {
+      server: buildServer(config, { agent }),
+      thread,
+      threads,
+      key,
+      pool,
+      schema,
+      reviewer,
+      stranger,
+      dividers,
+    }
   }
 
   describe('thread run settings routes', () => {
@@ -169,6 +204,84 @@ if (url === undefined) {
           expect(cleared.statusCode).toBe(200)
           expect(cleared.json()).toMatchObject({ overrides: expected })
         }
+      } finally {
+        await server.close()
+      }
+    })
+
+    it('switches the conversation to another agent of its workspace and records one divider', async () => {
+      const { server, thread, threads, reviewer, dividers } = await serve()
+      try {
+        const switched = await server.inject({
+          method: 'PATCH',
+          url: `/threads/${thread.id}/agent`,
+          payload: { agentId: reviewer.id },
+        })
+
+        expect(switched.statusCode).toBe(200)
+        expect(switched.json()).toMatchObject({
+          id: thread.id,
+          agentId: reviewer.id,
+          clearedOverrides: [],
+        })
+        await expect(threads.find(thread.id)).resolves.toMatchObject({ agentId: reviewer.id })
+        expect(dividers).toEqual(['Reviewer'])
+      } finally {
+        await server.close()
+      }
+    })
+
+    it('refuses another workspace’s agent, an unknown agent and a malformed id', async () => {
+      const { server, thread, stranger, threads } = await serve()
+      try {
+        const foreign = await server.inject({
+          method: 'PATCH',
+          url: `/threads/${thread.id}/agent`,
+          payload: { agentId: stranger.id },
+        })
+        expect(foreign.statusCode).toBe(400)
+        expect(foreign.json()).toMatchObject({ error: { code: 'AGENT_WORKSPACE_MISMATCH' } })
+
+        const unknown = await server.inject({
+          method: 'PATCH',
+          url: `/threads/${thread.id}/agent`,
+          payload: { agentId: '00000000-0000-4000-8000-000000000000' },
+        })
+        expect(unknown.statusCode).toBe(404)
+        expect(unknown.json()).toMatchObject({ error: { code: 'AGENT_NOT_FOUND' } })
+
+        const malformed = await server.inject({
+          method: 'PATCH',
+          url: `/threads/${thread.id}/agent`,
+          payload: { agentId: 'reviewer' },
+        })
+        expect(malformed.statusCode).toBe(400)
+
+        // Nothing moved: a refused switch is not a partial one.
+        await expect(threads.find(thread.id)).resolves.toMatchObject({ agentId: thread.agentId })
+      } finally {
+        await server.close()
+      }
+    })
+
+    it('drops an override the workspace no longer honours and says which', async () => {
+      const { server, thread, threads, reviewer } = await serve()
+      try {
+        // Stored directly: the API refuses this model, which is what a workspace that changed its mind leaves behind.
+        await threads.updateRunSettings(thread.id, { modelId: 'kimi-k3' })
+
+        const switched = await server.inject({
+          method: 'PATCH',
+          url: `/threads/${thread.id}/agent`,
+          payload: { agentId: reviewer.id },
+        })
+
+        expect(switched.statusCode).toBe(200)
+        expect(switched.json()).toMatchObject({
+          agentId: reviewer.id,
+          overrides: { credentialId: null, modelId: null, thinkingLevel: null },
+          clearedOverrides: ['modelId'],
+        })
       } finally {
         await server.close()
       }

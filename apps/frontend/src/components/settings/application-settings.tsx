@@ -143,6 +143,9 @@ function PromptEditor({
       <div className="flex flex-col gap-2">
         <Label htmlFor={inputId}>{label}</Label>
         <Textarea id={inputId} rows={12} value={value} onChange={(event) => onChange(event.target.value)} />
+        <span className="text-xs text-muted-foreground">
+          Applies to new conversations; running ones keep the text they started with.
+        </span>
       </div>
       {error === null ? null : <p role="alert" className="text-destructive">{error}</p>}
       {saved ? <output className="text-muted-foreground">{label} saved.</output> : null}

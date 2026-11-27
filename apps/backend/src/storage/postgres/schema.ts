@@ -41,6 +41,9 @@ export type PostgresSchema = {
     readonly documentRevisions: string
     readonly users: string
     readonly chatThreads: string
+    /** The prompt text a conversation started with, frozen so its request prefix never moves under the cache. */
+    readonly conversationPrompts: string
+    readonly conversationAgentPrompts: string
     readonly workspaces: string
     readonly agents: string
     readonly subagentCallers: string
@@ -141,6 +144,8 @@ const DURABLE_TABLE_NAMES = {
 const PLATFORM_TABLE_NAMES = {
   users: 'users',
   chatThreads: 'chat_threads',
+  conversationPrompts: 'conversation_prompts',
+  conversationAgentPrompts: 'conversation_agent_prompts',
   workspaces: 'workspaces',
   agents: 'agents',
   subagentCallers: 'subagent_callers',
@@ -1158,6 +1163,29 @@ const automaticTitlesMigration = (schema: PostgresSchema): readonly string[] => 
   `ALTER TABLE ${schema.tables.chatThreads} ADD COLUMN auto_title_entry_id bigint`,
 ]
 
+/**
+ * The text a conversation started with, kept by conversation rather than by thread: a delegation's child conversation
+ * has no thread row, and a conversation may run under more than one agent (switching), each with its own append.
+ */
+const promptSnapshotMigration = (schema: PostgresSchema): readonly string[] => {
+  const { tables } = schema
+
+  return [
+    `CREATE TABLE ${tables.conversationPrompts} (
+      conversation_id bigint PRIMARY KEY,
+      system_prompt text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`,
+    `CREATE TABLE ${tables.conversationAgentPrompts} (
+      conversation_id bigint NOT NULL,
+      agent_id uuid NOT NULL REFERENCES ${tables.agents} (id) ON DELETE CASCADE,
+      system_prompt_append text NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (conversation_id, agent_id)
+    )`,
+  ]
+}
+
 /** Ordered schema history: a released version is never edited, a change appends one. */
 export const MIGRATIONS: readonly { version: number; statements: (schema: PostgresSchema) => readonly string[] }[] = [
   { version: 1, statements: migration },
@@ -1187,6 +1215,7 @@ export const MIGRATIONS: readonly { version: number; statements: (schema: Postgr
   { version: 25, statements: subagentMigration },
   { version: 26, statements: subagentModelsMigration },
   { version: 27, statements: automaticTitlesMigration },
+  { version: 28, statements: promptSnapshotMigration },
 ]
 
 export const CURRENT_SCHEMA_VERSION = MIGRATIONS.at(-1)?.version ?? 0

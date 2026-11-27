@@ -39,6 +39,19 @@ vi.mock('../../lib/chat-api.ts', async (importOriginal) => {
         modelId: null,
         thinkingLevel: 'low',
       },
+      {
+        id: '5d4e3f60-7b8c-4d1e-9f2a-3b4c5d6e7f80',
+        workspaceId: '3b2c1d4e-5f6a-4b8c-9d0e-1f2a3b4c5d6e',
+        name: 'Reviewer',
+        description: 'Reviews one focused change',
+        isDefault: false,
+        allowAll: false,
+        systemPromptAppend: '',
+        instructions: '',
+        credentialId: null,
+        modelId: 'kimi-k3',
+        thinkingLevel: 'low',
+      },
     ],
   }
 })
@@ -50,6 +63,7 @@ vi.mock('../../lib/subagent-api.ts', () => ({
 vi.mock('../../lib/provider-api.ts', () => ({
   listProviderLogins: async () => [
     { id: 'key-1', provider: 'opencode-go', label: 'Work key', createdAt: '2026-01-01T00:00:00.000Z' },
+    { id: 'key-2', provider: 'opencode-go', label: 'Spare key', createdAt: '2026-01-02T00:00:00.000Z' },
   ],
   listProviderModels: async () => [
     {
@@ -76,13 +90,15 @@ vi.mock('../../lib/provider-api.ts', () => ({
     },
   ],
   getWorkspaceProviders: async () => ({
-    loginIds: ['key-1'],
+    loginIds: ['key-1', 'key-2'],
     allowedModels: ['deepseek-v4.1-flash', 'kimi-k3'],
     allowAllModels: false,
   }),
 }))
 
 const THREAD_ID = '2f1c1f9e-3f6d-4b0a-9d1e-1a2b3c4d5e6f'
+const REVIEWER_ID = '5d4e3f60-7b8c-4d1e-9f2a-3b4c5d6e7f80'
+const OVERRIDES = { credentialId: null, modelId: null, thinkingLevel: null }
 
 /** The stream the pane opens: the store only needs a listener table and an explicit frame emitter. */
 class FakeStream {
@@ -136,8 +152,13 @@ const threadResponse = (thinkingLevel: 'high' | null) => ({
   title: 'First',
   workspaceId: '3b2c1d4e-5f6a-4b8c-9d0e-1f2a3b4c5d6e',
   agentId: '4c3d2e5f-6a7b-4c9d-8e1f-2a3b4c5d6e7f',
-  overrides: { credentialId: null, modelId: null, thinkingLevel },
+  overrides: { ...OVERRIDES, thinkingLevel },
 })
+
+/** The composer's menus are the app's dropdown: a click on the trigger, then on the item. Keyboard-opened here. */
+const openMenu = (trigger: HTMLElement): void => {
+  fireEvent.keyDown(trigger, { key: 'Enter' })
+}
 
 /** A stream frame is the whole visible state, not just the lines: tools, model and spend travel with it. */
 const frame = (messages: ChatMessage[], tools: unknown[] = []) => ({
@@ -257,6 +278,50 @@ describe('ChatPane', () => {
     expect(transcript.indexOf('committed reasoning')).toBeLessThan(transcript.indexOf('read'))
     expect(transcript.indexOf('read')).toBeLessThan(transcript.indexOf('committed final text'))
     expect(transcript.indexOf('committed final text')).toBeLessThan(transcript.indexOf('later answer'))
+  })
+
+  it('shows a switch as a divider rather than a message from either side', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => reply({ messages: [], nextCursor: null })))
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    await screen.findByRole('button', { name: 'Agent: General' })
+
+    stream()?.emit(
+      STREAM_EVENT,
+      frame([
+        chatMessage(5, 'user', 'a question'),
+        chatMessage(6, 'switch', 'Reviewer'),
+        chatMessage(7, 'assistant', 'a review'),
+      ]),
+    )
+
+    expect(await screen.findByText('Switched to Reviewer')).toBeInTheDocument()
+    // The divider is its own line: no bubble, and nothing the transcript shows as typed or answered.
+    expect(screen.queryByText('Reviewer')).not.toBeInTheDocument()
+  })
+
+  it('says which overrides a switch had to clear', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_path: string, init?: RequestInit) =>
+        init?.method === 'PATCH'
+          ? reply({
+              ...threadResponse(null),
+              agentId: REVIEWER_ID,
+              overrides: { ...OVERRIDES, modelId: null },
+              clearedOverrides: ['modelId'],
+            })
+          : reply({ messages: [], nextCursor: null }),
+      ),
+    )
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    openMenu(await screen.findByRole('button', { name: 'Agent: General' }))
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: /Reviewer/ }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'This conversation’s model setting no longer applies here, so it was cleared.',
+    )
   })
 
   it('shows a compaction as a collapsed context row rather than a user bubble', async () => {
@@ -718,56 +783,122 @@ describe('ChatPane', () => {
     expect(onSetUpKeys).toHaveBeenCalledOnce()
   })
 
-  it('shows the agent defaults in the conversation run controls', async () => {
+  it('shows the agent, the model and the thinking level in the composer', async () => {
     vi.stubGlobal('fetch', vi.fn(() => reply({ messages: [], nextCursor: null })))
 
     render(<ChatPane threadId={THREAD_ID} />)
 
-    expect(await screen.findByRole('combobox', { name: 'Model' })).toHaveDisplayValue(
-      'Agent default (deepseek-v4.1-flash)',
+    expect(await screen.findByRole('button', { name: 'Agent: General' })).toHaveTextContent('General')
+    // One compact control for the model and the thinking level it runs with.
+    expect(screen.getByRole('button', { name: 'Model and thinking: DeepSeek Flash, low' })).toHaveTextContent(
+      'DeepSeek Flash·low',
     )
-    expect(screen.getByRole('combobox', { name: 'Thinking' })).toHaveDisplayValue('Agent default (low)')
-    expect(screen.getByRole('combobox', { name: 'Key' })).toHaveDisplayValue('Agent default (Work key)')
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
   })
 
-  it('patches a thinking override as soon as it is chosen', async () => {
+  it('switches the conversation to another agent from the composer', async () => {
     const backend = vi.fn((_path: string, init?: RequestInit) =>
-      init?.method === 'PATCH' ? reply(threadResponse('high')) : reply({ messages: [], nextCursor: null }),
+      init?.method === 'PATCH'
+        ? reply({ ...threadResponse(null), agentId: REVIEWER_ID, clearedOverrides: [] })
+        : reply({ messages: [], nextCursor: null }),
     )
     vi.stubGlobal('fetch', backend)
 
     render(<ChatPane threadId={THREAD_ID} />)
-    const thinking = await screen.findByRole('combobox', { name: 'Thinking' })
-    fireEvent.change(thinking, { target: { value: 'high' } })
+    const picker = await screen.findByRole('button', { name: 'Agent: General' })
+    openMenu(picker)
+    // The menu names each agent with the description that says what it is for.
+    expect(await screen.findByText('Reviews one focused change')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitemradio', { name: /Reviewer/ }))
 
-    await waitFor(() => expect(thinking).toHaveValue('high'))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Agent: Reviewer' })).toBeInTheDocument())
     const patch = backend.mock.calls.find((call) => call[1]?.method === 'PATCH')
-    expect(patch?.[0]).toBe(`/threads/${THREAD_ID}/run-settings`)
-    expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ thinkingLevel: 'high' })
+    expect(patch?.[0]).toBe(`/threads/${THREAD_ID}/agent`)
+    expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ agentId: REVIEWER_ID })
+    // The new agent's own default replaces the one the previous agent ran with.
+    expect(screen.getByRole('button', { name: /Model and thinking/ })).toHaveTextContent('Kimi K3·low')
   })
 
-  it('sends null when thinking returns to the agent default', async () => {
+  it('closes the composer menus with Escape', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => reply({ messages: [], nextCursor: null })))
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    const picker = await screen.findByRole('button', { name: 'Agent: General' })
+    expect(picker).toHaveAttribute('aria-haspopup', 'menu')
+    openMenu(picker)
+    expect(await screen.findByRole('menuitemradio', { name: /Reviewer/ })).toBeInTheDocument()
+
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+
+    await waitFor(() => expect(screen.queryByRole('menuitemradio', { name: /Reviewer/ })).not.toBeInTheDocument())
+  })
+
+  it('sets the model, the thinking level and the key from the model menu', async () => {
+    const backend = vi.fn((_path: string, init?: RequestInit) =>
+      init?.method === 'PATCH'
+        ? reply({ ...threadResponse(null), overrides: { ...OVERRIDES, ...JSON.parse(String(init.body)) } })
+        : reply({ messages: [], nextCursor: null }),
+    )
+    vi.stubGlobal('fetch', backend)
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    openMenu(await screen.findByRole('button', { name: /Model and thinking/ }))
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Kimi K3' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Model and thinking: Kimi K3, low' })).toBeInTheDocument(),
+    )
+
+    openMenu(screen.getByRole('button', { name: /Model and thinking/ }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Thinking' }))
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'high' }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Model and thinking: Kimi K3, high' })).toBeInTheDocument(),
+    )
+
+    openMenu(screen.getByRole('button', { name: /Model and thinking/ }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Key' }))
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Spare key' }))
+
+    await waitFor(() => {
+      const patches = backend.mock.calls.filter((call) => call[1]?.method === 'PATCH')
+      expect(patches.map((call) => [call[0], JSON.parse(String(call[1]?.body))])).toEqual([
+        [`/threads/${THREAD_ID}/run-settings`, { modelId: 'kimi-k3' }],
+        [`/threads/${THREAD_ID}/run-settings`, { thinkingLevel: 'high' }],
+        [`/threads/${THREAD_ID}/run-settings`, { credentialId: 'key-2' }],
+      ])
+    })
+  })
+
+  it('hands a setting back to the agent default with null', async () => {
     const backend = vi.fn((_path: string, init?: RequestInit) => {
       if (init?.method !== 'PATCH') return reply({ messages: [], nextCursor: null })
-      const body = JSON.parse(String(init.body)) as { thinkingLevel: 'high' | null }
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>
 
-      return reply(threadResponse(body.thinkingLevel))
+      return reply({
+        ...threadResponse(null),
+        overrides: {
+          credentialId: body['credentialId'] === undefined ? 'key-2' : body['credentialId'],
+          modelId: body['modelId'] === undefined ? 'kimi-k3' : body['modelId'],
+          thinkingLevel: body['thinkingLevel'] === undefined ? 'high' : body['thinkingLevel'],
+        },
+      })
     })
     vi.stubGlobal('fetch', backend)
 
     render(<ChatPane threadId={THREAD_ID} />)
-    const thinking = await screen.findByRole('combobox', { name: 'Thinking' })
-    fireEvent.change(thinking, { target: { value: 'high' } })
-    await waitFor(() => expect(thinking).toHaveValue('high'))
-    fireEvent.change(thinking, { target: { value: '' } })
+    openMenu(await screen.findByRole('button', { name: /Model and thinking/ }))
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Agent default (deepseek-v4.1-flash)' }))
 
-    await waitFor(() => expect(thinking).toHaveValue(''))
-    const patches = backend.mock.calls.filter((call) => call[1]?.method === 'PATCH')
-    expect(patches).toHaveLength(2)
-    expect(JSON.parse(String(patches[1]?.[1]?.body))).toEqual({ thinkingLevel: null })
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Model and thinking/ })).toHaveTextContent('DeepSeek Flash'),
+    )
+    const patch = backend.mock.calls.find((call) => call[1]?.method === 'PATCH')
+    expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ modelId: null })
   })
 
-  it('shows a run settings refusal and reverts the select', async () => {
+  it('shows a run settings refusal and puts the label back', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn((_path: string, init?: RequestInit) =>
@@ -778,12 +909,29 @@ describe('ChatPane', () => {
     )
 
     render(<ChatPane threadId={THREAD_ID} />)
-    const thinking = await screen.findByRole('combobox', { name: 'Thinking' })
-    fireEvent.change(thinking, { target: { value: 'high' } })
+    openMenu(await screen.findByRole('button', { name: /Model and thinking/ }))
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: 'Kimi K3' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('That setting is not allowed here.')
-    expect(thinking).toHaveValue('')
-    expect(thinking).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Model and thinking: DeepSeek Flash, low' })).toBeEnabled()
+  })
+
+  it('puts the agent back when the switch is refused', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_path: string, init?: RequestInit) =>
+        init?.method === 'PATCH'
+          ? reply({ error: { code: 'AGENT_ARCHIVED', message: 'That agent is no longer available.' } }, false)
+          : reply({ messages: [], nextCursor: null }),
+      ),
+    )
+
+    render(<ChatPane threadId={THREAD_ID} />)
+    openMenu(await screen.findByRole('button', { name: 'Agent: General' }))
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: /Reviewer/ }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('That agent is no longer available.')
+    expect(screen.getByRole('button', { name: 'Agent: General' })).toBeInTheDocument()
   })
 
   it('asks for no conversation when no thread is selected', () => {

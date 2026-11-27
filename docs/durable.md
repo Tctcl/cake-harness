@@ -25,6 +25,35 @@ them again on every request. The transcript projects those entries into collapse
 context rows; expanding a section shows the recorded text, while later changes
 appear as **Context updated**.
 
+Both texts are **frozen per conversation**, because a provider caches the longest
+identical prefix of a request: anything that changes up front invalidates every
+cached token after it. `conversation_prompts` holds the app-wide prompt a
+conversation sent on its first request, and `conversation_agent_prompts` holds the
+append each agent started with in it (`src/agents/prompt-snapshot.ts`). The
+snapshot is written by the request that first renders the section, so editing
+either setting steers new conversations and running ones keep the text they
+started with; the transcript shows no change, which is the point. The append is
+keyed by (conversation, agent), so switching agents gives the conversation that
+agent's own frozen append and switching back resumes it rather than today's
+setting. Delegations freeze `subagent_system_prompt` the same way, in the child
+conversation, on the first message it answers.
+
+## Switching the agent
+
+`PATCH /threads/:id/agent` points a conversation at another live agent of the
+same workspace. `chat_threads.agent_id` is the agent in use, so the switch is one
+row write and takes effect from the next message: the agent is resolved per
+submission, so nothing interrupts a run in flight. A conversation's run-settings
+overrides (model, thinking level, key) stay with the conversation unless the
+workspace no longer honours one, which the response reports as
+`clearedOverrides` so the client can say what it dropped.
+
+The switch also appends one display-only entry of kind `cake.agent-switch` to the
+conversation. It carries the new agent's id and name and no `model`, so the
+transcript renders it as a **Switched to <agent>** divider while the model never
+reads it: no fake user message, no second copy of anything the reminder already
+says.
+
 Everything that can change between two turns is not in the system message. The
 agent's instructions and a compact account of the turn — its tools with a
 one-line purpose each, the sub agents `delegate` may call with their default and

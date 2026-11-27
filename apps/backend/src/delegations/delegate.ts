@@ -86,6 +86,12 @@ export interface DelegateExtensionOptions {
     modelId: string,
     thinkingLevel: ThinkingLevel,
   ) => Promise<RunSettings>
+  /** The sub agent's append as frozen by the delegation's first message, rather than today's setting. */
+  readonly promptAppend: (
+    conversationId: number,
+    agentId: string,
+    live: () => Promise<string>,
+  ) => Promise<string>
 }
 
 const parameters = {
@@ -220,7 +226,10 @@ export const createDelegationTask = (options: DelegateExtensionOptions) =>
             options.toolSelection(profile),
             options.runSettings(profile, task.input.modelId, task.input.thinkingLevel),
           ])
-          const append = composeSystemAppend(profile.systemPromptAppend)
+          // Frozen on the child's first message: editing the sub agent's append steers later delegations only.
+          const append = composeSystemAppend(
+            await options.promptAppend(Number(conversationId), profile.id, async () => profile.systemPromptAppend),
+          )
           const change: AgentChange = {
             model: settings.model,
             thinkingLevel: settings.thinkingLevel,

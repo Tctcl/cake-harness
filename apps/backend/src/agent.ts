@@ -75,6 +75,7 @@ import type { ToolSelection } from './agents/tool-selection.js'
 import { selectTools } from './agents/tool-selection.js'
 import { syncToolCatalog } from './agents/tool-catalog.js'
 import { composeSystemAppend } from './agents/base-prompt.js'
+import { PromptSnapshotRepository } from './agents/prompt-snapshot.js'
 import type { ReminderSkill } from './agents/turn-reminder.js'
 import { reminderOf, renderReminder, turnSubmission } from './agents/turn-reminder.js'
 import { createCakeExtension, createSubagentCakeExtension } from './agents/cake-extension.js'
@@ -107,6 +108,8 @@ import { createGithubReleases } from './updates/releases.js'
 import type { ChatThread, ThreadTarget } from './threads/thread-repository.js'
 import { ThreadRepository } from './threads/thread-repository.js'
 import { updateThreadRunSettings as saveThreadRunSettings } from './threads/thread-run-settings.js'
+import { AgentSwitchEntry, switchThreadAgent, switchedAgentOf } from './threads/agent-switch.js'
+import type { AgentSwitch } from './threads/agent-switch.js'
 import { completeWithBackgroundChain } from './background/model-chain.js'
 import { AutoTitles, titleTranscript } from './threads/auto-title.js'
 import { WorkspaceRepository } from './workspaces/workspace-repository.js'
@@ -141,8 +144,8 @@ export type ChatBlock =
 export interface ChatMessage {
   /** Entry id, stable within the conversation and the handle a client keys and merges on. */
   readonly id: number
-  readonly role: 'user' | 'assistant' | 'compaction' | 'reset' | 'context'
-  /** Concatenated text blocks, kept for callers that only render plain text. */
+  readonly role: 'user' | 'assistant' | 'compaction' | 'reset' | 'context' | 'switch'
+  /** Concatenated text blocks, kept for callers that only render plain text; a switch line carries the agent's name. */
   readonly text: string
   readonly blocks: ChatBlock[]
   readonly stopReason: string | null
@@ -321,6 +324,11 @@ export interface Agent {
   renameThread(id: string, title: string | null): Promise<ChatThread | undefined>
   /** Override this conversation alone, from its next message on. */
   updateThreadRunSettings(id: string, patch: RunSettingsPatch): Promise<ChatThread | undefined>
+  /**
+   * Run this conversation with another agent of its workspace, from its next message on. Overrides that no longer hold
+   * are dropped, and `clearedOverrides` says which.
+   */
+  switchThreadAgent(id: string, agentId: string): Promise<AgentSwitch | undefined>
   /** Admit one input and return at once: the answer arrives through `watch`. */
   submit(threadId: string, input: string): Promise<string>
   /** Follow the thread until the returned function is called; `onChange` gets the whole current window. */
@@ -431,6 +439,21 @@ const withoutReminder = (blocks: ChatBlock[], reminder: string | undefined): Cha
 /** The transcript as chat lines, with compaction and reset entries kept distinct from user input. */
 export const chatMessages = (entries: readonly EntryRecord[]): ChatMessage[] =>
   entries.flatMap((entry): ChatMessage[] => {
+    // A switch divider is a display-only entry: it records that the conversation changed agent without becoming a user
+    // message the model would read as something the person typed.
+    const switched = entry.kind === AgentSwitchEntry.kind ? switchedAgentOf(entry.data) : undefined
+    if (switched !== undefined) {
+      return [{
+        id: entry.id,
+        role: 'switch',
+        text: switched.agentName,
+        blocks: [],
+        stopReason: null,
+        errorMessage: null,
+        reason: null,
+      }]
+    }
+
     if (entry.kind === SystemEntry.kind) {
       const message = entry.model?.find((candidate) => candidate.role === 'system')
       if (message === undefined) return []
@@ -907,8 +930,13 @@ export async function createAgent(config: Config): Promise<Agent> {
   // One registry for the process, so startup and every session agree about which tools exist.
   const codemodeSandbox = new CodemodeSandbox({ memoryLimitBytes: 256 * 1024 * 1024 })
   const registry = createRegistry()
-  registry.install(createCakeExtension(async () => (await auth.currentSettings()).systemPrompt))
-  registry.install(createSubagentCakeExtension(async () => (await auth.currentSettings()).subagentSystemPrompt))
+  // The prompts are frozen per conversation by its first request: the provider caches the longest identical prefix, so
+  // an edit to either setting applies to new conversations rather than rewriting the start of every running one.
+  const prompts = new PromptSnapshotRepository(postgres.pool, postgres.schema)
+  registry.install(createCakeExtension((conversationId) =>
+    prompts.systemPrompt(conversationId, async () => (await auth.currentSettings()).systemPrompt)))
+  registry.install(createSubagentCakeExtension((conversationId) =>
+    prompts.systemPrompt(conversationId, async () => (await auth.currentSettings()).subagentSystemPrompt)))
   registry.install(createCodingTools())
   registry.install(createReadonlyToolsExtension())
   registry.install(createWebExtension())
@@ -923,6 +951,7 @@ export async function createAgent(config: Config): Promise<Agent> {
     toolSelection: async (profile) => toolSelectionOf(profile, []),
     runSettings: async (profile, modelId, thinkingLevel) =>
       runSettingsOf(profile, { credentialId: null, modelId, thinkingLevel }),
+    promptAppend: (conversationId, agentId, live) => prompts.append(conversationId, agentId, live),
   }))
 
   // The catalog is maintained automatically: agent grants and Plan's seeded grants must never need a manual sync.
@@ -1259,6 +1288,36 @@ export async function createAgent(config: Config): Promise<Agent> {
       return saveThreadRunSettings({ threads, agents, reachOf, keyCatalog }, id, patch)
     },
 
+    async switchThreadAgent(id, agentId) {
+      try {
+        return await switchThreadAgent(
+          {
+            threads,
+            agents,
+            reachOf,
+            keyCatalog,
+            record: async (thread, agent) => {
+              const harness = await supervisor.harness()
+              await harness.commit(
+                (tx) => tx.appendEntry(
+                  AgentSwitchEntry,
+                  idFromNumber<ConversationId>(thread.durableConversationId),
+                  { data: { agentId: agent.id, agentName: agent.name } },
+                ),
+                CONTEXT,
+              )
+            },
+          },
+          id,
+          agentId,
+        )
+      } catch (error) {
+        if (error instanceof SessionFailed) supervisor.discard()
+
+        throw error instanceof AppError ? error : unavailable(error)
+      }
+    },
+
     async createThread(input) {
       try {
         const { target, agent: profile } = await resolveThreadTarget(
@@ -1267,11 +1326,12 @@ export async function createAgent(config: Config): Promise<Agent> {
           ownerId,
           input,
         )
-        const append = composeSystemAppend(profile.systemPromptAppend)
         // Resolved before anything is created: a conversation that could never run is refused with what to fix.
         const [settings, offer] = await Promise.all([runSettingsOf(profile), turnOfferOf(profile)])
         const harness = await supervisor.harness()
         // Ownerless: a thread is a top-level transcript, not work a parent task owns. Forks get a task owner instead.
+        // The agent's append is not configured here: the first message freezes it, so an edit made before the person
+        // wrote anything still applies to the conversation that has not started.
         const conversation = await harness.createConversation(
           {
             ownership: { kind: 'ownerless' },
@@ -1279,8 +1339,6 @@ export async function createAgent(config: Config): Promise<Agent> {
               model: settings.model,
               thinkingLevel: settings.thinkingLevel,
               ...offer.selection,
-              // `null` clears an instructions section an older turn baked into the system message; the reminder has it now.
-              instructions: append ?? null,
             },
           },
           CONTEXT,
@@ -1390,12 +1448,16 @@ export async function createAgent(config: Config): Promise<Agent> {
         runSettingsOf(profile, thread.overrides),
         turnOfferOf(profile),
       ])
-      const append = composeSystemAppend(profile.systemPromptAppend)
 
       try {
         const conversation = await conversationOf(
           supervisor,
           idFromNumber(thread.durableConversationId),
+        )
+        // The append is frozen the first time this agent runs in the conversation, so switching back to it resumes the
+        // text it started with rather than today's setting. `null` clears one an older turn baked in: the reminder has it.
+        const append = composeSystemAppend(
+          await prompts.append(Number(conversation.id), profile.id, async () => profile.systemPromptAppend),
         )
         // Reapply the agent and this thread's overrides every turn: durable configuration does not retain them for us.
         // Editing either one therefore applies from the next message, without interrupting a run already in flight.
@@ -1404,7 +1466,6 @@ export async function createAgent(config: Config): Promise<Agent> {
             model: settings.model,
             thinkingLevel: settings.thinkingLevel,
             ...offer.selection,
-            // `null` clears an instructions section an older turn baked into the system message; the reminder has it now.
             instructions: append ?? null,
           },
           CONTEXT,

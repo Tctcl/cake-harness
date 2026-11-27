@@ -84,6 +84,8 @@ const persistentMemory = (): { storage: Storage; close: () => Promise<void> } =>
 interface SetupOptions {
   readonly instructions?: string
   readonly tools?: readonly ToolRegistration[]
+  /** Stands in for the frozen append; absent, the profile's own text is what the first delegation froze. */
+  readonly promptAppend?: (conversationId: number, agentId: string) => Promise<string>
 }
 
 const setup = async (fixtureOptions: SetupOptions = {}) => {
@@ -135,6 +137,11 @@ const setup = async (fixtureOptions: SetupOptions = {}) => {
       },
     },
     toolSelection: async () => ({ extensions: [subagentPrompt], tools: [...(fixtureOptions.tools ?? [])] }),
+    // No snapshot table in these cases: the frozen text is what the fixture supplies, else the profile's own.
+    promptAppend: (conversationId, agentId, live) =>
+      fixtureOptions.promptAppend === undefined
+        ? live()
+        : fixtureOptions.promptAppend(conversationId, agentId),
     runSettings: async (_profile, modelId, thinkingLevel) => {
       runSettingsCalls.push({ modelId, thinkingLevel })
 
@@ -216,6 +223,43 @@ describe('delegate with real in-memory pi-durable storage', () => {
       // The system message keeps the sub agent's global prompt and nothing per-turn.
       expect(systemPrompts[0]).toContain('subagent global prompt')
       expect(systemPrompts[0]).not.toContain('Check every claim against the file.')
+    } finally {
+      await fixture.harness.close(CONTEXT)
+      await fixture.closeStorage()
+    }
+  }, 15_000)
+
+  it('gives the child the append it started with, not the sub agent’s current text', async () => {
+    const frozen: { conversationId: number; agentId: string }[] = []
+    const fixture = await setup({
+      promptAppend: async (conversationId, agentId) => {
+        frozen.push({ conversationId, agentId })
+
+        return 'the append this delegation started with'
+      },
+    })
+    try {
+      const systemPrompts: string[] = []
+      fixture.faux.setResponses([
+        (context) => parentResponse(
+          context,
+          fauxToolCall('delegate', { subagentId: SUBAGENT_ID, task: 'Review it' }, { id: 'call-1' }),
+        ),
+        (context) => {
+          systemPrompts.push(getCurrentSystemPrompt(context.messages))
+
+          return fauxAssistantMessage('child answer')
+        },
+        () => fauxAssistantMessage('parent finished'),
+      ])
+
+      await expect(
+        (await fixture.parent.submit({ type: 'input', content: 'start' }, CONTEXT)).wait(CONTEXT),
+      ).resolves.toMatchObject({ status: 'done' })
+
+      expect(systemPrompts[0]).toContain('the append this delegation started with')
+      // Read once, for the child conversation and the sub agent that runs it.
+      expect(frozen).toEqual([{ conversationId: firstRecord(fixture.records).childConversationId, agentId: SUBAGENT_ID }])
     } finally {
       await fixture.harness.close(CONTEXT)
       await fixture.closeStorage()

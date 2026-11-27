@@ -1,5 +1,6 @@
 import { AppError } from '../errors.js'
 import type { AgentProfile, ThinkingLevel } from './agent-repository.js'
+import { THINKING_LEVELS } from './agent-repository.js'
 
 /** The model an agent runs when it names none: cheap, fast and reasoning, on the one provider served today. */
 export const DEFAULT_MODEL_ID = 'deepseek-v4.1-flash'
@@ -50,6 +51,9 @@ export interface RunSettingsOverrides {
 
 export type RunSettingsPatch = Partial<RunSettingsOverrides>
 
+/** One field of a conversation's overrides, as a caller names the field it must drop. */
+export type RunSettingsOverrideKey = keyof RunSettingsOverrides
+
 /** Overlay a conversation's settings without ever writing them back to the agent profile. */
 export const mergeRunSettings = (agent: AgentProfile, overrides: RunSettingsPatch = {}): AgentProfile => ({
   ...agent,
@@ -91,6 +95,31 @@ export const validateRunSettings = (
       code: 'AGENT_MODEL_NOT_ALLOWED',
     })
   }
+}
+
+const modelUsable = (modelId: string, reach: WorkspaceReach, keys: KeyCatalog): boolean =>
+  keys.modelIds.has(modelId) && modelAllowed(modelId, reach)
+
+/**
+ * Which of a conversation's overrides the workspace no longer honours: a key it stopped linking, a model it stopped
+ * allowing or the provider stopped serving. Switching the agent is when they are re-checked, so the next message starts
+ * from settings that can actually run rather than failing at the first request.
+ */
+export const unusableOverrides = (
+  overrides: RunSettingsOverrides,
+  reach: WorkspaceReach,
+  keys: KeyCatalog,
+): RunSettingsOverrideKey[] => {
+  const unusable: RunSettingsOverrideKey[] = []
+  if (overrides.credentialId !== null && !keyUsable(overrides.credentialId, reach, keys)) {
+    unusable.push('credentialId')
+  }
+  if (overrides.modelId !== null && !modelUsable(overrides.modelId, reach, keys)) unusable.push('modelId')
+  if (overrides.thinkingLevel !== null && !THINKING_LEVELS.includes(overrides.thinkingLevel)) {
+    unusable.push('thinkingLevel')
+  }
+
+  return unusable
 }
 
 /** Validate a sub agent's complete model ceiling and its default before the profile is written. */

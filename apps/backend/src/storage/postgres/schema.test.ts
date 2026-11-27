@@ -24,11 +24,11 @@ if (url === undefined) {
       const schema = createSchema(prefix)
       created.push(...Object.values(schema.tables))
       try {
-        expect(CURRENT_SCHEMA_VERSION).toBe(27)
+        expect(CURRENT_SCHEMA_VERSION).toBe(28)
         const versions = await storage.pool.query<{ version: number }>(
           `SELECT version FROM ${schema.tables.durableSchema} ORDER BY version`,
         )
-        expect(versions.rows.at(-1)?.version).toBe(27)
+        expect(versions.rows.at(-1)?.version).toBe(28)
 
         for (const table of [schema.tables.prompts, schema.tables.workspacePrompts, schema.tables.agentPrompts]) {
           const result = await storage.pool.query<{ table_name: string | null }>(
