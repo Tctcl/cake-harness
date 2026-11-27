@@ -18,11 +18,25 @@ skills are stored but are not wired into runs.
 ## Prompt context in the transcript
 
 The app's System prompt setting is rendered by the process-wide `cake` extension
-as the `cake-system` section before each request. Durable records changes as
-`pi.system` entries, including the agent's separately labelled `instructions`
-section and tool additions or removals. The transcript projects those entries
-into collapsed context rows; expanding a section shows the recorded text, while
-later changes appear as **Context updated**.
+as the `cake-system` section before each request, and the agent's system prompt
+append follows it as the `instructions` section. Both are identity, so they stay
+in the system message: durable records them as `pi.system` entries and renders
+them again on every request. The transcript projects those entries into collapsed
+context rows; expanding a section shows the recorded text, while later changes
+appear as **Context updated**.
+
+Everything that can change between two turns is not in the system message. The
+agent's instructions and a compact account of the turn — its tools with a
+one-line purpose each, the sub agents `delegate` may call with their default and
+allowed models, and its skills — travel as a **reminder**: a second text block of
+the user's own input, built fresh in `src/agents/turn-reminder.ts` on every
+submission from the live rows, so a sub agent assigned or a tool granted between
+two turns is named from the turn that sees it. The reminder is recorded in the
+entry's `data` (`kind: cake.turn`), which is what lets the transcript show it as a
+collapsed **Reminder** row under the user's line while the bubble keeps only the
+words the person typed. A steer joins the run in flight and carries no reminder.
+Sub agents get the same shape — their instructions and their own tools, never
+`ask_user` or `delegate`.
 
 Tool call arguments and results are clipped to 4,000 characters in stream frames.
 When a reader expands a clipped call, `GET /threads/:threadId/tool-calls/:callId`

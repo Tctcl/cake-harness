@@ -27,6 +27,8 @@ export interface ChatMessage {
   readonly stopReason: string | null
   readonly errorMessage: string | null
   readonly reason: string | null
+  /** The reminder Cake appended after this user's words; absent on every other line and on inputs that carried none. */
+  readonly reminder?: string | undefined
   readonly sections?: readonly { readonly key: string; readonly text: string | null }[]
   readonly toolsAdded?: readonly string[]
   readonly toolsRemoved?: readonly string[]

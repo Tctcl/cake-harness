@@ -41,7 +41,9 @@ harness may do. Tool grants are wired.
 
 **Where it stands:** model, thinking level, instructions and agent tool grants
 are applied on every submission. Coding tools execute in the workspace container
-and `web_fetch` is env-free. MCP clients and skill sections are still absent.
+and `web_fetch` is env-free. A granted skill is named in the turn's reminder
+(`src/agents/turn-reminder.ts`), but its body does not reach the model, and MCP
+clients are still absent.
 
 **What it would take:** MCP clients over pi-env `openProcess`, resolving MCP
 credentials at launch, and extension sections for granted skills.

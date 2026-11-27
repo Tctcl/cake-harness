@@ -22,12 +22,12 @@ Use only the tools offered. Do not ask the user questions and do not delegate wo
 
 Your final message is machine-to-machine output, not chat. Be terse. Report concrete facts and results, relevant file paths, commands or checks run and their outcomes, and any unresolved failure. Omit conversational greetings, offers, questions, and presentation formatting that adds no information.`
 
-/** The agent-specific additions follow Cake's base section in the durable system prompt. */
-export const composeAgentInstructions = (systemPromptAppend: string, instructions: string): string | undefined => {
-  const sections = [
-    systemPromptAppend.trim() === '' ? '' : `## Agent\n${systemPromptAppend.trim()}`,
-    instructions.trim() === '' ? '' : `## Instructions\n${instructions.trim()}`,
-  ].filter((section) => section !== '')
+/**
+ * The agent-specific addition to the durable system prompt: it follows Cake's base section, and unlike the agent's
+ * instructions it is identity rather than a per-turn offer, so it stays in the system message.
+ */
+export const composeSystemAppend = (systemPromptAppend: string): string | undefined => {
+  const text = systemPromptAppend.trim()
 
-  return sections.length === 0 ? undefined : sections.join('\n\n')
+  return text === '' ? undefined : text
 }

@@ -1,5 +1,6 @@
 import { ArrowDownIcon } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 
 import type { ChatAgent, ChatLive, ChatMessage, ChatThread, ChatToolCall } from '../../lib/chat-api.ts'
 import { getWorkspace, listAgents, readThread } from '../../lib/chat-api.ts'
@@ -344,6 +345,30 @@ function transcriptSize(state: ThreadSnapshot): string {
   return `${state.messages.length}|${state.pending.length}|${state.tools.length}|${state.live.compacting}|${live}`
 }
 
+/** The quiet card the context line and a turn's reminder share: a title and small, collapsed detail rows. */
+function ContextCard({ title, children }: { title?: string | undefined; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-sm border border-border/60 px-3 py-2 text-xs">
+      {title === undefined ? null : (
+        <span className="font-medium text-muted-foreground">{title}</span>
+      )}
+      {children}
+    </div>
+  )
+}
+
+/** One collapsed row of a context card, opening to the exact text the model read. */
+function ContextRow({ summary, text }: { summary: string; text: string }) {
+  return (
+    <details className="min-w-0">
+      <summary className="cursor-pointer text-muted-foreground">{summary}</summary>
+      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-sm bg-muted p-2 font-mono">
+        {text}
+      </pre>
+    </details>
+  )
+}
+
 /** A transcript line: user input, an ordered assistant turn, or a visible context boundary. */
 function Line({
   message,
@@ -367,6 +392,12 @@ function Line({
           <Bubble align="end">
             <BubbleContent>{message.text}</BubbleContent>
           </Bubble>
+          {/* The reminder is not the person's words: it sits under their line, collapsed, never inside the bubble. */}
+          {message.reminder === undefined ? null : (
+            <ContextCard>
+              <ContextRow summary="Reminder" text={message.reminder} />
+            </ContextCard>
+          )}
         </MessageContent>
       </Message>
     )
@@ -391,34 +422,24 @@ function Line({
     const removed = message.toolsRemoved ?? []
 
     return (
-      <div className="flex flex-col gap-1 rounded-sm border border-border/60 px-3 py-2 text-xs">
-        <span className="font-medium text-muted-foreground">
-          {firstContext ? 'Context sent' : 'Context updated'}
-        </span>
+      <ContextCard title={firstContext ? 'Context sent' : 'Context updated'}>
         {sections.map(({ key, text }) => (
-          <details key={key} className="min-w-0">
-            <summary className="cursor-pointer text-muted-foreground">
-              {key === 'cake-system' ? 'System prompt' : key === 'instructions' ? 'Agent instructions' : key}
-            </summary>
-            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words rounded-sm bg-muted p-2 font-mono">
-              {text ?? 'Removed'}
-            </pre>
-          </details>
+          <ContextRow
+            key={key}
+            summary={key === 'cake-system' ? 'System prompt' : key === 'instructions' ? 'Agent instructions' : key}
+            text={text ?? 'Removed'}
+          />
         ))}
         {added.length > 0 || removed.length > 0 ? (
-          <details>
-            <summary className="cursor-pointer text-muted-foreground">
-              {added.length > 0 ? `Tools offered: ${added.join(', ')}` : `Tools removed: ${removed.join(', ')}`}
-            </summary>
-            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap rounded-sm bg-muted p-2 font-mono">
-              {[
-                ...(added.length > 0 ? [`Added: ${added.join(', ')}`] : []),
-                ...(removed.length > 0 ? [`Removed: ${removed.join(', ')}`] : []),
-              ].join('\n')}
-            </pre>
-          </details>
+          <ContextRow
+            summary={added.length > 0 ? `Tools offered: ${added.join(', ')}` : `Tools removed: ${removed.join(', ')}`}
+            text={[
+              ...(added.length > 0 ? [`Added: ${added.join(', ')}`] : []),
+              ...(removed.length > 0 ? [`Removed: ${removed.join(', ')}`] : []),
+            ].join('\n')}
+          />
         ) : null}
-      </div>
+      </ContextCard>
     )
   }
 
